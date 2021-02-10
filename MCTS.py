@@ -83,10 +83,10 @@ class MCTS():
             return -self.Es[s]
 
         if s not in self.Ps:
-            # leaf node
-            self.Ps[s], v = self.nnet.predict(canonicalBoard)
             valids = self.game.getValidMoves(canonicalBoard, 1)
-            self.Ps[s] = self.Ps[s] * valids  # masking invalid moves
+            # leaf node
+            self.Ps[s], v = self.nnet.predict(canonicalBoard, valids)
+            # self.Ps[s] = self.Ps[s] * valids  # masking invalid moves
             if dirichlet_noise:
                 self.applyDirNoise(s, valids)
             sum_Ps_s = np.sum(self.Ps[s])
