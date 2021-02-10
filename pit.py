@@ -1,9 +1,10 @@
 import Arena
 from MCTS import MCTS
-from othello.OthelloGame import OthelloGame
-from othello.OthelloPlayers import *
-from othello.pytorch.NNet import NNetWrapper as NNet
-
+from splendor.SplendorPlayers import *
+from splendor.SplendorGame import SplendorGame as Game
+from splendor.SplendorLogic import Board, print_board
+from splendor.NNet import NNetWrapper as NNet
+from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
 from utils import *
