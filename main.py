@@ -1,5 +1,6 @@
 import logging
 
+import os
 import coloredlogs
 
 from Coach import Coach
@@ -11,47 +12,64 @@ log = logging.getLogger(__name__)
 
 coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
-args = dotdict({
-    'numIters': 1000,
-    'numEps': 100,              # Number of complete self-play games to simulate during a new iteration.
-    'tempThreshold': 15,        #
-    'updateThreshold': 0.6,     # During arena playoff, new neural net will be accepted if threshold or more of games are won.
-    'maxlenOfQueue': 200000,    # Number of game examples to train the neural networks.
-    'numMCTSSims': 25,          # Number of games moves for MCTS to simulate.
-    'arenaCompare': 40,         # Number of games to play during arena play to determine if new net will be accepted.
-    'cpuct': 1,
 
-    'checkpoint': './temp/',
-    'load_model': False,
-    'load_folder_file': ('/dev/models/8x100x50','best.pth.tar'),
-    'numItersForTrainExamplesHistory': 20,
+def run(args):
+	log.debug('Loading %s...', Game.__name__)
+	g = Game(6)
 
-})
+	log.debug('Loading %s...', nn.__name__)
+	nn_args = dict(lr=args.learn_rate, dropout=0.3, epochs=args.epochs, batch_size=args.batch_size, num_channels=512)
+	nnet = nn(g, nn_args)
 
+	if args.load_model:
+		log.info('Loading checkpoint "%s"...', args.load_folder_file)
+		nnet.load_checkpoint(os.path.dirname(args.load_folder_file), os.path.basename(args.load_folder_file), ongoing_experiment=False)
+	# else:
+	# 	log.warning('Not loading a checkpoint!')
+
+	log.debug('Loading the Coach...')
+	c = Coach(g, nnet, args)
+
+	if args.load_model:
+		log.info("Loading 'trainExamples' from file...")
+		c.loadTrainExamples()
+
+	log.debug('Starting the learning process 🎉')
+	c.learn()
 
 def main():
-    log.info('Loading %s...', Game.__name__)
-    g = Game(6)
+	import argparse
+	parser = argparse.ArgumentParser(description='tester')	
 
-    log.info('Loading %s...', nn.__name__)
-    nnet = nn(g)
+#	cpuct = 1.0 ... ou plus (pas d'impact sur le temps)
+#   rollout = joue sur la perf et le temps...
+#	learn_rate = 0.001 ? ou bien 0.02 puis diviser à chaque raté ?
+	parser.add_argument('--numIters'        , '-N' , action='store', default=1000  , type=int  , help='')
+	# parser.add_argument('--timeIters'       , '-T' , action='store', default=0.   , type=float, help='')
+	parser.add_argument('--numEps'          , '-s' , action='store', default=100   , type=int  , help='Number of complete self-play games to simulate during a new iteration')
+	parser.add_argument('--tempThreshold'   , '-t' , action='store', default=15    , type=int  , help='')
+	parser.add_argument('--updateThreshold' , '-u' , action='store', default=0.6   , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
+	parser.add_argument('--maxlenOfQueue'   , '-q' , action='store', default=200000, type=int , help='Number of game examples to train the neural networks')
+	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=25    , type=int  , help='Number of games moves for MCTS to simulate.')
+	parser.add_argument('--cpuct'           , '-c' , action='store', default=1.0   , type=float, help='')
+	# parser.add_argument('--dirichletAlpha'  , '-a' , action='store', default=0.1  , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position')    
+	parser.add_argument('--numItersForTrainExamplesHistory', '-n', action='store', default=5, type=int, help='')
 
-    if args.load_model:
-        log.info('Loading checkpoint "%s/%s"...', args.load_folder_file)
-        nnet.load_checkpoint(args.load_folder_file[0], args.load_folder_file[1])
-    else:
-        log.warning('Not loading a checkpoint!')
+	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.001, type=float, help='')
+	parser.add_argument('--epochs'          , '-e' , action='store', default=10    , type=int  , help='')
+	parser.add_argument('--batch-size'      , '-b' , action='store', default=32    , type=int  , help='')
+	
+	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
+	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
+	
+	args = parser.parse_args()
+	args.arenaCompare = 40
+	# args.maxlenOfQueue = int(2e6/(1.1*args.numItersForTrainExamplesHistory)) # at most 2GB per process, with each example weighing 1.1kB
+	# if args.timeIters > 0:
+	# 	args.numIters = 1000
 
-    log.info('Loading the Coach...')
-    c = Coach(g, nnet, args)
-
-    if args.load_model:
-        log.info("Loading 'trainExamples' from file...")
-        c.loadTrainExamples()
-
-    log.info('Starting the learning process 🎉')
-    c.learn()
-
+	args.load_model = (args.load_folder_file is not None)
+	run(args)
 
 if __name__ == "__main__":
-    main()
+	main()
