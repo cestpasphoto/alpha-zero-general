@@ -39,17 +39,16 @@ class NNetWrapper(NeuralNet):
         """
         optimizer = optim.Adam(self.nnet.parameters())
 
-        for epoch in range(args.epochs):
-            print('EPOCH ::: ' + str(epoch + 1))
+        batch_count = int(len(examples) / args['batch_size'])
+        t = tqdm(total=args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=100)
+        for epoch in range(args['epochs']):
+            t.set_description(f'Train ep{epoch + 1}')
             self.nnet.train()
             pi_losses = AverageMeter()
             v_losses = AverageMeter()
-
-            batch_count = int(len(examples) / args.batch_size)
-
-            t = tqdm(range(batch_count), desc='Training Net')
-            for _ in t:
-                sample_ids = np.random.randint(len(examples), size=args.batch_size)
+    
+            for _ in range(batch_count):
+                sample_ids = np.random.randint(len(examples), size=args['batch_size'])
                 boards, pis, vs = list(zip(*[examples[i] for i in sample_ids]))
                 boards = torch.FloatTensor(np.array(boards).astype(np.float64))
                 target_pis = torch.FloatTensor(np.array(pis))
@@ -68,12 +67,15 @@ class NNetWrapper(NeuralNet):
                 # record loss
                 pi_losses.update(l_pi.item(), boards.size(0))
                 v_losses.update(l_v.item(), boards.size(0))
-                t.set_postfix(Loss_pi=pi_losses, Loss_v=v_losses)
+                t.set_postfix(lossPI=pi_losses, lossV=v_losses)
 
                 # compute gradient and do SGD step
                 optimizer.zero_grad()
                 total_loss.backward()
                 optimizer.step()
+
+                t.update()
+        t.close()
 
     def predict(self, board):
         """
