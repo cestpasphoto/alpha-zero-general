@@ -73,7 +73,7 @@ def main():
 	parser.add_argument('--maxlenOfQueue'   , '-q' , action='store', default=200000, type=int , help='Number of game examples to train the neural networks')
 	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=25    , type=int  , help='Number of games moves for MCTS to simulate.')
 	parser.add_argument('--cpuct'           , '-c' , action='store', default=1.0   , type=float, help='')
-	# parser.add_argument('--dirichletAlpha'  , '-a' , action='store', default=0.1  , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position')    
+	parser.add_argument('--dirichletAlpha'  , '-a' , action='store', default=0.1  , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position')    
 	parser.add_argument('--numItersForTrainExamplesHistory', '-n', action='store', default=5, type=int, help='')
 
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.001, type=float, help='')
