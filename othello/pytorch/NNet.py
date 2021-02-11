@@ -32,7 +32,7 @@ class NNetWrapper(NeuralNet):
         optimizer = optim.Adam(self.nnet.parameters())
 
         batch_count = int(len(examples) / self.args['batch_size'])
-        t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=100)
+        t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=100, mininterval=0.5)
         for epoch in range(self.args['epochs']):
             t.set_description(f'Train ep{epoch + 1}')
             self.nnet.train()
@@ -59,7 +59,7 @@ class NNetWrapper(NeuralNet):
                 # record loss
                 pi_losses.update(l_pi.item(), boards.size(0))
                 v_losses.update(l_v.item(), boards.size(0))
-                t.set_postfix(lossPI=pi_losses, lossV=v_losses)
+                t.set_postfix(lossPI=pi_losses, lossV=v_losses, refresh=False)
 
                 # compute gradient and do SGD step
                 optimizer.zero_grad()

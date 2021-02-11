@@ -15,7 +15,7 @@ use this script to play any two agents against each other, or play manually with
 any agent.
 """
 
-game = Game(2)
+game = OthelloGame(6)
 
 def create_player(name, args):
 	# all players
@@ -36,6 +36,8 @@ def create_player(name, args):
 	return player
 
 def play(args):
+	if None in [args.player1, args.player2]:
+		raise Exception('Please specify a player (ai folder, random, greedy or human)')
 	if args.singlethread:
 		import torch
 		torch.set_num_threads(1)
