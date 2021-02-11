@@ -1,5 +1,4 @@
 import logging
-
 import os
 import coloredlogs
 
@@ -9,7 +8,6 @@ from othello.pytorch.NNet import NNetWrapper as nn
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)
-
 coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
 
