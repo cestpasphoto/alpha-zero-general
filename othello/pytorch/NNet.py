@@ -25,12 +25,21 @@ args = {
     'num_channels': None,
 }
 
+def get_uptime():
+    import subprocess
+    tuptime = subprocess.run(['tuptime', '--power', '--seconds', '--csv'], capture_output=True)
+    tuptime_stdout = tuptime.stdout.decode('utf-8')
+    runtime_value = int(tuptime_stdout.splitlines()[3].split(',')[-1].split(' ')[1])
+    return runtime_value
 
 class NNetWrapper(NeuralNet):
     def __init__(self, game):
         self.nnet = onnet(game, args)
         self.board_x, self.board_y = game.getBoardSize()
         self.action_size = game.getActionSize()
+        self.begin_uptime = get_uptime()
+        self.cumulated_uptime = 0
+        self.begin_time = int(time.time())
 
         if args['cuda']:
             self.nnet.cuda()
@@ -112,12 +121,17 @@ class NNetWrapper(NeuralNet):
             os.mkdir(folder)
         # else:
         #     print("Checkpoint Directory exists! ")
+        current_uptime = get_uptime()
         torch.save({
             'state_dict': self.nnet.state_dict(),
             'full_model': self.nnet,
+            'cumulated_uptime': self.cumulated_uptime + current_uptime-self.begin_uptime,
+            'end_uptime': current_uptime,
+            'begin': self.begin_time,
         }, filepath)
+        # print(f'SAVE: {self.cumulated_uptime=} {self.begin_uptime=} ==> cumulated_uptime={self.cumulated_uptime + current_uptime-self.begin_uptime}')
 
-    def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
+    def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', ongoing_experiment=False):
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
@@ -128,3 +142,9 @@ class NNetWrapper(NeuralNet):
             self.nnet = checkpoint['full_model']
         else:
             self.nnet.load_state_dict(checkpoint['state_dict'])
+
+        self.cumulated_uptime = checkpoint.get('cumulated_uptime', 0)
+        self.begin_time = checkpoint.get('begin', int(time.time()))
+        self.begin_uptime = checkpoint.get('end_uptime', 0) if ongoing_experiment else get_uptime()
+        # print(f'LOAD: {self.cumulated_uptime=} {self.begin_uptime=} ({checkpoint.get("end_uptime", 0)}, {get_uptime()}), {self.begin_time}')
+            

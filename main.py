@@ -1,16 +1,33 @@
-import logging
+#!/home/best/dev/splendor/venv/bin/python3
 
+import logging
 import os
 import coloredlogs
-
 from Coach import Coach
 from splendor.SplendorGame import SplendorGame as Game
 from splendor.NNet import NNetWrapper as nn
 from utils import *
-
+import subprocess
 log = logging.getLogger(__name__)
-
 coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
+
+# uploader sur github? ajouter commentaires sur les tickets respectifs. Commencer par tetris
+# Mettre en place un ELO ranking
+
+# Pourquoi partie "pit" toutes différentes alors que les random sont desactives ?
+# nouvelle archi: couches plates connectées à l'entrée directement
+# Intérêt GPU (paralléliser selfplay + train 10x plus rapide ou rester ainsi)
+
+# Mettre en place tips d'accélération décrites dans le papier ?
+# Faire plusieurs d'episodes vu que parties plus courtes et moins de symmetries ?
+# pourquoi mauvaise perf en random ?? --> essayer avec 'm' plus grand
+# Remettre le côté random
+# definir bonne architecture reseau avant hpo
+# profiler self-play: copy_state (split), gain estimé de 15% sur vitesse selfplay
+# Travailler sur nb de points pltôt que nb cartes
+# Meilleures perf si appris avec m=100 from scratch que un annealing sur m en partant de m=5
+# definir 2-3 NN references pour ELO
+# mettre en place méthode BOHB ou hyperband
 
 
 def run(args):
@@ -34,8 +51,29 @@ def run(args):
 		log.info("Loading 'trainExamples' from file...")
 		c.loadTrainExamples()
 
+	subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
+	subprocess.run(f'cp *py splendor/*py "{args.checkpoint}/"', shell=True)
+	subprocess.run(f'echo "{args}" >> "{args.checkpoint}/main.py"', shell=True)
+
 	log.debug('Starting the learning process 🎉')
 	c.learn()
+
+def profiling(args):
+	import cProfile, pstats
+	profiler = cProfile.Profile()
+	print('\nstart profiling')
+	args.numIters, args.numEps, args.epochs = 1, 20, 1 # also, add a "return" just after self-play in Coach.py
+
+	# Core of the training
+	profiler.enable()
+	run(args)
+	profiler.disable()
+
+	# debrief
+	profiler.dump_stats('execution.prof')
+	pstats.Stats(profiler).sort_stats('cumtime').print_stats(20)
+	print()
+	pstats.Stats(profiler).sort_stats('tottime').print_stats(10)
 
 def main():
 	import argparse
