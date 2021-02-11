@@ -66,7 +66,7 @@ def main():
 #   rollout = joue sur la perf et le temps...
 #	learn_rate = 0.001 ? ou bien 0.02 puis diviser à chaque raté ?
 	parser.add_argument('--numIters'        , '-N' , action='store', default=1000  , type=int  , help='')
-	# parser.add_argument('--timeIters'       , '-T' , action='store', default=0.   , type=float, help='')
+	parser.add_argument('--timeIters'       , '-T' , action='store', default=0.   , type=float, help='')
 	parser.add_argument('--numEps'          , '-s' , action='store', default=100   , type=int  , help='Number of complete self-play games to simulate during a new iteration')
 	parser.add_argument('--tempThreshold'   , '-t' , action='store', default=15    , type=int  , help='')
 	parser.add_argument('--updateThreshold' , '-u' , action='store', default=0.6   , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
@@ -88,8 +88,8 @@ def main():
 	args = parser.parse_args()
 	args.arenaCompare = 40
 	# args.maxlenOfQueue = int(2e6/(1.1*args.numItersForTrainExamplesHistory)) # at most 2GB per process, with each example weighing 1.1kB
-	# if args.timeIters > 0:
-	# 	args.numIters = 1000
+	if args.timeIters > 0:
+		args.numIters = 1000
 
 	args.load_model = (args.load_folder_file is not None)
 	if args.profile:

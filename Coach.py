@@ -13,7 +13,6 @@ from MCTS import MCTS
 
 log = logging.getLogger(__name__)
 
-
 class Coach():
     """
     This class executes the self-play + learning. It uses the functions defined
@@ -77,6 +76,8 @@ class Coach():
         only if it wins >= updateThreshold fraction of games.
         """
 
+        start_time = time.time()
+
         for i in range(1, self.args.numIters + 1):
             # bookkeeping
             log.info(f'Starting Iter #{i} ...')
@@ -92,8 +93,6 @@ class Coach():
                 self.trainExamplesHistory.append(iterationTrainExamples)
 
             if len(self.trainExamplesHistory) > self.args.numItersForTrainExamplesHistory:
-                log.warning(
-                    f"Removing the oldest entry in trainExamples. len(trainExamplesHistory) = {len(self.trainExamplesHistory)}")
                 self.trainExamplesHistory.pop(0)
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)  
@@ -127,6 +126,10 @@ class Coach():
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt')
 
+            if self.args.timeIters > 0:
+                if time.time() - start_time > self.args.timeIters*3600:
+                    log.info(f'Above timelimit, stopping here after {i} iterations')
+                    break
 
     def getCheckpointFile(self, iteration):
         return 'checkpoint_' + str(iteration) + '.pt'

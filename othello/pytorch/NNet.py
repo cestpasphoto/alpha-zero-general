@@ -108,12 +108,17 @@ class NNetWrapper(NeuralNet):
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
         filepath = os.path.join(folder, filename)
         if not os.path.exists(folder):
-            print("Checkpoint Directory does not exist! Making directory {}".format(folder))
+            # print("Checkpoint Directory does not exist! Making directory {}".format(folder))
             os.mkdir(folder)
-        else:
-            print("Checkpoint Directory exists! ")
+        # else:
+        #     print("Checkpoint Directory exists! ")
+        current_uptime = get_uptime()
         torch.save({
             'state_dict': self.nnet.state_dict(),
+            'full_model': self.nnet,
+            'cumulated_uptime': self.cumulated_uptime + current_uptime-self.begin_uptime,
+            'end_uptime': current_uptime,
+            'begin': self.begin_time,
         }, filepath)
         # print(f'SAVE: {self.cumulated_uptime=} {self.begin_uptime=} ==> cumulated_uptime={self.cumulated_uptime + current_uptime-self.begin_uptime}')
 
@@ -121,7 +126,12 @@ class NNetWrapper(NeuralNet):
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
-            raise ("No model in path {}".format(filepath))
+            print("No model in path {}".format(filepath))
+            return
         map_location = None if self.args['cuda'] else 'cpu'
         checkpoint = torch.load(filepath, map_location=map_location)
-        self.nnet.load_state_dict(checkpoint['state_dict'])
+        self.nnet = checkpoint['full_model']
+        self.cumulated_uptime = checkpoint.get('cumulated_uptime', 0)
+        self.begin_time = checkpoint.get('begin', int(time.time()))
+        self.begin_uptime = checkpoint.get('end_uptime', 0) if ongoing_experiment else get_uptime()
+            
