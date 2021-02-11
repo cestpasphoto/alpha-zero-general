@@ -9,19 +9,21 @@ sys.path.append('../../')
 from utils import *
 from NeuralNet import NeuralNet
 
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
 import torch
 import torch.optim as optim
 
 from .OthelloNNet import OthelloNNet as onnet
 
-args = dotdict({
-    'lr': 0.001,
+args = {
+    'lr': None,
     'dropout': 0.3,
-    'epochs': 10,
-    'batch_size': 64,
+    'epochs': None,
+    'batch_size': None,
     'cuda': torch.cuda.is_available(),
-    'num_channels': 512,
-})
+    'num_channels': None,
+}
 
 
 class NNetWrapper(NeuralNet):
@@ -30,7 +32,7 @@ class NNetWrapper(NeuralNet):
         self.board_x, self.board_y = game.getBoardSize()
         self.action_size = game.getActionSize()
 
-        if args.cuda:
+        if args['cuda']:
             self.nnet.cuda()
 
     def train(self, examples):
@@ -56,7 +58,7 @@ class NNetWrapper(NeuralNet):
                 target_vs = torch.FloatTensor(np.array(vs).astype(np.float64))
 
                 # predict
-                if args.cuda:
+                if args['cuda']:
                     boards, target_pis, target_vs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda()
 
                 # compute output
@@ -88,7 +90,7 @@ class NNetWrapper(NeuralNet):
         # preparing input
         board = torch.FloatTensor(board.astype(np.float64))
         valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
-        if args.cuda: board = board.contiguous().cuda()
+        if args['cuda']: board = board.contiguous().cuda()
         board = board.view(1, self.board_x, self.board_y)
         self.nnet.eval()
         with torch.no_grad():
@@ -106,12 +108,13 @@ class NNetWrapper(NeuralNet):
     def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
         filepath = os.path.join(folder, filename)
         if not os.path.exists(folder):
-            print("Checkpoint Directory does not exist! Making directory {}".format(folder))
+            # print("Checkpoint Directory does not exist! Making directory {}".format(folder))
             os.mkdir(folder)
-        else:
-            print("Checkpoint Directory exists! ")
+        # else:
+        #     print("Checkpoint Directory exists! ")
         torch.save({
             'state_dict': self.nnet.state_dict(),
+            'full_model': self.nnet,
         }, filepath)
 
     def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
@@ -119,6 +122,9 @@ class NNetWrapper(NeuralNet):
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
             raise ("No model in path {}".format(filepath))
-        map_location = None if args.cuda else 'cpu'
+        map_location = None if args['cuda'] else 'cpu'
         checkpoint = torch.load(filepath, map_location=map_location)
-        self.nnet.load_state_dict(checkpoint['state_dict'])
+        if 'full_model' in checkpoint:
+            self.nnet = checkpoint['full_model']
+        else:
+            self.nnet.load_state_dict(checkpoint['state_dict'])
