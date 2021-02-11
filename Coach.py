@@ -97,7 +97,8 @@ class Coach():
                 self.trainExamplesHistory.pop(0)
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)  
-            self.saveTrainExamples(i - 1)
+            if i % 5 == 0:
+                self.saveTrainExamples(i - 1) # HUGE PEAK, MEMORY CONSUMPTION TOO HIGH
 
             # shuffle examples before training
             trainExamples = []
@@ -106,8 +107,8 @@ class Coach():
             shuffle(trainExamples)
 
             # training new network, keeping a copy of the old one
-            self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
-            self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
+            self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
+            self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt', ongoing_experiment=True)
             pmcts = MCTS(self.game, self.pnet, self.args)
 
             self.nnet.train(trainExamples)
@@ -120,27 +121,27 @@ class Coach():
 
             if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
                 log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED')
-                self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
+                self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt', ongoing_experiment=True)
             else:
                 log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
-                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt')
+
 
     def getCheckpointFile(self, iteration):
-        return 'checkpoint_' + str(iteration) + '.pth.tar'
+        return 'checkpoint_' + str(iteration) + '.pt'
 
     def saveTrainExamples(self, iteration):
         folder = self.args.checkpoint
         if not os.path.exists(folder):
             os.makedirs(folder)
-        filename = os.path.join(folder, self.getCheckpointFile(iteration) + ".examples")
-        with open(filename, "wb+") as f:
+        filename = os.path.join(folder, "checkpoint.examples")
+        with open(filename, "wb") as f:
             Pickler(f).dump(self.trainExamplesHistory)
-        f.closed
 
     def loadTrainExamples(self):
-        modelFile = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[1])
-        examplesFile = modelFile + ".examples"
+        modelFile = self.args.load_folder_file
+        examplesFile = os.path.dirname(modelFile) + "/checkpoint.examples"
         if not os.path.isfile(examplesFile):
             log.warning(f'File "{examplesFile}" with trainExamples not found!')
             r = input("Continue? [y|n]")
@@ -153,4 +154,4 @@ class Coach():
             log.info('Loading done!')
 
             # examples based on the model were already collected (loaded)
-            self.skipFirstSelfPlay = True
+            # self.skipFirstSelfPlay = True

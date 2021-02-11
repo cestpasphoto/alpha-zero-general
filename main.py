@@ -7,7 +7,7 @@ from Coach import Coach
 from othello.OthelloGame import OthelloGame as Game
 from othello.pytorch.NNet import NNetWrapper as nn
 from utils import *
-
+import subprocess
 log = logging.getLogger(__name__)
 
 coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
@@ -34,8 +34,29 @@ def run(args):
 		log.info("Loading 'trainExamples' from file...")
 		c.loadTrainExamples()
 
+	subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
+	subprocess.run(f'cp *py splendor/*py "{args.checkpoint}/"', shell=True)
+	subprocess.run(f'echo "{args}" >> "{args.checkpoint}/main.py"', shell=True)
+
 	log.debug('Starting the learning process 🎉')
 	c.learn()
+
+def profiling(args):
+	import cProfile, pstats
+	profiler = cProfile.Profile()
+	print('\nstart profiling')
+	args.numIters, args.numEps, args.epochs = 1, 20, 1 # also, add a "return" just after self-play in Coach.py
+
+	# Core of the training
+	profiler.enable()
+	run(args)
+	profiler.disable()
+
+	# debrief
+	profiler.dump_stats('execution.prof')
+	pstats.Stats(profiler).sort_stats('cumtime').print_stats(20)
+	print()
+	pstats.Stats(profiler).sort_stats('tottime').print_stats(10)
 
 def main():
 	import argparse
@@ -62,6 +83,8 @@ def main():
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
 	
+	parser.add_argument('--profile'         , '-P' , action='store_true', help='profiler')
+	
 	args = parser.parse_args()
 	args.arenaCompare = 40
 	# args.maxlenOfQueue = int(2e6/(1.1*args.numItersForTrainExamplesHistory)) # at most 2GB per process, with each example weighing 1.1kB
@@ -69,6 +92,10 @@ def main():
 	# 	args.numIters = 1000
 
 	args.load_model = (args.load_folder_file is not None)
+	if args.profile:
+		profiling(args)
+	else:
+		print(args)
 	run(args)
 
 if __name__ == "__main__":

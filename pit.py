@@ -3,7 +3,7 @@ from MCTS import MCTS
 from othello.OthelloGame import OthelloGame
 from othello.OthelloPlayers import *
 from othello.pytorch.NNet import NNetWrapper as NNet
-
+from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
 from utils import *
@@ -124,7 +124,7 @@ def main():
 	if args.profile:
 		profiling(args)
 	else:
-		print(play(args))
+		play(args)
 
 if __name__ == "__main__":
 	main()

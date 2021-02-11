@@ -9,10 +9,19 @@ sys.path.append('../../')
 from utils import *
 from NeuralNet import NeuralNet
 
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
 import torch
 import torch.optim as optim
 
 from .OthelloNNet import OthelloNNet as onnet
+
+def get_uptime():
+    import subprocess
+    tuptime = subprocess.run(['tuptime', '--power', '--seconds', '--csv'], capture_output=True)
+    tuptime_stdout = tuptime.stdout.decode('utf-8')
+    runtime_value = int(tuptime_stdout.splitlines()[3].split(',')[-1].split(' ')[1])
+    return runtime_value
 
 class NNetWrapper(NeuralNet):
     def __init__(self, game, nn_args):
@@ -21,6 +30,9 @@ class NNetWrapper(NeuralNet):
         self.nnet = onnet(game, nn_args)
         self.board_x, self.board_y = game.getBoardSize()
         self.action_size = game.getActionSize()
+        self.begin_uptime = get_uptime()
+        self.cumulated_uptime = 0
+        self.begin_time = int(time.time())
 
         if self.args['cuda']:
             self.nnet.cuda()
@@ -103,8 +115,9 @@ class NNetWrapper(NeuralNet):
         torch.save({
             'state_dict': self.nnet.state_dict(),
         }, filepath)
+        # print(f'SAVE: {self.cumulated_uptime=} {self.begin_uptime=} ==> cumulated_uptime={self.cumulated_uptime + current_uptime-self.begin_uptime}')
 
-    def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
+    def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', ongoing_experiment=False):
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
