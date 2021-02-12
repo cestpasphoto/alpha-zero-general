@@ -1,8 +1,9 @@
 import Arena
 from MCTS import MCTS
-from othello.OthelloGame import OthelloGame
-from othello.OthelloPlayers import *
-from othello.pytorch.NNet import NNetWrapper as NNet
+from splendor.SplendorPlayers import *
+from splendor.SplendorGame import SplendorGame as Game
+from splendor.SplendorLogic import Board, print_board
+from splendor.NNet import NNetWrapper as NNet
 from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
@@ -15,7 +16,7 @@ use this script to play any two agents against each other, or play manually with
 any agent.
 """
 
-game = OthelloGame(6)
+game = Game(2)
 
 def create_player(name, args):
 	# all players
@@ -27,7 +28,7 @@ def create_player(name, args):
 		return HumanPlayer(game).play
 
 	# set default values but will be overloaded when loading checkpoint
-	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, num_channels=0)
+	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, dense2d=[1], dense1d=[1])
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(name)
 	net.load_checkpoint(cpt_dir, cpt_file)

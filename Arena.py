@@ -4,6 +4,7 @@ from tqdm import tqdm
 
 log = logging.getLogger(__name__)
 
+from splendor.SplendorLogic import move_to_str
 
 class Arena():
     """
@@ -49,13 +50,14 @@ class Arena():
             if verbose:
                 if self.display:
                     self.display(board)
-                print("Turn ", str(it), "Player ", str(curPlayer))
-            action = players[curPlayer + 1](self.game.getCanonicalForm(board, curPlayer))
+                print(f'Turn {it} Player {curPlayer} (=P{0 if curPlayer==1 else 1})')
                 
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
             action = players[curPlayer + 1](canonical_board)
             valids = self.game.getValidMoves(canonical_board, 1)
 
+            if verbose:
+                print(f'He decided to {move_to_str(action)}')
 
             if valids[action] == 0:
                 assert valids[action] > 0
