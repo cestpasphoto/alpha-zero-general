@@ -1,4 +1,5 @@
 #!../venv/bin/python3
+
 import Arena
 from MCTS import MCTS
 from splendor.SplendorPlayers import *
@@ -39,9 +40,6 @@ def create_player(name, args):
 def play(args):
 	if None in [args.player1, args.player2]:
 		raise Exception('Please specify a player (ai folder, random, greedy or human)')
-	if args.singlethread:
-		import torch
-		torch.set_num_threads(1)
 	if os.path.isdir(args.player2):
 		args.player2 += '/best.pt'
 	p2_name = os.path.basename(os.path.dirname(args.player2))
@@ -86,7 +84,6 @@ def main():
 	parser = argparse.ArgumentParser(description='tester')  
 
 	parser.add_argument('--num-games'  , '-n' , action='store', default=30   , type=int  , help='')
-	parser.add_argument('--singlethread', '-s', action='store_true', help='single thread')
 	parser.add_argument('--profile'           , action='store_true', help='enable profiling')
 	parser.add_argument('--display'           , action='store_true', help='display')
 

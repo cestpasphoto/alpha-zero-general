@@ -37,6 +37,8 @@ class NNetWrapper(NeuralNet):
 
 		if self.args['cuda']:
 			self.nnet.cuda()
+		else:
+			torch.set_num_threads(1) # CPU much more efficient when using 1 thread than severals
 
 	def train(self, examples):
 		"""
