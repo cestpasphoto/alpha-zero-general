@@ -1,3 +1,4 @@
+#!../venv/bin/python3
 import Arena
 from MCTS import MCTS
 from splendor.SplendorPlayers import *
