@@ -14,6 +14,7 @@ class Board():
 		self.num_nobles = {2:3, 3:4, 4:5}[n]
 		self.max_moves = 126
 		self.score_win = 15
+		self.state = None
 
 		if state is None:
 			self.init_game()
@@ -50,6 +51,9 @@ class Board():
 		self.players_cards = np.zeros((self.num_players, 7), dtype=np.int8)
 		self.players_reserved = np.zeros((6*self.num_players, 7), dtype=np.int8)
 
+		# init self.state
+		self.get_state()
+
 	def get_state(self):
 		self.state = np.vstack([self.bank, self.cards_tiers, self.nb_deck_tiers, self.nobles, self.players_gems, self.players_nobles, self.players_cards, self.players_reserved])
 		return self.state
@@ -79,8 +83,12 @@ class Board():
 			pass # empty move
 		self.bank[0][idx_points] += 1 # Count number of rounds
 
-	def copy_state(self, state, nocopy=False):
-		self.state = state if nocopy else state.copy()
+	def copy_state(self, state):
+		if self.state is state:
+			# For optimization, doesn't need to do next steps
+			return
+		
+		self.state = state.copy()
 		n = self.num_players
 		self.bank, self.cards_tiers, self.nb_deck_tiers, self.nobles, self.players_gems, self.players_nobles, self.players_cards, self.players_reserved = np.split(self.state, [
 			#     , # bank             1    --> 1
@@ -92,8 +100,6 @@ class Board():
 			29+5*n, # players_cards    N    --> 1+2*12+3+1+(1+1+3+1)*N
 			29+6*n, # players_reserved 6*N  --> 1+2*12+3+1+(1+1+3+1+3*2)*N = 29+12*N
 		])
-
-	 # checking end game at the BEGINNING of a move
 
 	def check_end_game(self):
 		if self.bank[0][idx_points] % self.num_players != 0: # Check only when 1st player is about to play

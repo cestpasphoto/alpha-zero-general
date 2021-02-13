@@ -84,7 +84,7 @@ class Arena():
             # 1vs2 and 2vs1 like below seems more fair:
             # 1 2 2 1   1 2 2 1  ...
             one_vs_two = (i%4 == 0) or (i%4 == 3)
-            t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'))
+            t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'), refresh=False)
             gameResult = self.playGame(verbose=verbose, other_way=not one_vs_two)
             if gameResult == (1 if one_vs_two else -1):
                 oneWon += 1
