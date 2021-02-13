@@ -20,7 +20,7 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 ### Others changes
 
 * [ ] Include ELO-like ranking
-* [x] Improved prints (logging, tqdm)
+* [x] Improved prints (logging, tqdm, colored bards depending on current Arena results)
 * [x] Parameters can be set in cmdline, added new parameters like time limit
 
 ### Contributors and Credits

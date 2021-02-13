@@ -38,10 +38,7 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
-        if other_way:
-            players = [self.player1, None, self.player2]
-        else:
-            players = [self.player2, None, self.player1]
+        players = [self.player1, None, self.player2] if other_way else [self.player2, None, self.player1]
         curPlayer = 1
         board = self.game.getInitBoard()
         it = 0
@@ -79,13 +76,15 @@ class Arena():
             twoWon: games won by player2
             draws:  games won by nobody
         """
-        oneWon = 0
-        twoWon = 0
-        draws = 0
+        oneWon, twoWon, draws = 0, 0, 0
         t = tqdm(range(num), desc="Arena.playGames", ncols=100)
         for i in t:
-            t.set_description('Arena ' + ('(2 vs 1)' if i>=num/2 else '(1 vs 2)'))
-            one_vs_two = (i < num/2)
+            # Since trees aren't resetted, the first games (1vs2) can't be
+            # considered as fair as the last games (2vs1). Switching between 
+            # 1vs2 and 2vs1 like below seems more fair:
+            # 1 2 2 1   1 2 2 1  ...
+            one_vs_two = (i%4 == 0) or (i%4 == 3)
+            t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'))
             gameResult = self.playGame(verbose=verbose, other_way=not one_vs_two)
             if gameResult == (1 if one_vs_two else -1):
                 oneWon += 1
