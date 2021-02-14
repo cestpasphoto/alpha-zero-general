@@ -1,6 +1,8 @@
 import numpy as np
 import random
 
+from .SplendorLogic import print_board, move_to_str
+
 class RandomPlayer():
 	def __init__(self, game):
 		self.game = game
@@ -10,32 +12,29 @@ class RandomPlayer():
 		return random.choices(range(self.game.getActionSize()), weights=valids, k=1)[0]
 
 
-# class HumanOthelloPlayer():
-# 	def __init__(self, game):
-# 		self.game = game
+class HumanPlayer():
+	def __init__(self, game):
+		self.game = game
 
-# 	def play(self, board):
-# 		# display(board)
-# 		valid = self.game.getValidMoves(board, 1)
-# 		for i in range(len(valid)):
-# 			if valid[i]:
-# 				print("[", int(i/self.game.n), int(i%self.game.n), end="] ")
-# 		while True:
-# 			input_move = input()
-# 			input_a = input_move.split(" ")
-# 			if len(input_a) == 2:
-# 				try:
-# 					x,y = [int(i) for i in input_a]
-# 					if ((0 <= x) and (x < self.game.n) and (0 <= y) and (y < self.game.n)) or \
-# 							((x == self.game.n) and (y == 0)):
-# 						a = self.game.n * x + y if x != -1 else self.game.n ** 2
-# 						if valid[a]:
-# 							break
-# 				except ValueError:
-# 					# Input needs to be an integer
-# 					'Invalid integer'
-# 			print('Invalid move')
-# 		return a
+	def play(self, board):
+		# print_board(self.game.board)
+		valid = self.game.getValidMoves(board, 1)
+		for i, v in enumerate(valid):
+			if i in [12,12+15,12+15+3+30]:
+				print()
+			if v:
+				print(f'{i} = {move_to_str(i)}', end=' - ')
+		print()
+		while True:
+			input_move = input()
+			try:
+				a = int(input_move)
+				if not valid[a]:
+					raise Exception('')
+				break
+			except:
+				print('Invalid move:', input_move)
+		return a
 
 
 class GreedyPlayer():
