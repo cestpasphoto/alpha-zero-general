@@ -1,12 +1,15 @@
 *.pyc
+*.onnx
+*.prof
 .DS_Store
 
 /temp/
 /.project
 /.pydevproject
 
-# checkpoint
+# checkpoint and results
 checkpoints/
+results/
 
 # For PyCharm users
 .idea/
