@@ -58,6 +58,10 @@ def profiling(args):
 	print()
 	pstats.Stats(profiler).sort_stats('tottime').print_stats(10)
 
+def game_test():
+	from splendor.SplendorGame import test_game
+	test_game(generate_test=False)
+
 def main():
 	import argparse
 	parser = argparse.ArgumentParser(description='tester')	
@@ -84,6 +88,7 @@ def main():
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
 	
 	parser.add_argument('--profile'         , '-P' , action='store_true', help='profiler')
+	parser.add_argument('--test'                   , action='store_true', help='test logic')
 	parser.add_argument('--dense2d'         , '-X' , action='store', default=[256, 256], nargs='*', type=int, help='(CNN archi) nb of linear layers BEFORE flattening')
 	parser.add_argument('--dense1d'         , '-x' , action='store', default=[512, 256, 256], nargs='*', type=int, help='(CNN archi) nb of linear layers AFTER flattening')
 	
@@ -96,9 +101,11 @@ def main():
 	args.load_model = (args.load_folder_file is not None)
 	if args.profile:
 		profiling(args)
+	elif args.test:
+		game_test()
 	else:
 		print(args)
-	run(args)
+		run(args)
 
 if __name__ == "__main__":
 	main()

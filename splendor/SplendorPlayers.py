@@ -1,7 +1,7 @@
 import numpy as np
 import random
 
-from .SplendorLogic import print_board, move_to_str
+from .SplendorLogic import print_board, move_to_short_str
 
 class RandomPlayer():
 	def __init__(self, game):
@@ -23,7 +23,7 @@ class HumanPlayer():
 			if i in [12,12+15,12+15+3+30]:
 				print()
 			if v:
-				print(f'{i} = {move_to_str(i)}', end=' - ')
+				print(f'{i} = {move_to_short_str(i)}', end='   ')
 		print()
 		while True:
 			input_move = input()

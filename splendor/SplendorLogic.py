@@ -364,6 +364,61 @@ def move_to_str(move):
 	else:
 	    return f'empty move'
 
+def move_to_short_str(move):
+	color_names = ['white', 'blue', 'green', 'red', 'black', 'gold']
+	if   move < 12:
+	    tier, index = divmod(move, 4)
+	    return f'buy tier{tier}-card{index}'
+	elif move < 12+15:
+	    tier, index = divmod(move-12, 5)
+	    if index == 4:
+	        return f'rsv t{tier}-deck'
+	    else:
+	        return f'rsv t{tier}-c{index}'
+	elif move < 12+15+3:
+	    index = move-12-15
+	    return f'buy {index} in reserve'
+	elif move < 12+15+3+30:
+		i = move - 12-15-3
+		if i < len(list_different_gems_up_to_3):
+			gems_str = [ light_colors[i] + "  " + Style.RESET_ALL  for i, v in enumerate(list_different_gems_up_to_3[i][:5]) if v != 0]
+			return f'{" ".join(gems_str)}'
+		else:
+			return f'{light_colors[i-len(list_different_gems_up_to_3)] + "    " + Style.RESET_ALL}'
+	elif move < 12+15+3+30+20:
+		i = move - 12-15-3-30
+		if i < len(list_different_gems_up_to_2):
+			gems_str = [ light_colors[i] + "  " + Style.RESET_ALL for i, v in enumerate(list_different_gems_up_to_2[i][:5]) if v != 0]
+			return f'give {" ".join(gems_str)}'
+		else:
+			return f'give {light_colors[i-len(list_different_gems_up_to_2)] + "    " + Style.RESET_ALL}'
+	else:
+	    return f'empty'
+
+def row_to_str(row, n=2):
+	if row < 1:
+		return 'bank'
+	if row < 25:
+		tier, index = divmod(row-1, 4)
+		cost_or_value = ((row-1)%2 == 0)
+		return f'Card in tier {tier} index {index//2} ' + ('cost' if cost_or_value else 'value')
+	if row < 28:
+		return f'Nb cards in deck of tier {row-25}'
+	if row < 29+n:
+		return f'Nobles num {row-28}'
+	if row < 29+2*n:
+		return f'Nb of gems of player {row-29-n}/{n}'
+	if row < 29+5*n:
+		player, index = divmod(row-29-2*n, 3)
+		return f'Noble {index} earned by player {player}/{n}'
+	if row < 29+6*n:
+		return f'Cards of player {row-29-5*n}/{n}'
+	if row < 29+12*n:
+		player, index = divmod(row-29-6*n, 6)
+		cost_or_value = (index%2 == 0)
+		return f'Reserve {index//2} of player {player}/{n} ' + ('cost' if cost_or_value else 'value')
+	return f'unknown row {row}'
+
 def _gen_list_of_different_gems(max_num_gems):
 	gems = [ np.array([int(i==c) for i in range(7)], dtype=np.int8) for c in range(5) ]
 	results = []
@@ -553,10 +608,11 @@ all_cards_3 = [
 
 all_cards = [all_cards_1, all_cards_2, all_cards_3]
 
-def _print_scores(board):
+def _print_round_and_scores(board):
+	print('='*15, f' round {board.bank[0][idx_points]}    ', end='')
 	for p in range(board.num_players):
 		print(f'{Style.BRIGHT}P{p}{Style.RESET_ALL}: {board.get_score(p)} points  ', end='')
-	print(f'{Style.RESET_ALL}')
+	print('='*15, Style.RESET_ALL)
 
 def _print_nobles(board):
 	print(f'{Style.BRIGHT}Nobles: {Style.RESET_ALL}', end='')
@@ -581,9 +637,10 @@ def _print_card_line(card, line):
 	if line == 0:
 		print(f'     {Style.BRIGHT}{card[1][idx_points]}{Style.NORMAL} ', end=' ')
 	else:
-		color = line-1
-		value = card[0][line-1]
-		if value:
+		card_cost = np.flatnonzero(card[0,:5] != 0)
+		if line-1 < card_cost.size:
+			color = card_cost[line-1]
+			value = card[0,color]
 			print(f' {light_colors[color]} {value} {background}   ', end=' ')
 		else:
 			print(f'       ', end=' ')
@@ -591,7 +648,7 @@ def _print_card_line(card, line):
 
 def _print_tiers(board):
 	for tier in range(2, -1, -1):
-		for line in range(6):
+		for line in range(5):
 			if line == 3:
 				print(f'Tier {tier}: ', end='')
 			elif line == 4:
@@ -631,7 +688,7 @@ def _print_player(board, p):
 		print(f'{Style.RESET_ALL}')
 
 	# RESERVED
-	for line in range(6):
+	for line in range(5):
 		print(' '*10, end='')
 		for r in range(3):
 			reserved = board.players_reserved[6*p+2*r:6*p+2*r+2]
@@ -641,8 +698,7 @@ def _print_player(board, p):
 			print()
 
 def print_board(board):
-	print('='*30, f' round {board.bank[0][idx_points]} ', '='*30)
-	_print_scores(board)
+	_print_round_and_scores(board)
 	_print_nobles(board)
 	print()
 	_print_tiers(board)

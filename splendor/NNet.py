@@ -28,6 +28,21 @@ class NNetWrapper(NeuralNet):
 		self.args = nn_args
 		self.args['cuda'] = torch.cuda.is_available()
 		self.nnet = snnet(game, nn_args)
+		
+		# PRINT MODEL #
+		# print(self.nnet)
+		# for name, parameter in self.nnet.named_parameters():
+		# 	if not parameter.requires_grad: continue
+		# 	param = parameter.numel()
+		# 	if param > 50000:
+		# 		print(name, param)
+		# print(sum([p.numel() for _, p in self.nnet.named_parameters()]))
+		# EXPORT TO ONNX AND VIEW ON NETRON.APP #
+		# example_input = torch.randn((64,53,7))
+		# valids = torch.BoolTensor(np.array([True]*81).astype(np.bool_))
+		# torch.onnx.export(self.nnet, (example_input, valids), 'splendornnet.onnx')
+		# exit(42)
+
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
 
@@ -130,8 +145,12 @@ class NNetWrapper(NeuralNet):
 		if not os.path.exists(filepath):
 			print("No model in path {}".format(filepath))
 			return
-		map_location = None if self.args['cuda'] else 'cpu'
-		checkpoint = torch.load(filepath, map_location=map_location)
+		try:
+			map_location = None if self.args['cuda'] else 'cpu'
+			checkpoint = torch.load(filepath, map_location=map_location)
+		except:
+			print("No model in path {} but file exists".format(filepath))
+			return
 		self.nnet = checkpoint['full_model']
 		self.cumulated_uptime = checkpoint.get('cumulated_uptime', 0)
 		self.begin_time = checkpoint.get('begin', int(time.time()))
