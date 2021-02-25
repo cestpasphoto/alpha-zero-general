@@ -2,6 +2,8 @@ import os
 import sys
 import time
 
+os.environ["OMP_NUM_THREADS"] = "1" # Much more efficient this way
+
 import numpy as np
 from tqdm import tqdm
 
@@ -13,6 +15,8 @@ import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
 import torch
 import torch.optim as optim
+import torch.onnx
+import onnxruntime as ort
 
 from .SplendorNNet import SplendorNNet as snnet
 
@@ -26,22 +30,8 @@ def get_uptime():
 class NNetWrapper(NeuralNet):
 	def __init__(self, game, nn_args):
 		self.args = nn_args
-		self.args['cuda'] = torch.cuda.is_available()
+		self.args['cuda'] = False #torch.cuda.is_available()
 		self.nnet = snnet(game, nn_args)
-		
-		# PRINT MODEL #
-		# print(self.nnet)
-		# for name, parameter in self.nnet.named_parameters():
-		# 	if not parameter.requires_grad: continue
-		# 	param = parameter.numel()
-		# 	if param > 50000:
-		# 		print(name, param)
-		# print(sum([p.numel() for _, p in self.nnet.named_parameters()]))
-		# EXPORT TO ONNX AND VIEW ON NETRON.APP #
-		# example_input = torch.randn((64,53,7))
-		# valids = torch.BoolTensor(np.array([True]*81).astype(np.bool_))
-		# torch.onnx.export(self.nnet, (example_input, valids), 'splendornnet.onnx')
-		# exit(42)
 
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
@@ -52,14 +42,15 @@ class NNetWrapper(NeuralNet):
 
 		if self.args['cuda']:
 			self.nnet.cuda()
-		else:
-			torch.set_num_threads(1) # CPU much more efficient when using 1 thread than severals
+		torch.set_num_threads(1) # CPU much more efficient when using 1 thread than severals
+		self.ort_session = None
 
 	def train(self, examples):
 		"""
 		examples: list of examples, each example is of form (board, pi, v)
 		"""
 		optimizer = optim.Adam(self.nnet.parameters())
+		self.ort_session = None # Make ONNX export invalid
 
 		batch_count = int(len(examples) / self.args['batch_size'])
 
@@ -101,23 +92,62 @@ class NNetWrapper(NeuralNet):
 				t.update()
 		t.close()
 
-	def predict(self, board, valid_actions):
+	def predict(self, board, valid_actions, use_onnx=True):
 		"""
 		board: np array with board
 		"""
 		# timing
 
 		# preparing input
-		board = torch.FloatTensor(board.astype(np.float32))
-		valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
-		if self.args['cuda']:
-			board         = board.contiguous().cuda()
-			valid_actions = valid_actions.contiguous().cuda()
-		self.nnet.eval()
-		with torch.no_grad():
+		if use_onnx:
+			if not hasattr(self, 'ort_session') or self.ort_session is None:
+				self.export_and_load_onnx()
+			ort_outs = self.ort_session.run(None, {
+				'board': board.astype(np.float32).reshape((-1, self.nb_vect, self.vect_dim)),
+				'valid_actions': np.array(valid_actions).astype(np.bool_).reshape((-1, self.action_size)),
+			})
+
+			return np.exp(ort_outs[0])[0], ort_outs[1][0]
+
+		else:
+			board = torch.FloatTensor(board.astype(np.float32))
+			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
+			if self.args['cuda']:
+				board         = board.contiguous().cuda()
+				valid_actions = valid_actions.contiguous().cuda()
+			self.nnet.eval()
+			with torch.no_grad():
 				pi, v = self.nnet(board, valid_actions)
 
-		return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
+			return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
+
+	def export_and_load_onnx(self):
+		dummy_board         = torch.randn(1, self.nb_vect, self.vect_dim, dtype=torch.float32)
+		dummy_valid_actions = torch.BoolTensor(torch.randn(1, self.action_size)>0.5)
+		self.nnet.to('cpu')
+		self.nnet.eval()
+
+		temporary_file = 'nn_export_' + str( int(time.time()*1000)%1000000 ) + '.onnx'
+
+		torch.onnx.export(
+			self.nnet,
+			(dummy_board, dummy_valid_actions),
+			temporary_file,
+			export_params=True,
+			opset_version=11, # the ONNX version to export the model to
+			do_constant_folding=True,
+			input_names = ['board', 'valid_actions'],
+			output_names = ['pi', 'v'],
+			dynamic_axes={
+				'board'        : {0: 'batch_size'},
+				'valid_actions': {0: 'batch_size'},
+				'pi'           : {0: 'batch_size'},
+				'v'            : {0: 'batch_size'},
+			}
+		)
+
+		self.ort_session = ort.InferenceSession(temporary_file)
+		os.remove(temporary_file)
 
 	def loss_pi(self, targets, outputs):
 		return -torch.sum(targets * outputs) / targets.size()[0]
