@@ -80,7 +80,7 @@ class NNetWrapper(NeuralNet):
 
 				# predict
 				if self.args['cuda']:
-					boards, target_pis, target_vs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda()
+					boards, target_pis, target_vs, valid_actions = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda()
 
 				# compute output
 				out_pi, out_v = self.nnet(boards, valid_actions)
@@ -110,10 +110,12 @@ class NNetWrapper(NeuralNet):
 		# preparing input
 		board = torch.FloatTensor(board.astype(np.float32))
 		valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
-		if self.args['cuda']: board = board.contiguous().cuda()
+		if self.args['cuda']:
+			board         = board.contiguous().cuda()
+			valid_actions = valid_actions.contiguous().cuda()
 		self.nnet.eval()
 		with torch.no_grad():
-			pi, v = self.nnet(board, valid_actions)
+				pi, v = self.nnet(board, valid_actions)
 
 		return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 
