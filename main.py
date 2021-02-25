@@ -45,7 +45,7 @@ def profiling(args):
 	import cProfile, pstats
 	profiler = cProfile.Profile()
 	print('\nstart profiling')
-	args.numIters, args.numEps, args.epochs = 1, 3, 1 # also, add a "return" just after self-play in Coach.py
+	args.numIters, args.numEps, args.epochs = 1, 5, 1 # also, add a "return" just after self-play in Coach.py
 
 	# Core of the training
 	profiler.enable()

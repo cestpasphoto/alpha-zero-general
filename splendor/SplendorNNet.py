@@ -62,47 +62,55 @@ class SplendorNNet(nn.Module):
 				nn.init.kaiming_uniform_(m.weight)
 				m.bias.data.fill_(0.01)
 
-		self.dense2d_1 = nn.Sequential(
-			nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(7), nn.ReLU(),
-			nn.Linear(128, 128),          nn.BatchNorm1d(7), nn.ReLU(),
-		)
-		self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=8, nb_items_in_groups=8)
+		if self.version == 1:
+			dense2d, dense1d = args['dense2d'], args['dense1d']
+			self.linear2D = nn.ModuleList([nn.Linear(prev, cur) for prev, cur in zip([self.nb_vect] +dense2d, dense2d)])
+			self.linear2D.apply(_init)
+			self.linear1D = nn.ModuleList([nn.Linear(prev, cur) for prev, cur in zip([dense2d[-1]*9]+dense1d, dense1d)])
+			self.linear1D.apply(_init)
+			self.batch_norms = nn.ModuleList([nn.BatchNorm1d(cur) for cur in dense1d])
+	 
+			self.output_layer_PI = nn.Linear(dense1d[-1], self.action_size)
+			self.output_layer_V  = nn.Linear(dense1d[-1], 1)
+			self.maxpool = nn.MaxPool2d((5,1))
+			self.avgpool = nn.AvgPool2d((5,1))
 
-		self.dense2d_2 = nn.Sequential(
-			nn.Linear(128, 128), nn.BatchNorm1d(7), nn.ReLU(),
-		)
-		self.partialgpool_2 = DenseAndPartialGPool(128, 128, nb_groups=8, nb_items_in_groups=8)
+		elif self.version == 2:
+			self.dense2d_1 = nn.Sequential(
+				nn.Linear(self.nb_vect, 256), nn.BatchNorm1d(7), nn.ReLU(),
+				nn.Linear(256, 256),          nn.BatchNorm1d(7), nn.ReLU(),
+			)
+			self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=8)
 
-		self.dense2d_3 = nn.Sequential(
-			nn.Linear(128, 128), nn.BatchNorm1d(7), nn.ReLU(),
-		)
-		self.flatten_and_gpool = FlattenAndPartialGPool(64, nb_channels_to_pool=5)
+			self.dense2d_3 = nn.Sequential(
+				nn.Linear(256, 128), nn.BatchNorm1d(7), nn.ReLU(),
+			)
+			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
 
-		self.dense1d_4 = nn.Sequential(
-			nn.Linear(64*4+64*7, 512), nn.BatchNorm1d(1), nn.ReLU(),
-			nn.Linear(512, 256),       nn.BatchNorm1d(1), nn.ReLU(),
-		)
-		self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8)
+			self.dense1d_4 = nn.Sequential(
+				nn.Linear(64*4+64*7, 256), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+			self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4)
 
-		self.dense1d_5 = nn.Sequential(
-			nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
-			nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
-		)
-		self.partialgpool_5 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8)
+			self.dense1d_5 = nn.Sequential(
+				nn.Linear(256, 128), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+			self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4)
 
-		self.output_layers_PI = nn.Sequential(
-			nn.Linear(256, 256),
-			nn.Linear(256, self.action_size)
-		)
-		self.output_layers_V = nn.Sequential(
-			nn.Linear(256, 256),
-			nn.Linear(256, 1)
-		)
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.action_size)
+			)
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, 1)
+			)
+			self.lowvalue = torch.FloatTensor([-1e8]).cuda() if args['cuda'] else torch.FloatTensor([-1e8])
 
-		for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_2, self.partialgpool_2, self.dense2d_3, self.flatten_and_gpool]:
-			layer2D.apply(_init)
-		for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V]:
-			layer1D.apply(_init)
+			for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_3, self.flatten_and_gpool]:
+				layer2D.apply(_init)
+			for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V]:
+				layer1D.apply(_init)
 
 	def forward(self, input_data, valid_actions):
 		if self.version == 1:
@@ -132,8 +140,8 @@ class SplendorNNet(nn.Module):
 			
 			x = self.dense2d_1(x)
 			x = self.partialgpool_1(x)
-			x = self.dense2d_2(x)
-			x = self.partialgpool_2(x)
+			# x = self.dense2d_2(x)
+			# x = self.partialgpool_2(x)
 			x = self.dense2d_3(x)
 			x = self.flatten_and_gpool(x)
 			x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training) 
@@ -142,23 +150,5 @@ class SplendorNNet(nn.Module):
 			x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x)
-			pi = torch.where(valid_actions, self.output_layers_PI(x), torch.FloatTensor([-1e8]))
-			return F.log_softmax(pi, dim=1).squeeze(1), torch.tanh(v)[0].squeeze(1)
-
-
-
-#           53				 vector
-#           128				    .
-#    8 groups of 8 + 64		    .
-#    2*8 (max+avg) + 112		.
-#    8 groups of 8 + 64			.
-#    2*8 (max+avg) + 112		.
-#     64    +     64		 vector
-# 2*64 (max5+avg5)+2*64(6,7) + 7*64     scalar
-#           512					.
-#   8 groups of 8 +  192		.
-#    2*8 (max+avg) + 240		.
-#			256					.
-#		64 			256			.
-#		1 			256			.
-#					 81			.
+			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+			return F.log_softmax(pi, dim=1).squeeze(1), torch.tanh(v).squeeze(1)
