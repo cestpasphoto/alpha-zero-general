@@ -55,11 +55,13 @@ class Coach():
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
             temp = int(episodeStep < self.args.tempThreshold)
 
-            pi = self.mcts.getActionProb(canonicalBoard, temp=temp)
+            pi, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp)
             valids = self.game.getValidMoves(canonicalBoard, 1)
-            sym = self.game.getSymmetries(canonicalBoard, pi, valids)
-            for b, p, v in sym:
-                trainExamples.append([b, self.curPlayer, p, v])
+
+            if is_full_search:
+                sym = self.game.getSymmetries(canonicalBoard, pi, valids)
+                for b, p, v in sym:
+                    trainExamples.append([b, self.curPlayer, p, v])
 
             action = np.random.choice(len(pi), p=pi)
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
@@ -120,8 +122,8 @@ class Coach():
             nmcts = MCTS(self.game, self.nnet, self.args)
 
             # log.info('PITTING AGAINST PREVIOUS VERSION')
-            arena = Arena(lambda x: np.argmax(nmcts.getActionProb(x, temp=0)),
-                          lambda x: np.argmax(pmcts.getActionProb(x, temp=0)), self.game)
+            arena = Arena(lambda x: np.argmax(nmcts.getActionProb(x, temp=0)[0]),
+                          lambda x: np.argmax(pmcts.getActionProb(x, temp=0)[0]), self.game)
             nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
 
             if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
@@ -163,4 +165,4 @@ class Coach():
             log.info('Loading done!')
 
             # examples based on the model were already collected (loaded)
-            # self.skipFirstSelfPlay = True
+            self.skipFirstSelfPlay = True

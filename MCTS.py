@@ -35,8 +35,10 @@ class MCTS():
             probs: a policy vector where the probability of the ith action is
                    proportional to Nsa[(s,a)]**(1./temp)
         """
-        for i in range(self.args.numMCTSSims):
-            dir_noise = (i == 0 and self.dirichlet_noise)
+        is_full_search = np.random.random_sample() < self.args.prob_fullMCTS
+        nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
+        for i in range(nb_MCTS_sims):
+            dir_noise = (i == 0 and self.dirichlet_noise and is_full_search)
             self.search(canonicalBoard, dirichlet_noise=dir_noise)
 
         s = self.game.stringRepresentation(canonicalBoard)
@@ -47,12 +49,12 @@ class MCTS():
             bestA = np.random.choice(bestAs)
             probs = [0] * len(counts)
             probs[bestA] = 1
-            return probs
+            return probs, is_full_search
 
         counts = [x ** (1. / temp) for x in counts]
         counts_sum = float(sum(counts))
         probs = [x / counts_sum for x in counts]
-        return probs
+        return probs, is_full_search
 
     def search(self, canonicalBoard, dirichlet_noise=False):
         """
