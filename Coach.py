@@ -96,6 +96,9 @@ class Coach():
                 # save the iteration examples to the history 
                 self.trainExamplesHistory.append(iterationTrainExamples)
 
+            if self.args.profile:
+                return
+
             if len(self.trainExamplesHistory) > self.args.numItersForTrainExamplesHistory:
                 self.trainExamplesHistory.pop(0)
             # backup history to a file
