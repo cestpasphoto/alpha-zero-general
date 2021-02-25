@@ -23,17 +23,17 @@ class SplendorGame(Game):
 		return action_size()
 
 	def getNextState(self, board, player, action):
-		self.board.copy_state(board)
+		self.board.copy_state(board, copy_or_not=True)
 		self.board.make_move(action, 0 if player==1 else 1)
 		return (self.board.get_state(), -player)
 
 
 	def getValidMoves(self, board, player):
-		self.board.copy_state(board)
+		self.board.copy_state(board, copy_or_not=False)
 		return self.board.valid_moves(0 if player==1 else 1)
 
 	def getGameEnded(self, board, player):
-		self.board.copy_state(board)
+		self.board.copy_state(board, copy_or_not=False)
 		ended, winners = self.board.check_end_game()
 		if not ended:			# not finished
 			return 0
@@ -43,7 +43,7 @@ class SplendorGame(Game):
 		return 1 if winners[0 if player==1 else 1] else -1
 
 	def getScore(self, board, player):
-		self.board.copy_state(board)
+		self.board.copy_state(board, copy_or_not=False)
 		return self.board.get_score(0 if player==1 else 1)
 
 
@@ -51,13 +51,13 @@ class SplendorGame(Game):
 		if player == 1:
 			return board
 
-		self.board.copy_state(board)
+		self.board.copy_state(board, copy_or_not=True)
 		self.board.swap_players()
 		return self.board.get_state()
 		
 
 	def getSymmetries(self, board, pi, valid_actions):
-		self.board.copy_state(board)
+		self.board.copy_state(board, copy_or_not=True)
 		return self.board.get_symmetries(pi, valid_actions)
 
 	def stringRepresentation(self, board):
@@ -175,10 +175,13 @@ def test_game(generate_test=False):
 		from .SplendorLogic import print_board, move_to_short_str, row_to_str
 		import pickle
 		import random
+		import time
 		with open('test_data.pickle', 'rb') as f:
 			test_data = pickle.load(f)
 		game, board = test_data['initial_game'], test_data['initial_board']
 		random.setstate(test_data['random_state'])
+
+		start_time = time.time()
 
 		curPlayer = 1
 		trainExamples = []
@@ -195,7 +198,7 @@ def test_game(generate_test=False):
 			for b, p, v in sym:
 				trainExamples.append([b, curPlayer, p, v])
 			board, curPlayer = game.getNextState(board, curPlayer, action)
-			print_board(game.board)
+			# print_board(game.board)
 
 			# Check nothing has changed
 			if not np.array_equal(canonical_board, canonical_board_copy) or not np.array_equal(pi, pi_copy):
@@ -232,5 +235,8 @@ def test_game(generate_test=False):
 					continue
 				breakpoint()
 				print('At least an issue happened')
+
+		duration = time.time() - start_time
+		print(round(duration*1000000))
 
 
