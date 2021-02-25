@@ -22,6 +22,9 @@ class SplendorGame(Game):
 	def getActionSize(self):
 		return action_size()
 
+	def getMaxScoreDiff(self):
+		return 15
+
 	def getNextState(self, board, player, action):
 		self.board.copy_state(board, copy_or_not=True)
 		self.board.make_move(action, 0 if player==1 else 1)
@@ -46,7 +49,6 @@ class SplendorGame(Game):
 		self.board.copy_state(board, copy_or_not=False)
 		return self.board.get_score(0 if player==1 else 1)
 
-
 	def getCanonicalForm(self, board, player):
 		if player == 1:
 			return board
@@ -54,7 +56,6 @@ class SplendorGame(Game):
 		self.board.copy_state(board, copy_or_not=True)
 		self.board.swap_players()
 		return self.board.get_state()
-		
 
 	def getSymmetries(self, board, pi, valid_actions):
 		self.board.copy_state(board, copy_or_not=True)

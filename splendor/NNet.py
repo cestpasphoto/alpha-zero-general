@@ -35,6 +35,7 @@ class NNetWrapper(NeuralNet):
 
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
+		self.max_diff = game.getMaxScoreDiff()
 
 		self.begin_uptime = get_uptime()
 		self.cumulated_uptime = 0
@@ -58,31 +59,37 @@ class NNetWrapper(NeuralNet):
 		for epoch in range(self.args['epochs']):
 			t.set_description(f'Train ep{epoch + 1}')
 			self.nnet.train()
-			pi_losses = AverageMeter()
-			v_losses = AverageMeter()
+			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
 	
 			for _ in range(batch_count):
 				sample_ids = np.random.randint(len(examples), size=self.args['batch_size'])
-				boards, pis, vs, valid_actions = list(zip(*[examples[i] for i in sample_ids]))
+				boards, pis, vs, scdiffs, valid_actions = list(zip(*[examples[i] for i in sample_ids]))
 				boards = torch.FloatTensor(np.array(boards).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
+				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1)).astype(np.float32))
+				for i in range(len(scdiffs)):
+					score_diff = np.clip(scdiffs[i] + self.max_diff, 0, 2*self.max_diff)
+					target_scdiffs[i, score_diff] = 1
 
 				# predict
 				if self.args['cuda']:
 					boards, target_pis, target_vs, valid_actions = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda()
 
 				# compute output
-				out_pi, out_v = self.nnet(boards, valid_actions)
+				out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
 				l_pi = self.loss_pi(target_pis, out_pi)
 				l_v = self.loss_v(target_vs, out_v)
-				total_loss = l_pi + l_v
+				l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
+				l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
+				total_loss = l_pi + l_v + l_scdiff_c + l_scdiff_p
 
 				# record loss
 				pi_losses.update(l_pi.item(), boards.size(0))
 				v_losses.update(l_v.item(), boards.size(0))
-				t.set_postfix(lossPI=pi_losses, lossV=v_losses, refresh=False)
+				scdiff_losses.update(l_scdiff_c.item() + l_scdiff_p.item(), boards.size(0))
+				t.set_postfix(PI=pi_losses, V=v_losses, SD=scdiff_losses, refresh=False)
 
 				# compute gradient and do SGD step
 				optimizer.zero_grad()
@@ -117,7 +124,7 @@ class NNetWrapper(NeuralNet):
 				valid_actions = valid_actions.contiguous().cuda()
 			self.nnet.eval()
 			with torch.no_grad():
-				pi, v = self.nnet(board, valid_actions)
+				pi, v, _ = self.nnet(board, valid_actions)
 
 			return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 
@@ -137,12 +144,13 @@ class NNetWrapper(NeuralNet):
 			opset_version=11, # the ONNX version to export the model to
 			do_constant_folding=True,
 			input_names = ['board', 'valid_actions'],
-			output_names = ['pi', 'v'],
+			output_names = ['pi', 'v', 'scdiffs'],
 			dynamic_axes={
 				'board'        : {0: 'batch_size'},
 				'valid_actions': {0: 'batch_size'},
 				'pi'           : {0: 'batch_size'},
 				'v'            : {0: 'batch_size'},
+				'scdiffs'      : {0: 'batch_size'},
 			}
 		)
 
@@ -154,6 +162,14 @@ class NNetWrapper(NeuralNet):
 
 	def loss_v(self, targets, outputs):
 		return torch.sum((targets - outputs.view(-1)) ** 2) / targets.size()[0]
+
+	def loss_scdiff_cdf(self, targets, outputs):
+		l2_diff = torch.square(torch.cumsum(targets, axis=1) - torch.cumsum(torch.exp(outputs), axis=1))
+		return 0.02 * torch.sum(l2_diff) / targets.size()[0]
+
+	def loss_scdiff_pdf(self, targets, outputs):
+		cross_entropy = -torch.sum( torch.mul(targets, outputs) )
+		return 0.02 * cross_entropy / targets.size()[0]
 
 	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
 		filepath = os.path.join(folder, filename)

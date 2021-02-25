@@ -69,7 +69,14 @@ class Coach():
             r = self.game.getGameEnded(board, self.curPlayer)
 
             if r != 0:
-                return [(x[0], x[2], r * ((-1) ** (x[1] != self.curPlayer)), x[3]) for x in trainExamples]
+                final_scores_diff = self.game.getScore(board, self.curPlayer) - self.game.getScore(board, -self.curPlayer)
+                return [(
+                    x[0], # board
+                    x[2], # policy
+                    r if x[1] == self.curPlayer else -r, # winner
+                    final_scores_diff if x[1] == self.curPlayer else -final_scores_diff, # score difference
+                    x[3] # valids
+                ) for x in trainExamples]
 
     def learn(self):
         """
