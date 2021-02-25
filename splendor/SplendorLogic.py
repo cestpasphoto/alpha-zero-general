@@ -19,7 +19,7 @@ class Board():
 		if state is None:
 			self.init_game()
 		else:
-			self.copy_state(state)
+			self.copy_state(state, True)
 
 	def get_score(self, player):
 		card_points  = self.players_cards[player, idx_points]
@@ -27,35 +27,27 @@ class Board():
 		return card_points + noble_points
 
 	def init_game(self):
-		self.copy_state(np.zeros(observation_size(self.num_players), dtype=np.int8))
+		self.copy_state(np.zeros(observation_size(self.num_players), dtype=np.int8), copy_or_not=False)
 
 		# Bank
-		self.bank = np.array([[self.num_gems_in_play]*5 + [5, 0]], dtype=np.int8)
-
+		self.bank[:] = np.array([[self.num_gems_in_play]*5 + [5, 0]])
 		# Decks
-		self.nb_deck_tiers[0] = np.array([8]*5 + [0, 0], dtype=np.int8)
-		self.nb_deck_tiers[1] = np.array([6]*5 + [0, 0], dtype=np.int8)
-		self.nb_deck_tiers[2] = np.array([4]*5 + [0, 0], dtype=np.int8)
-
+		self.nb_deck_tiers[0,:] = np.array([8]*5 + [0, 0])
+		self.nb_deck_tiers[1,:] = np.array([6]*5 + [0, 0])
+		self.nb_deck_tiers[2,:] = np.array([4]*5 + [0, 0])
 		# Tiers
 		for tier in range(3):
 			for index in range(4):
 				self._fill_new_card(tier, index)
-
 		# Nobles
-		self.nobles = np.array(random.sample(all_nobles, self.num_nobles), dtype=np.int8)
-
+		self.nobles[:] = np.array(random.sample(all_nobles, self.num_nobles))
 		# Players
-		self.players_gems = np.zeros((self.num_players, 7), dtype=np.int8)
-		self.players_nobles = np.zeros((3*self.num_players, 7), dtype=np.int8)
-		self.players_cards = np.zeros((self.num_players, 7), dtype=np.int8)
-		self.players_reserved = np.zeros((6*self.num_players, 7), dtype=np.int8)
-
-		# init self.state
-		self.get_state()
+		self.players_gems[:] = 0
+		self.players_nobles[:] = 0
+		self.players_cards[:] = 0
+		self.players_reserved[:] = 0
 
 	def get_state(self):
-		self.state = np.vstack([self.bank, self.cards_tiers, self.nb_deck_tiers, self.nobles, self.players_gems, self.players_nobles, self.players_cards, self.players_reserved])
 		return self.state
 
 	def valid_moves(self, player):
@@ -83,29 +75,24 @@ class Board():
 			pass # empty move
 		self.bank[0][idx_points] += 1 # Count number of rounds
 
-	def copy_state(self, state):
-		if self.state is state:
-			# For optimization, doesn't need to do next steps
+	def copy_state(self, state, copy_or_not):
+		if self.state is state and not copy_or_not:
 			return
-		
-		self.state = state.copy()
+		self.state = state.copy() if copy_or_not else state
 		n = self.num_players
-		self.bank, self.cards_tiers, self.nb_deck_tiers, self.nobles, self.players_gems, self.players_nobles, self.players_cards, self.players_reserved = np.split(self.state, [
-			#     , # bank             1    --> 1
-			1     , # cards_tiers      2*12 --> 1+2*12
-			25    , # nb_deck_tiers    3    --> 1+2*12+3
-			28    , # nobles           N+1  --> 1+2*12+3+1+(1)*N
-			29+n  , # players_gems     N    --> 1+2*12+3+1+(1+1)*N
-			29+2*n, # players_nobles   3*N  --> 1+2*12+3+1+(1+1+3)*N
-			29+5*n, # players_cards    N    --> 1+2*12+3+1+(1+1+3+1)*N
-			29+6*n, # players_reserved 6*N  --> 1+2*12+3+1+(1+1+3+1+3*2)*N = 29+12*N
-		])
+		self.bank             = self.state[0     :1      ,:]	# 1
+		self.cards_tiers      = self.state[1     :25     ,:]	# 2*12
+		self.nb_deck_tiers    = self.state[25    :28     ,:]	# 3
+		self.nobles           = self.state[28    :29+n   ,:]	# N+1
+		self.players_gems     = self.state[29+n  :29+2*n ,:]	# N
+		self.players_nobles   = self.state[29+2*n:29+5*n ,:]	# 3*N
+		self.players_cards    = self.state[29+5*n:29+6*n ,:]	# N
+		self.players_reserved = self.state[29+6*n:29+12*n,:]	# 6*N
 
 	def check_end_game(self):
 		if self.bank[0][idx_points] % self.num_players != 0: # Check only when 1st player is about to play
 			return False, [False, False]
 		
-		# scores = [self.get_score(p) for p in range(self.num_players)]
 		scores = [self.players_cards[p][:5].sum() for p in range(self.num_players)]
 		score_max = max(scores)
 		end = (score_max >= 5) if self.bank[0][idx_points] < self.max_moves else True
@@ -136,7 +123,7 @@ class Board():
 				new_valid_actions = np.array(valid_actions).astype(np.bool_)
 				new_valid_actions[4*tier:4*tier+4] = new_valid_actions[[i+4*tier for i in permutation]]
 				symmetries.append((self.get_state().copy(), new_policy, new_valid_actions))
-				self.cards_tiers = cards_tiers_backup
+				self.cards_tiers[:] = cards_tiers_backup
 		
 		# Permute reserved cards
 		for player in range(self.num_players):
@@ -149,7 +136,7 @@ class Board():
 					new_policy[12+15:12+15+3] = new_policy[[i+12+15 for i in permutation]]
 					new_valid_actions[12+15:12+15+3] = new_valid_actions[[i+12+15 for i in permutation]]
 				symmetries.append((self.get_state().copy(), new_policy, new_valid_actions))
-				self.players_reserved = players_reserved_backup
+				self.players_reserved[:] = players_reserved_backup
 
 		return symmetries
 
@@ -162,6 +149,16 @@ class Board():
 		if True:
 			# First we chose color randomly, then we pick a card not already displayed elsewhere
 			color = random.choices(range(5), weights=remaining_cards_per_color, k=1)[0]
+			# cards_tier_color = [c[0] for c in all_cards[tier][color]]
+			# shown_cards  = [ self.cards_tiers[8*tier+2*i,:] for i in range(4) if self.cards_tiers[8*tier+2*i+1,color] == 1]
+			# shown_cards += [ self.players_reserved[2*i,:]   for i in range(6) if self.players_reserved[2*i+1,color]   == 1]
+			# available_cards = [i for i in range(len(cards_tier_color)) if not any([np.array_equal(cards_tier_color[i], sc) for sc in shown_cards])]
+			# if len(available_cards) < remaining_cards_per_color[color]:
+			# 	print(len(available_cards), remaining_cards_per_color[color])
+			# 	breakpoint()
+			# new_card_index = random.choice(available_cards)
+			# card = np.array(all_cards[tier][color][new_card_index], dtype=np.int8)
+			# breakpoint()
 			while True:
 				card = np.array(random.choice(all_cards[tier][color]), dtype=np.int8)
 				if not any([np.array_equal(card, self.cards_tiers[8*tier+2*i:8*tier+2*i+2]) for i in range(4)]) \
