@@ -106,7 +106,7 @@ class NNetWrapper(NeuralNet):
 		# timing
 
 		# preparing input
-		if use_onnx:
+		if use_onnx and self.nnet.version > 1:
 			if not hasattr(self, 'ort_session') or self.ort_session is None:
 				self.export_and_load_onnx()
 			ort_outs = self.ort_session.run(None, {

@@ -56,9 +56,8 @@ class Coach():
             temp = int(episodeStep < self.args.tempThreshold)
 
             pi, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp)
-            valids = self.game.getValidMoves(canonicalBoard, 1)
-
             if is_full_search:
+                valids = self.game.getValidMoves(canonicalBoard, 1)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
                     trainExamples.append([b, self.curPlayer, p, v])
@@ -67,7 +66,6 @@ class Coach():
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
             r = self.game.getGameEnded(board, self.curPlayer)
-
             if r != 0:
                 final_scores_diff = self.game.getScore(board, self.curPlayer) - self.game.getScore(board, -self.curPlayer)
                 return [(

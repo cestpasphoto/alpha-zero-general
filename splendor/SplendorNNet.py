@@ -12,7 +12,6 @@ class DenseAndPartialGPool(nn.Module):
 		self.dense_output = output_length - 2*nb_groups
 		self.dense_part = nn.Sequential(
 			nn.Linear(self.dense_input, self.dense_output),
-			# nn.BatchNorm1d(self.dense_output),
 		)
 
 	def forward(self, x):
@@ -71,8 +70,9 @@ class SplendorNNet(nn.Module):
 			self.linear1D.apply(_init)
 			self.batch_norms = nn.ModuleList([nn.BatchNorm1d(cur) for cur in dense1d])
 	 
-			self.output_layer_PI = nn.Linear(dense1d[-1], self.action_size)
-			self.output_layer_V  = nn.Linear(dense1d[-1], 1)
+			self.output_layer_PI     = nn.Linear(dense1d[-1], self.action_size)
+			self.output_layer_V      = nn.Linear(dense1d[-1], 1)
+			self.output_layer_SDIFF  = nn.Linear(dense1d[-1], self.scdiff_size)
 			self.maxpool = nn.MaxPool2d((5,1))
 			self.avgpool = nn.AvgPool2d((5,1))
 
@@ -138,9 +138,10 @@ class SplendorNNet(nn.Module):
 				x = F.dropout(F.relu(bn(layer1d(x))), p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layer_V(x)
+			sdiff = self.output_layer_SDIFF(x)
 			pi = torch.where(valid_actions, self.output_layer_PI(x), torch.FloatTensor([-1e8]))
 			
-			return F.log_softmax(pi, dim=1), torch.tanh(v)
+			return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff, dim=1),
 
 		if self.version == 2:
 			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
