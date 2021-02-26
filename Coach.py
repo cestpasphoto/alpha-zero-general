@@ -69,11 +69,12 @@ class Coach():
             if r != 0:
                 final_scores_diff = self.game.getScore(board, self.curPlayer) - self.game.getScore(board, -self.curPlayer)
                 return [(
-                    x[0], # board
-                    x[2], # policy
+                    x[0],                                # board
+                    x[2],                                # policy
                     r if x[1] == self.curPlayer else -r, # winner
                     final_scores_diff if x[1] == self.curPlayer else -final_scores_diff, # score difference
-                    x[3] # valids
+                    x[3],                                # valids
+                    1.,                                  # weight
                 ) for x in trainExamples]
 
     def learn(self):
@@ -106,7 +107,7 @@ class Coach():
             if self.args.profile:
                 return
 
-            if len(self.trainExamplesHistory) > self.args.numItersForTrainExamplesHistory:
+            if len(self.trainExamplesHistory) > self.args.numItersHistory:
                 self.trainExamplesHistory.pop(0)
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)  

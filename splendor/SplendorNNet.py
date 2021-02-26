@@ -63,7 +63,7 @@ class SplendorNNet(nn.Module):
 				m.bias.data.fill_(0.01)
 
 		if self.version == 1:
-			dense2d, dense1d = args['dense2d'], args['dense1d']
+			dense2d, dense1d = [256,256], [512,256,256]
 			self.linear2D = nn.ModuleList([nn.Linear(prev, cur) for prev, cur in zip([self.nb_vect] +dense2d, dense2d)])
 			self.linear2D.apply(_init)
 			self.linear1D = nn.ModuleList([nn.Linear(prev, cur) for prev, cur in zip([dense2d[-1]*9]+dense1d, dense1d)])
