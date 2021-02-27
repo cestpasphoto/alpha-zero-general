@@ -74,7 +74,6 @@ class Coach():
                     r if x[1] == self.curPlayer else -r, # winner
                     final_scores_diff if x[1] == self.curPlayer else -final_scores_diff, # score difference
                     x[3],                                # valids
-                    1.,                                  # weight
                 ) for x in trainExamples]
 
     def learn(self):

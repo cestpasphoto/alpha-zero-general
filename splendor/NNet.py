@@ -2,7 +2,7 @@ import os
 import sys
 import time
 
-os.environ["OMP_NUM_THREADS"] = "1" # Much more efficient this way
+os.environ["OMP_NUM_THREADS"] = "1" # PyTorch more efficient this way
 
 import numpy as np
 from tqdm import tqdm
@@ -11,12 +11,13 @@ sys.path.append('../../')
 from utils import *
 from NeuralNet import NeuralNet
 
-import warnings
-warnings.filterwarnings('ignore', category=UserWarning)
+# import warnings
+# warnings.filterwarnings('ignore', category=UserWarning)
 import torch
 import torch.optim as optim
 import torch.onnx
 import onnxruntime as ort
+torch.set_num_threads(1) # PyTorch more efficient this way
 
 from .SplendorNNet import SplendorNNet as snnet
 
@@ -30,8 +31,13 @@ def get_uptime():
 class NNetWrapper(NeuralNet):
 	def __init__(self, game, nn_args):
 		self.args = nn_args
-		self.args['cuda'] = False #torch.cuda.is_available()
+		self.device = {
+			'training' : 'cpu', #'cuda' if torch.cuda.is_available() else 'cpu',
+			'inference': 'onnx',
+		}
+		self.current_mode = 'cpu'
 		self.nnet = snnet(game, nn_args)
+		self.ort_session = None
 
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
@@ -41,18 +47,13 @@ class NNetWrapper(NeuralNet):
 		self.cumulated_uptime = 0
 		self.begin_time = int(time.time())
 
-		if self.args['cuda']:
-			self.nnet.cuda()
-		torch.set_num_threads(1) # CPU much more efficient when using 1 thread than severals
-		self.ort_session = None
-
 	def train(self, examples):
 		"""
 		examples: list of examples, each example is of form (board, pi, v)
 		"""
-		optimizer = optim.Adam(self.nnet.parameters())
-		self.ort_session = None # Make ONNX export invalid
+		self.switch_target('training')
 
+		optimizer = optim.Adam(self.nnet.parameters())
 		batch_count = int(len(examples) / self.args['batch_size'])
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=100, mininterval=0.5)
@@ -70,12 +71,12 @@ class NNetWrapper(NeuralNet):
 				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
 				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1)).astype(np.float32))
 				for i in range(len(scdiffs)):
-					score_diff = np.clip(scdiffs[i] + self.max_diff, 0, 2*self.max_diff)
+					score_diff = min(max(scdiffs[i] + self.max_diff, 0), 2*self.max_diff)
 					target_scdiffs[i, score_diff] = 1
 
 				# predict
-				if self.args['cuda']:
-					boards, target_pis, target_vs, valid_actions = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda()
+				if self.device['training'] == 'cuda':
+					boards, target_pis, target_vs, valid_actions, target_scdiffs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda(), target_scdiffs.contiguous().cuda()
 
 				# compute output
 				out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
@@ -92,41 +93,105 @@ class NNetWrapper(NeuralNet):
 				t.set_postfix(PI=pi_losses, V=v_losses, SD=scdiff_losses, refresh=False)
 
 				# compute gradient and do SGD step
-				optimizer.zero_grad()
+				optimizer.zero_grad(set_to_none=True)
 				total_loss.backward()
 				optimizer.step()
 
 				t.update()
 		t.close()
 
-	def predict(self, board, valid_actions, use_onnx=True):
+	def predict(self, board, valid_actions):
 		"""
 		board: np array with board
 		"""
 		# timing
 
 		# preparing input
-		if use_onnx and self.nnet.version > 1:
-			if not hasattr(self, 'ort_session') or self.ort_session is None:
-				self.export_and_load_onnx()
+		self.switch_target('inference')
+
+		if self.current_mode == 'onnx':
 			ort_outs = self.ort_session.run(None, {
 				'board': board.astype(np.float32).reshape((-1, self.nb_vect, self.vect_dim)),
 				'valid_actions': np.array(valid_actions).astype(np.bool_).reshape((-1, self.action_size)),
 			})
-
 			return np.exp(ort_outs[0])[0], ort_outs[1][0]
 
 		else:
 			board = torch.FloatTensor(board.astype(np.float32))
 			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
-			if self.args['cuda']:
-				board         = board.contiguous().cuda()
-				valid_actions = valid_actions.contiguous().cuda()
+			if self.current_mode == 'cuda':
+				board, valid_actions = board.contiguous().cuda(), valid_actions.contiguous().cuda()
 			self.nnet.eval()
 			with torch.no_grad():
 				pi, v, _ = self.nnet(board, valid_actions)
 
 			return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
+
+	def loss_pi(self, targets, outputs):
+		return -torch.sum(targets * outputs) / targets.size()[0]
+
+	def loss_v(self, targets, outputs):
+		return torch.sum((targets - outputs.view(-1)) ** 2) / targets.size()[0]
+
+	def loss_scdiff_cdf(self, targets, outputs):
+		l2_diff = torch.square(torch.cumsum(targets, axis=1) - torch.cumsum(torch.exp(outputs), axis=1))
+		return 0.02 * torch.sum(l2_diff) / targets.size()[0]
+
+	def loss_scdiff_pdf(self, targets, outputs):
+		cross_entropy = -torch.sum( torch.mul(targets, outputs) )
+		return 0.02 * cross_entropy / targets.size()[0]
+
+	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
+		filepath = os.path.join(folder, filename)
+		if not os.path.exists(folder):
+			# print("Checkpoint Directory does not exist! Making directory {}".format(folder))
+			os.mkdir(folder)
+		# else:
+		#     print("Checkpoint Directory exists! ")
+		current_uptime = get_uptime()
+
+		self.switch_target('inference')
+		torch.save({
+			'state_dict': self.nnet.state_dict(),
+			'full_model': self.nnet,
+			'cumulated_uptime': self.cumulated_uptime + current_uptime-self.begin_uptime,
+			'end_uptime': current_uptime,
+			'begin': self.begin_time,
+		}, filepath)
+
+	def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', ongoing_experiment=False):
+		# https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
+		filepath = os.path.join(folder, filename)
+		if not os.path.exists(filepath):
+			print("No model in path {}".format(filepath))
+			return
+		try:
+			checkpoint = torch.load(filepath, map_location='cpu')
+		except:
+			print("No model in path {} but file exists".format(filepath))
+			return
+		self.nnet = checkpoint['full_model']
+		self.cumulated_uptime = checkpoint.get('cumulated_uptime', 0)
+		self.begin_time = checkpoint.get('begin', int(time.time()))
+		self.begin_uptime = checkpoint.get('end_uptime', 0) if ongoing_experiment else get_uptime()
+			
+	def switch_target(self, mode):
+		target_device = self.device[mode]
+		if target_device == self.current_mode:
+			return
+
+		if target_device == 'cpu':
+			self.nnet.cpu()
+			torch.cuda.empty_cache()
+			self.ort_session = None # Make ONNX export invalid
+		elif target_device == 'onnx':
+			self.nnet.cpu()
+			self.export_and_load_onnx()
+		elif target_device == 'cuda':
+			self.nnet.cuda()
+			self.ort_session = None # Make ONNX export invalid
+		
+		self.current_mode = target_device
 
 	def export_and_load_onnx(self):
 		dummy_board         = torch.randn(1, self.nb_vect, self.vect_dim, dtype=torch.float32)
@@ -156,51 +221,3 @@ class NNetWrapper(NeuralNet):
 
 		self.ort_session = ort.InferenceSession(temporary_file)
 		os.remove(temporary_file)
-
-	def loss_pi(self, targets, outputs):
-		return -torch.sum(targets * outputs) / targets.size()[0]
-
-	def loss_v(self, targets, outputs):
-		return torch.sum((targets - outputs.view(-1)) ** 2) / targets.size()[0]
-
-	def loss_scdiff_cdf(self, targets, outputs):
-		l2_diff = torch.square(torch.cumsum(targets, axis=1) - torch.cumsum(torch.exp(outputs), axis=1))
-		return 0.02 * torch.sum(l2_diff) / targets.size()[0]
-
-	def loss_scdiff_pdf(self, targets, outputs):
-		cross_entropy = -torch.sum( torch.mul(targets, outputs) )
-		return 0.02 * cross_entropy / targets.size()[0]
-
-	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
-		filepath = os.path.join(folder, filename)
-		if not os.path.exists(folder):
-			# print("Checkpoint Directory does not exist! Making directory {}".format(folder))
-			os.mkdir(folder)
-		# else:
-		#     print("Checkpoint Directory exists! ")
-		current_uptime = get_uptime()
-		torch.save({
-			'state_dict': self.nnet.state_dict(),
-			'full_model': self.nnet,
-			'cumulated_uptime': self.cumulated_uptime + current_uptime-self.begin_uptime,
-			'end_uptime': current_uptime,
-			'begin': self.begin_time,
-		}, filepath)
-
-	def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', ongoing_experiment=False):
-		# https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
-		filepath = os.path.join(folder, filename)
-		if not os.path.exists(filepath):
-			print("No model in path {}".format(filepath))
-			return
-		try:
-			map_location = None if self.args['cuda'] else 'cpu'
-			checkpoint = torch.load(filepath, map_location=map_location)
-		except:
-			print("No model in path {} but file exists".format(filepath))
-			return
-		self.nnet = checkpoint['full_model']
-		self.cumulated_uptime = checkpoint.get('cumulated_uptime', 0)
-		self.begin_time = checkpoint.get('begin', int(time.time()))
-		self.begin_uptime = checkpoint.get('end_uptime', 0) if ongoing_experiment else get_uptime()
-			
