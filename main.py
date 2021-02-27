@@ -18,7 +18,7 @@ def run(args):
 	g = Game(2)
 
 	log.debug('Loading %s...', nn.__name__)
-	nn_args = dict(lr=args.learn_rate, dropout=0.3, epochs=args.epochs, batch_size=args.batch_size)
+	nn_args = dict(lr=args.learn_rate, dropout=0.3, epochs=args.epochs, batch_size=args.batch_size, nn_version=args.nn_version)
 	nnet = nn(g, nn_args)
 
 	if args.load_model:
@@ -82,6 +82,7 @@ def main():
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.001, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=5    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=128  , type=int  , help='')
+	parser.add_argument('--nn-version'      , '-V' , action='store', default=3    , type=int  , help='Which architecture to choose')
 	
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')

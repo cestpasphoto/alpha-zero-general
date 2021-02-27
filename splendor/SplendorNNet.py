@@ -60,7 +60,7 @@ class SplendorNNet(nn.Module):
 		self.action_size = game.getActionSize()
 		self.scdiff_size = 2 * game.getMaxScoreDiff() + 1
 		self.args = args
-		self.version = 3
+		self.version = args['nn_version']
 
 		super(SplendorNNet, self).__init__()
 		def _init(m):
@@ -145,6 +145,91 @@ class SplendorNNet(nn.Module):
 			self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
 
 			self.dense1d_5 = nn.Sequential(
+				nn.Linear(256, 128), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.action_size)
+			)
+			self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, 1)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.scdiff_size)
+			)
+
+			for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_3, self.flatten_and_gpool]:
+				layer2D.apply(_init)
+			for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V, self.output_layers_SDIFF]:
+				layer1D.apply(_init)
+
+		elif self.version == 4:
+			self.dense2d_1 = nn.Sequential(
+				nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(7), nn.ReLU(),
+				nn.Linear(128, 128)                            , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=2, nb_items_in_groups=8, channels_for_batchnorm=7)
+
+			self.dense2d_3 = nn.Sequential(
+				nn.Linear(128, 64)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=32, nb_channels_to_pool=5)
+
+			self.dense1d_4 = nn.Sequential(
+				nn.Linear(32*4+(64-32)*7, 128), nn.ReLU(),
+			)
+			self.partialgpool_4 = DenseAndPartialGPool(128, 128, nb_groups=2, nb_items_in_groups=4, channels_for_batchnorm=1)
+
+			self.dense1d_5 = nn.Sequential(
+				nn.Linear(128, 64), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(64, 64)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.partialgpool_5 = DenseAndPartialGPool(64, 64, nb_groups=2, nb_items_in_groups=4, channels_for_batchnorm=1)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(64, 64),
+				nn.Linear(64, self.action_size)
+			)
+			self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(64, 64),
+				nn.Linear(64, 1)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(64, 64),
+				nn.Linear(64, self.scdiff_size)
+			)
+
+			for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_3, self.flatten_and_gpool]:
+				layer2D.apply(_init)
+			for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V, self.output_layers_SDIFF]:
+				layer1D.apply(_init)
+
+		elif self.version == 5:
+			self.dense2d_1 = nn.Sequential(
+				nn.Linear(self.nb_vect, 256), nn.BatchNorm1d(7), nn.ReLU(),
+				nn.Linear(256, 128)                            , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.partialgpool_1 = nn.Identity()
+			self.dense2d_3 = nn.Identity()
+			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
+
+			self.dense1d_4 = nn.Sequential(
+				nn.Linear(64*4+(128-64)*7, 256), nn.ReLU(),
+			)
+			self.partialgpool_4 = nn.Identity()
+
+			self.dense1d_5 = nn.Sequential(
 				nn.Linear(256, 128)                   , nn.ReLU(), # no batchnorm before max pooling
 			)
 			self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
@@ -194,7 +279,7 @@ class SplendorNNet(nn.Module):
 			
 			return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff, dim=1),
 
-		if self.version == 2 or self.version == 3:
+		if self.version in [2,3,4,5]:
 			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
 			
 			x = self.dense2d_1(x)
