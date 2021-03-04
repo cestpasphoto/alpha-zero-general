@@ -77,7 +77,7 @@ class Arena():
             draws:  games won by nobody
         """
         oneWon, twoWon, draws = 0, 0, 0
-        t = tqdm(range(num), desc="Arena.playGames", ncols=100)
+        t = tqdm(range(num), desc="Arena.playGames", ncols=100, disable=None)
         for i in t:
             # Since trees aren't resetted, the first games (1vs2) can't be
             # considered as fair as the last games (2vs1). Switching between 

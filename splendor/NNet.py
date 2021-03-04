@@ -56,7 +56,7 @@ class NNetWrapper(NeuralNet):
 		optimizer = optim.Adam(self.nnet.parameters())
 		batch_count = int(len(examples) / self.args['batch_size'])
 
-		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=100, mininterval=0.5)
+		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=100, mininterval=0.5, disable=None)
 		for epoch in range(self.args['epochs']):
 			t.set_description(f'Train ep{epoch + 1}')
 			self.nnet.train()
