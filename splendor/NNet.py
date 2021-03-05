@@ -55,6 +55,9 @@ class NNetWrapper(NeuralNet):
 
 		optimizer = optim.Adam(self.nnet.parameters())
 		batch_count = int(len(examples) / self.args['batch_size'])
+		examples_surprises = np.array([x[5] for x in examples])
+		examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
+		examples_weights = examples_weights / examples_weights.sum()
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=100, mininterval=0.5, disable=None)
 		for epoch in range(self.args['epochs']):
@@ -63,8 +66,9 @@ class NNetWrapper(NeuralNet):
 			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
 	
 			for _ in range(batch_count):
-				sample_ids = np.random.randint(len(examples), size=self.args['batch_size'])
-				boards, pis, vs, scdiffs, valid_actions = list(zip(*[examples[i] for i in sample_ids]))
+				# sample_ids = np.random.randint(len(examples), size=self.args['batch_size'])
+				samples_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
+				boards, pis, vs, scdiffs, valid_actions, surprises = list(zip(*[examples[i] for i in sample_ids]))
 				boards = torch.FloatTensor(np.array(boards).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))

@@ -42,19 +42,24 @@ class MCTS():
             self.search(canonicalBoard, dirichlet_noise=dir_noise)
 
         s = self.game.stringRepresentation(canonicalBoard)
-        counts = [self.Nsa[(s, a)] if (s, a) in self.Nsa else 0 for a in range(self.game.getActionSize())]
+        counts = [self.Nsa.get((s, a), 0) for a in range(self.game.getActionSize())]
+
+        # Compute kl-divergence on probs vs self.Ps[s]
+        probs = np.array(counts)
+        probs = probs / probs.sum()
+        surprise = (np.log(probs+EPS) - np.log(self.Ps[s]+EPS)).dot(probs).item()
 
         if temp == 0:
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
             bestA = np.random.choice(bestAs)
             probs = [0] * len(counts)
             probs[bestA] = 1
-            return probs, is_full_search
+            return probs, surprise, is_full_search
 
         counts = [x ** (1. / temp) for x in counts]
         counts_sum = float(sum(counts))
         probs = [x / counts_sum for x in counts]
-        return probs, is_full_search
+        return probs, surprise, is_full_search
 
     def search(self, canonicalBoard, dirichlet_noise=False):
         """

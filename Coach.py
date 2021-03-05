@@ -55,12 +55,12 @@ class Coach():
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
             temp = int(episodeStep < self.args.tempThreshold)
 
-            pi, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp)
+            pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp)
             if is_full_search:
                 valids = self.game.getValidMoves(canonicalBoard, 1)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
-                    trainExamples.append([b, self.curPlayer, p, v])
+                    trainExamples.append([b, self.curPlayer, p, v, surprise])
 
             action = np.random.choice(len(pi), p=pi)
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
@@ -74,6 +74,7 @@ class Coach():
                     r if x[1] == self.curPlayer else -r, # winner
                     final_scores_diff if x[1] == self.curPlayer else -final_scores_diff, # score difference
                     x[3],                                # valids
+                    x[4],                                # surprise
                 ) for x in trainExamples]
 
     def learn(self):
