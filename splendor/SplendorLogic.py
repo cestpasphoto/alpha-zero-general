@@ -32,9 +32,12 @@ class Board():
 		# Bank
 		self.bank[:] = np.array([[self.num_gems_in_play]*5 + [5, 0]])
 		# Decks
-		self.nb_deck_tiers[0,:] = np.array([8]*5 + [0, 0])
-		self.nb_deck_tiers[1,:] = np.array([6]*5 + [0, 0])
-		self.nb_deck_tiers[2,:] = np.array([4]*5 + [0, 0])
+		for tier in range(3):
+			nb_deck_cards_per_color = len(all_cards[tier][0])
+			# HOW MANY cards per color are in deck of tier 0, pratical for NN
+			self.nb_deck_tiers[2*tier,:5] = nb_deck_cards_per_color
+			# WHICH cards per color are in deck of tier 0, pratical for logic
+			self.nb_deck_tiers[2*tier+1,:5] = np.packbits([1]*nb_deck_cards_per_color)[0]
 		# Tiers
 		for tier in range(3):
 			for index in range(4):
@@ -82,20 +85,20 @@ class Board():
 		n = self.num_players
 		self.bank             = self.state[0     :1      ,:]	# 1
 		self.cards_tiers      = self.state[1     :25     ,:]	# 2*12
-		self.nb_deck_tiers    = self.state[25    :28     ,:]	# 3
-		self.nobles           = self.state[28    :29+n   ,:]	# N+1
-		self.players_gems     = self.state[29+n  :29+2*n ,:]	# N
-		self.players_nobles   = self.state[29+2*n:29+5*n ,:]	# 3*N
-		self.players_cards    = self.state[29+5*n:29+6*n ,:]	# N
-		self.players_reserved = self.state[29+6*n:29+12*n,:]	# 6*N
+		self.nb_deck_tiers    = self.state[25    :31     ,:]	# 6
+		self.nobles           = self.state[31    :32+n   ,:]	# N+1
+		self.players_gems     = self.state[32+n  :32+2*n ,:]	# N
+		self.players_nobles   = self.state[32+2*n:32+5*n ,:]	# 3*N
+		self.players_cards    = self.state[32+5*n:32+6*n ,:]	# N
+		self.players_reserved = self.state[32+6*n:32+12*n,:]	# 6*N
 
 	def check_end_game(self):
 		if self.bank[0][idx_points] % self.num_players != 0: # Check only when 1st player is about to play
 			return False, [False, False]
 		
-		scores = [self.players_cards[p][:5].sum() for p in range(self.num_players)]
+		scores = [self.get_score(p) for p in range(self.num_players)]
 		score_max = max(scores)
-		end = (score_max >= 5) if self.bank[0][idx_points] < self.max_moves else True
+		end = (score_max >= 15) or (self.bank[0][idx_points] >= self.max_moves)
 		winners = [(s == score_max) for s in scores] if end else [False, False]
 		return end, winners
 
@@ -141,35 +144,26 @@ class Board():
 		return symmetries
 
 	def _get_deck_card(self, tier):
-		remaining_cards_per_color = self.nb_deck_tiers[tier][:5]
-		remaining_cards = remaining_cards_per_color.sum()
-		if remaining_cards == 0: # no more cards
+		assert 0 <= tier < 3
+		nb_remaining_cards_per_color = self.nb_deck_tiers[2*tier,:5]
+		if nb_remaining_cards_per_color.sum() == 0: # no more cards
 			return None
 		
-		if True:
-			# First we chose color randomly, then we pick a card not already displayed elsewhere
-			color = random.choices(range(5), weights=remaining_cards_per_color, k=1)[0]
-			# cards_tier_color = [c[0] for c in all_cards[tier][color]]
-			# shown_cards  = [ self.cards_tiers[8*tier+2*i,:] for i in range(4) if self.cards_tiers[8*tier+2*i+1,color] == 1]
-			# shown_cards += [ self.players_reserved[2*i,:]   for i in range(6) if self.players_reserved[2*i+1,color]   == 1]
-			# available_cards = [i for i in range(len(cards_tier_color)) if not any([np.array_equal(cards_tier_color[i], sc) for sc in shown_cards])]
-			# if len(available_cards) < remaining_cards_per_color[color]:
-			# 	print(len(available_cards), remaining_cards_per_color[color])
-			# 	breakpoint()
-			# new_card_index = random.choice(available_cards)
-			# card = np.array(all_cards[tier][color][new_card_index], dtype=np.int8)
-			# breakpoint()
-			while True:
-				card = np.array(random.choice(all_cards[tier][color]), dtype=np.int8)
-				if not any([np.array_equal(card, self.cards_tiers[8*tier+2*i:8*tier+2*i+2]) for i in range(4)]) \
-					and not any([np.array_equal(card, self.players_reserved[2*i:2*i+2]) for i in range(6)]):
-					break
-		else:
-			i,j=divmod(remaining_cards-1, 5)
-			card = all_cards[tier][j][4-i]
-			color = np.argmax(card[1][:5])
+		# First we chose color randomly, then we pick a card 
+		color = np.random.choice(5, p=nb_remaining_cards_per_color/nb_remaining_cards_per_color.sum())
+		remaining_cards = np.unpackbits(self.nb_deck_tiers[2*tier+1, color].astype(np.uint8))
+		assert np.all(remaining_cards.sum().size == 1)
+		assert np.all(remaining_cards.sum() == nb_remaining_cards_per_color[color])
+		card_index = np.random.choice(len(remaining_cards), p=remaining_cards/remaining_cards.sum())
+		# Update internals
+		assert np.all(remaining_cards[card_index] == 1)
+		remaining_cards[card_index] = 0
+		self.nb_deck_tiers[2*tier+1, color] = np.packbits(remaining_cards).astype(np.int8)
+		self.nb_deck_tiers[2*tier, color] -= 1
+		assert np.all(remaining_cards.sum() == self.nb_deck_tiers[2*tier, color])
+		assert np.all(self.nb_deck_tiers.dtype == np.int8)
 
-		self.nb_deck_tiers[tier][color] -= 1
+		card = all_cards[tier][color][card_index]
 		return card
 
 	def _fill_new_card(self, tier, index):
@@ -202,7 +196,7 @@ class Board():
 
 	def _is_empty(self, tier, index):
 		if index == 4:
-			return (self.nb_deck_tiers[tier].sum() == 0)
+			return (self.nb_deck_tiers[2*tier].sum() == 0)
 		else:
 			return (self.cards_tiers[8*tier+2*index][:5].sum() == 0)
 
@@ -225,7 +219,7 @@ class Board():
 
 	def _valid_reserve_optim(self, player):
 		card_index = np.array(range(12))
-		not_empty_cards = np.vstack([self.cards_tiers[2*card_index,:5], self.nb_deck_tiers[:, :5]]).sum(axis=1) != 0
+		not_empty_cards = np.vstack([self.cards_tiers[2*card_index,:5], self.nb_deck_tiers[::2, :5]]).sum(axis=1) != 0
 		empty_slot = (self.players_reserved[6*player+5][:5].sum() == 0)
 		return np.logical_and(not_empty_cards, empty_slot).astype(np.int8)
 
@@ -325,7 +319,7 @@ class Board():
 
 
 def observation_size(num_players):
-	return (29+12*num_players, 7)
+	return (32+12*num_players, 7)
 
 def action_size():
 	return 81
@@ -649,7 +643,7 @@ def _print_tiers(board):
 			if line == 3:
 				print(f'Tier {tier}: ', end='')
 			elif line == 4:
-				print(f'  ({board.nb_deck_tiers[tier].sum():>2})  ', end='')
+				print(f'  ({board.nb_deck_tiers[2*tier].sum():>2})  ', end='')
 			else:
 				print(f'        ', end='')
 			for i in range(4):

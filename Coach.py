@@ -169,6 +169,3 @@ class Coach():
             with open(examplesFile, "rb") as f:
                 self.trainExamplesHistory = Unpickler(f).load()
             log.info('Loading done!')
-
-            # examples based on the model were already collected (loaded)
-            self.skipFirstSelfPlay = True
