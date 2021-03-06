@@ -34,7 +34,7 @@ def create_player(name, args):
 	cpt_dir, cpt_file = os.path.split(name)
 	net.load_checkpoint(cpt_dir, cpt_file)
 	mcts = MCTS(game, net, dotdict({'numMCTSSims': args.numMCTSSims, 'prob_fullMCTS': 1., 'cpuct': args.cpuct}))
-	player = lambda x: np.argmax(mcts.getActionProb(x, temp=0)[0])
+	player = lambda x: np.argmax(mcts.getActionProb(x, temp=0, force_full_search=True)[0])
 	return player
 
 def play(args):

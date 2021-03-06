@@ -26,7 +26,7 @@ class MCTS():
         self.Es = {}  # stores game.getGameEnded ended for board s
         self.Vs = {}  # stores game.getValidMoves for board s
 
-    def getActionProb(self, canonicalBoard, temp=1):
+    def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
         This function performs numMCTSSims simulations of MCTS starting from
         canonicalBoard.
@@ -35,7 +35,7 @@ class MCTS():
             probs: a policy vector where the probability of the ith action is
                    proportional to Nsa[(s,a)]**(1./temp)
         """
-        is_full_search = np.random.random_sample() < self.args.prob_fullMCTS
+        is_full_search = force_full_search or (np.random.random_sample() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         for i in range(nb_MCTS_sims):
             dir_noise = (i == 0 and self.dirichlet_noise and is_full_search)
