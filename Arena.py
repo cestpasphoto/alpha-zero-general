@@ -95,7 +95,7 @@ class Arena():
 
             t.set_postfix(one_wins=oneWon, two_wins=twoWon, refresh=False)
             ratio = oneWon / (oneWon+twoWon) if oneWon+twoWon>0 else 0.5
-            t.colour='green' if ratio>=0.55 else ('red' if ratio<=0.45 else 'yellow') #'#e59400'
+            t.colour='green' if ratio>=0.60 else ('red' if ratio<=0.40 else 'yellow') #'#e59400'
         t.close()
 
         return oneWon, twoWon, draws

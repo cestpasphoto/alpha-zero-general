@@ -70,7 +70,7 @@ def main():
 	parser.add_argument('--timeIters'       , '-t' , action='store', default=0.   , type=float, help='')
 	parser.add_argument('--numEps'          , '-e' , action='store', default=400  , type=int  , help='Number of complete self-play games to simulate during a new iteration')
 	parser.add_argument('--tempThreshold'          , action='store', default=8    , type=int  , help='')
-	parser.add_argument('--updateThreshold'        , action='store', default=0.55 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
+	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	# parser.add_argument('--maxlenOfQueue'   , '-q' , action='store', default=400000, type=int , help='Number of game examples to train the neural networks')
 	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=100  , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
@@ -92,7 +92,7 @@ def main():
 	
 	args = parser.parse_args()
 	args.arenaCompare = 30
-	args.maxlenOfQueue = int(2e6/(1.1*args.numItersHistory)) # at most 2GB per process, with each example weighing 1.1kB
+	args.maxlenOfQueue = int(2.5e6/(1.2*args.numItersHistory)) # at most 2GB per process, with each example weighing 1.2kB
 	if args.timeIters > 0:
 		args.numIters = 1000
 
