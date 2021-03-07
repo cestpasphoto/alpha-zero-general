@@ -67,7 +67,7 @@ class NNetWrapper(NeuralNet):
 	
 			for _ in range(batch_count):
 				# sample_ids = np.random.randint(len(examples), size=self.args['batch_size'])
-				samples_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
+				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
 				boards, pis, vs, scdiffs, valid_actions, surprises = list(zip(*[examples[i] for i in sample_ids]))
 				boards = torch.FloatTensor(np.array(boards).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
