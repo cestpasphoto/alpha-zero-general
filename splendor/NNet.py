@@ -53,7 +53,7 @@ class NNetWrapper(NeuralNet):
 		"""
 		self.switch_target('training')
 
-		optimizer = optim.Adam(self.nnet.parameters())
+		optimizer = optim.Adam(self.nnet.parameters(), lr=self.args.learn_rate)
 		batch_count = int(len(examples) / self.args['batch_size'])
 		examples_surprises = np.array([x[5] for x in examples])
 		examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
