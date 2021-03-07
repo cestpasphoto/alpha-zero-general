@@ -144,7 +144,6 @@ class Board():
 		return symmetries
 
 	def _get_deck_card(self, tier):
-		assert 0 <= tier < 3
 		nb_remaining_cards_per_color = self.nb_deck_tiers[2*tier,:5]
 		if nb_remaining_cards_per_color.sum() == 0: # no more cards
 			return None
@@ -152,16 +151,11 @@ class Board():
 		# First we chose color randomly, then we pick a card 
 		color = np.random.choice(5, p=nb_remaining_cards_per_color/nb_remaining_cards_per_color.sum())
 		remaining_cards = np.unpackbits(self.nb_deck_tiers[2*tier+1, color].astype(np.uint8))
-		assert np.all(remaining_cards.sum().size == 1)
-		assert np.all(remaining_cards.sum() == nb_remaining_cards_per_color[color])
 		card_index = np.random.choice(len(remaining_cards), p=remaining_cards/remaining_cards.sum())
 		# Update internals
-		assert np.all(remaining_cards[card_index] == 1)
 		remaining_cards[card_index] = 0
 		self.nb_deck_tiers[2*tier+1, color] = np.packbits(remaining_cards).astype(np.int8)
 		self.nb_deck_tiers[2*tier, color] -= 1
-		assert np.all(remaining_cards.sum() == self.nb_deck_tiers[2*tier, color])
-		assert np.all(self.nb_deck_tiers.dtype == np.int8)
 
 		card = all_cards[tier][color][card_index]
 		return card
