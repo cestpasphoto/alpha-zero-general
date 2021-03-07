@@ -122,7 +122,7 @@ class Coach():
 
             # training new network, keeping a copy of the old one
             self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
-            self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt', ongoing_experiment=True)
+            self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
             pmcts = MCTS(self.game, self.pnet, self.args)
 
             self.nnet.train(trainExamples)
@@ -135,7 +135,7 @@ class Coach():
 
             if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
                 log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED')
-                self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt', ongoing_experiment=True)
+                self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
             else:
                 log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))

@@ -16,13 +16,6 @@ import torch.optim as optim
 
 from .OthelloNNet import OthelloNNet as onnet
 
-def get_uptime():
-    import subprocess
-    tuptime = subprocess.run(['tuptime', '--power', '--seconds', '--csv'], capture_output=True)
-    tuptime_stdout = tuptime.stdout.decode('utf-8')
-    runtime_value = int(tuptime_stdout.splitlines()[3].split(',')[-1].split(' ')[1])
-    return runtime_value
-
 class NNetWrapper(NeuralNet):
     def __init__(self, game, nn_args):
         self.args = nn_args
@@ -30,9 +23,6 @@ class NNetWrapper(NeuralNet):
         self.nnet = onnet(game, nn_args)
         self.board_x, self.board_y = game.getBoardSize()
         self.action_size = game.getActionSize()
-        self.begin_uptime = get_uptime()
-        self.cumulated_uptime = 0
-        self.begin_time = int(time.time())
 
         if self.args['cuda']:
             self.nnet.cuda()
@@ -88,7 +78,7 @@ class NNetWrapper(NeuralNet):
         board: np array with board
         """
         # timing
-        start = time.time()
+        #start = time.time()
 
         # preparing input
         board = torch.FloatTensor(board.astype(np.float32))
@@ -115,17 +105,13 @@ class NNetWrapper(NeuralNet):
             os.mkdir(folder)
         # else:
         #     print("Checkpoint Directory exists! ")
-        current_uptime = get_uptime()
         torch.save({
             'state_dict': self.nnet.state_dict(),
             'full_model': self.nnet,
-            'cumulated_uptime': self.cumulated_uptime + current_uptime-self.begin_uptime,
-            'end_uptime': current_uptime,
-            'begin': self.begin_time,
         }, filepath)
         # print(f'SAVE: {self.cumulated_uptime=} {self.begin_uptime=} ==> cumulated_uptime={self.cumulated_uptime + current_uptime-self.begin_uptime}')
 
-    def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', ongoing_experiment=False):
+    def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
         # https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
         filepath = os.path.join(folder, filename)
         if not os.path.exists(filepath):
@@ -134,7 +120,4 @@ class NNetWrapper(NeuralNet):
         map_location = None if self.args['cuda'] else 'cpu'
         checkpoint = torch.load(filepath, map_location=map_location)
         self.nnet = checkpoint['full_model']
-        self.cumulated_uptime = checkpoint.get('cumulated_uptime', 0)
-        self.begin_time = checkpoint.get('begin', int(time.time()))
-        self.begin_uptime = checkpoint.get('end_uptime', 0) if ongoing_experiment else get_uptime()
             

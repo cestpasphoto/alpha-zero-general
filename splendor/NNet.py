@@ -21,13 +21,6 @@ torch.set_num_threads(1) # PyTorch more efficient this way
 
 from .SplendorNNet import SplendorNNet as snnet
 
-def get_uptime():
-	import subprocess
-	tuptime = subprocess.run(['tuptime', '--power', '--seconds', '--csv'], capture_output=True)
-	tuptime_stdout = tuptime.stdout.decode('utf-8')
-	runtime_value = int(tuptime_stdout.splitlines()[3].split(',')[-1].split(' ')[1])
-	return runtime_value
-
 class NNetWrapper(NeuralNet):
 	def __init__(self, game, nn_args):
 		self.args = nn_args
@@ -42,10 +35,6 @@ class NNetWrapper(NeuralNet):
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.max_diff = game.getMaxScoreDiff()
-
-		self.begin_uptime = get_uptime()
-		self.cumulated_uptime = 0
-		self.begin_time = int(time.time())
 
 	def train(self, examples):
 		"""
@@ -152,18 +141,14 @@ class NNetWrapper(NeuralNet):
 			os.mkdir(folder)
 		# else:
 		#     print("Checkpoint Directory exists! ")
-		current_uptime = get_uptime()
 
 		self.switch_target('inference')
 		torch.save({
 			'state_dict': self.nnet.state_dict(),
 			'full_model': self.nnet,
-			'cumulated_uptime': self.cumulated_uptime + current_uptime-self.begin_uptime,
-			'end_uptime': current_uptime,
-			'begin': self.begin_time,
 		}, filepath)
 
-	def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', ongoing_experiment=False):
+	def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
 		# https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
 		filepath = os.path.join(folder, filename)
 		if not os.path.exists(filepath):
@@ -175,9 +160,6 @@ class NNetWrapper(NeuralNet):
 			print("No model in path {} but file exists".format(filepath))
 			return
 		self.nnet = checkpoint['full_model']
-		self.cumulated_uptime = checkpoint.get('cumulated_uptime', 0)
-		self.begin_time = checkpoint.get('begin', int(time.time()))
-		self.begin_uptime = checkpoint.get('end_uptime', 0) if ongoing_experiment else get_uptime()
 			
 	def switch_target(self, mode):
 		target_device = self.device[mode]
