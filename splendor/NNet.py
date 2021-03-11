@@ -27,6 +27,7 @@ class NNetWrapper(NeuralNet):
 		self.device = {
 			'training' : 'cpu', #'cuda' if torch.cuda.is_available() else 'cpu',
 			'inference': 'onnx',
+			'save_and_load': 'cpu',
 		}
 		self.current_mode = 'cpu'
 		self.nnet = snnet(game, nn_args)
@@ -42,7 +43,7 @@ class NNetWrapper(NeuralNet):
 		"""
 		self.switch_target('training')
 
-		optimizer = optim.Adam(self.nnet.parameters(), lr=self.args.learn_rate)
+		optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
 		batch_count = int(len(examples) / self.args['batch_size'])
 		examples_surprises = np.array([x[5] for x in examples])
 		examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
@@ -142,7 +143,7 @@ class NNetWrapper(NeuralNet):
 		# else:
 		#     print("Checkpoint Directory exists! ")
 
-		self.switch_target('inference')
+		self.switch_target('save_and_load')
 		torch.save({
 			'state_dict': self.nnet.state_dict(),
 			'full_model': self.nnet,
@@ -160,6 +161,8 @@ class NNetWrapper(NeuralNet):
 			print("No model in path {} but file exists".format(filepath))
 			return
 		self.nnet = checkpoint['full_model']
+		self.ort_session = None
+		self.switch_target('save_and_load')
 			
 	def switch_target(self, mode):
 		target_device = self.device[mode]

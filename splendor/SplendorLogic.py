@@ -15,6 +15,7 @@ class Board():
 		self.max_moves = 126
 		self.score_win = 15
 		self.state = None
+		self.rng = np.random.default_rng()
 
 		if state is None:
 			self.init_game()
@@ -43,7 +44,7 @@ class Board():
 			for index in range(4):
 				self._fill_new_card(tier, index)
 		# Nobles
-		self.nobles[:] = np.array(random.sample(all_nobles, self.num_nobles))
+		self.nobles[:] = np.array(self.rng.choice(all_nobles, size=self.num_nobles))
 		# Players
 		self.players_gems[:] = 0
 		self.players_nobles[:] = 0
@@ -149,9 +150,9 @@ class Board():
 			return None
 		
 		# First we chose color randomly, then we pick a card 
-		color = np.random.choice(5, p=nb_remaining_cards_per_color/nb_remaining_cards_per_color.sum())
+		color = self.rng.choice(5, p=nb_remaining_cards_per_color/nb_remaining_cards_per_color.sum())
 		remaining_cards = np.unpackbits(self.nb_deck_tiers[2*tier+1, color].astype(np.uint8))
-		card_index = np.random.choice(len(remaining_cards), p=remaining_cards/remaining_cards.sum())
+		card_index = self.rng.choice(len(remaining_cards), p=remaining_cards/remaining_cards.sum())
 		# Update internals
 		remaining_cards[card_index] = 0
 		self.nb_deck_tiers[2*tier+1, color] = np.packbits(remaining_cards).astype(np.int8)

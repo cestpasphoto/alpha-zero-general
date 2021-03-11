@@ -18,7 +18,7 @@ def run(args):
 	g = Game(2)
 
 	log.debug('Loading %s...', nn.__name__)
-	nn_args = dict(lr=args.learn_rate, dropout=0.3, epochs=args.epochs, batch_size=args.batch_size, nn_version=args.nn_version)
+	nn_args = dict(lr=args.learn_rate, dropout=0.3, epochs=args.epochs, batch_size=args.batch_size, nn_version=args.nn_version, learn_rate=args.learn_rate)
 	nnet = nn(g, nn_args)
 
 	if args.load_model:
