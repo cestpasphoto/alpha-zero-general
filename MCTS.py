@@ -35,6 +35,10 @@ class MCTS():
             probs: a policy vector where the probability of the ith action is
                    proportional to Nsa[(s,a)]**(1./temp)
         """
+        if self.game.getRound(canonicalBoard) == 0:
+            # first move, cleaning tree
+            self.Qsa, self.Nsa, self.Ns, self.Ps, self.Es, self.Vs = {}, {}, {}, {}, {}, {}
+
         is_full_search = force_full_search or (np.random.random_sample() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         for i in range(nb_MCTS_sims):

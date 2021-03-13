@@ -55,13 +55,13 @@ class Board():
 		return self.state
 
 	def valid_moves(self, player):
-		result = [0]*81
+		result = np.zeros(81, dtype=np.bool_)
 		result[0         :12]            = self._valid_buy_optim(player)
 		result[12        :12+15]         = self._valid_reserve_optim(player)
 		result[12+15     :12+15+3]       = self._valid_buy_reserve_optim(player)
 		result[12+15+3   :12+15+3+30]    = np.concatenate((self._valid_get_gems_optim(player) , self._valid_get_gems_identical_optim(player)))
 		result[12+15+3+30:12+15+3+30+20] = np.concatenate((self._valid_give_gems_optim(player), self._valid_give_gems_identical_optim(player)))
-		result[80] = 1 #empty move
+		result[80] = True #empty move
 		return result
 
 	def make_move(self, move, player):
@@ -143,6 +143,9 @@ class Board():
 				self.players_reserved[:] = players_reserved_backup
 
 		return symmetries
+
+	def get_round(self):
+		return self.bank[0][idx_points]
 
 	def _get_deck_card(self, tier):
 		nb_remaining_cards_per_color = self.nb_deck_tiers[2*tier,:5]

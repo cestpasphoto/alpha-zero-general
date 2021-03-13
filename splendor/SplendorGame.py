@@ -49,6 +49,10 @@ class SplendorGame(Game):
 		self.board.copy_state(board, copy_or_not=False)
 		return self.board.get_score(0 if player==1 else 1)
 
+	def getRound(self, board):
+		self.board.copy_state(board, copy_or_not=False)
+		return self.board.get_round()
+
 	def getCanonicalForm(self, board, player):
 		if player == 1:
 			return board

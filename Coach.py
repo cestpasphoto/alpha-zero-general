@@ -165,8 +165,19 @@ class Coach():
             r = input("Continue? [y|n]")
             if r != "y":
                 sys.exit()
-        else:
-            log.info("File with trainExamples found. Loading it...")
-            with open(examplesFile, "rb") as f:
-                self.trainExamplesHistory = Unpickler(f).load()
-            log.info('Loading done!')
+            return
+    
+        log.info("File with trainExamples found. Loading it...")
+        with open(examplesFile, "rb") as f:
+            self.trainExamplesHistory = Unpickler(f).load()
+        log.info('Loading done!')
+
+        # cleaning
+        if len(self.trainExamplesHistory) > self.args.numItersHistory:
+            self.trainExamplesHistory = self.trainExamplesHistory[-self.args.numItersHistory:]
+            log.info('Reduced history in loaded examples')
+        for history in self.trainExamplesHistory:
+            if len(history) > self.args.maxlenOfQueue:
+                for _ in range(len(history), self.args.maxlenOfQueue, -1):
+                    history.pop()
+                log.info('Reduced nb of items in one history of loaded examples')
