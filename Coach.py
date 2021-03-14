@@ -121,7 +121,7 @@ class Coach():
             shuffle(trainExamples)
 
             # training new network, keeping a copy of the old one
-            self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
+            self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt', additional_keys=vars(self.args))
             self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
             pmcts = MCTS(self.game, self.pnet, self.args)
 
@@ -138,8 +138,8 @@ class Coach():
                 self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
             else:
                 log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
-                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
-                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt')
+                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
+                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
 
             if self.args.timeIters > 0:
                 if time.time() - start_time > self.args.timeIters*3600:

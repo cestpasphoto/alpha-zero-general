@@ -135,7 +135,7 @@ class NNetWrapper(NeuralNet):
 		cross_entropy = -torch.sum( torch.mul(targets, outputs) )
 		return 0.02 * cross_entropy / targets.size()[0]
 
-	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
+	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', additional_keys={}):
 		filepath = os.path.join(folder, filename)
 		if not os.path.exists(folder):
 			# print("Checkpoint Directory does not exist! Making directory {}".format(folder))
@@ -143,26 +143,38 @@ class NNetWrapper(NeuralNet):
 		# else:
 		#     print("Checkpoint Directory exists! ")
 
-		self.switch_target('save_and_load')
-		torch.save({
+		data = {
 			'state_dict': self.nnet.state_dict(),
 			'full_model': self.nnet,
-		}, filepath)
+		}
+		data.update(additional_keys)
+		torch.save(data, filepath)
 
 	def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
 		# https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
 		filepath = os.path.join(folder, filename)
 		if not os.path.exists(filepath):
 			print("No model in path {}".format(filepath))
-			return
+			return			
 		try:
 			checkpoint = torch.load(filepath, map_location='cpu')
+			try:
+				self.nnet.load_state_dict(checkpoint['state_dict'])	
+			except:
+				if self.nnet.version > 0:
+					try:
+						self.nnet.load_state_dict(checkpoint['state_dict'], strict=False)	
+						print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
+					except:
+						self.nnet = checkpoint['full_model']
+						print('Had to load FULL MODEL, was not able to load state_dict, saved archi-version was', checkpoint['full_model'].version)
+				else:
+					self.nnet = checkpoint['full_model']
 		except:
-			print("No model in path {} but file exists".format(filepath))
+			print("MODEL {} CAN'T BE READ but file exists".format(filepath))
 			return
-		self.nnet = checkpoint['full_model']
-		self.ort_session = None
-		self.switch_target('save_and_load')
+		self.switch_target('just_loaded')
+		return checkpoint
 			
 	def switch_target(self, mode):
 		target_device = self.device[mode]
