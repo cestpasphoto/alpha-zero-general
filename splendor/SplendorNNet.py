@@ -82,15 +82,17 @@ class SplendorNNet(nn.Module):
 			self.maxpool = nn.MaxPool2d((5,1))
 			self.avgpool = nn.AvgPool2d((5,1))
 
-		elif self.version in [3, 8]:
+		elif self.version in [3, 8, 10]:
 			self.dense2d_1 = nn.Sequential(
 				nn.Linear(self.nb_vect, 256), nn.BatchNorm1d(7), nn.ReLU(),
 				nn.Linear(256, 256)                            , nn.ReLU(), # no batchnorm before max pooling
 			)
 			if self.version == 3:
 				self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=7)
-			else:
+			elif self.version == 8:
 				self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=7)
+			else:
+				self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=7)
 
 			self.dense2d_2 = nn.Identity()
 			self.partialgpool_2 = nn.Identity()
@@ -98,13 +100,21 @@ class SplendorNNet(nn.Module):
 			self.dense2d_3 = nn.Sequential(
 				nn.Linear(256, 128)                   , nn.ReLU(), # no batchnorm before max pooling
 			)
-			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
+			if self.version in [3,8]:
+				self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
+				self.dense1d_4 = nn.Sequential(
+					nn.Linear(64*4+(128-64)*7, 256), nn.ReLU(),
+				)
+			else:
+				self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=32, nb_channels_to_pool=5)
+				self.dense1d_4 = nn.Sequential(
+					nn.Linear(32*4+(128-32)*7, 256), nn.ReLU(),
+				)
 
-			self.dense1d_4 = nn.Sequential(
-				nn.Linear(64*4+(128-64)*7, 256), nn.ReLU(),
-			)
 			if self.version == 3:
 				self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=4, channels_for_batchnorm=1)
+			elif self.version == 8:
+				self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
 			else:
 				self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
 

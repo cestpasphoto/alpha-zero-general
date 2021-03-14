@@ -27,7 +27,7 @@ class NNetWrapper(NeuralNet):
 		self.device = {
 			'training' : 'cpu', #'cuda' if torch.cuda.is_available() else 'cpu',
 			'inference': 'onnx',
-			'save_and_load': 'cpu',
+			'just_loaded': 'cpu',
 		}
 		self.current_mode = 'cpu'
 		self.nnet = snnet(game, nn_args)
@@ -190,6 +190,8 @@ class NNetWrapper(NeuralNet):
 			self.export_and_load_onnx()
 		elif target_device == 'cuda':
 			self.nnet.cuda()
+			self.ort_session = None # Make ONNX export invalid
+		elif target_device == 'just_loaded':
 			self.ort_session = None # Make ONNX export invalid
 		
 		self.current_mode = target_device

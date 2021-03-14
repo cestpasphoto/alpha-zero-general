@@ -82,7 +82,7 @@ def main():
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.001, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=5    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=128  , type=int  , help='')
-	parser.add_argument('--nn-version'      , '-V' , action='store', default=3    , type=int  , help='Which architecture to choose')
+	parser.add_argument('--nn-version'      , '-V' , action='store', default=8    , type=int  , help='Which architecture to choose')
 	
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
