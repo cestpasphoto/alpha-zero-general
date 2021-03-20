@@ -414,8 +414,12 @@ def _gen_list_of_different_gems(max_num_gems):
 	for n in range(1, max_num_gems+1):
 		results += [ sum(comb) for comb in itertools.combinations(gems, n) ]
 	return results
+
+
 list_different_gems_up_to_3 =  _gen_list_of_different_gems(3)
 list_different_gems_up_to_2 =  _gen_list_of_different_gems(2)
+np_different_gems_up_to_2 = np.array(list_different_gems_up_to_2, dtype=np.int8)
+np_different_gems_up_to_3 = np.array(list_different_gems_up_to_3, dtype=np.int8)
 
 # cards_symmetries = itertools.permutations(range(4))
 cards_symmetries   = [(1, 3, 0, 2), (2, 0, 3, 1), (3, 2, 1, 0)]
@@ -425,6 +429,14 @@ reserve_symmetries = [
 	[(1, 0, 2)],			# 2 cards
 	[(1, 2, 0), (2, 0, 1)], # 3 cards
 ]
+reserve_symmetries2 = [       # Need constant size to convert to numpy list
+	[(-1,-1,-1), (-1,-1,-1)], # 0 card in reserve
+	[(-1,-1,-1), (-1,-1,-1)], # 1 card
+	[(1, 0, 2) , (-1,-1,-1)], # 2 cards
+	[(1, 2, 0) , (2, 0, 1) ], # 3 cards
+]
+np_cards_symmetries = np.array(cards_symmetries, dtype=np.int8)
+np_reserve_symmetries = np.array(reserve_symmetries2, dtype=np.int8)
 
 ##### END OF CLASS #####
 
@@ -459,6 +471,7 @@ all_nobles = [
 	[0, 3, 3, 3, 0, 0, 3],
 	[3, 3, 0, 0, 3, 0, 3],
 ]
+np_all_nobles  = np.array(all_nobles , dtype=np.int8)
 
 #             COST                      GAIN
 #         W Blu G  R  Blk        W Blu G  R  Blk  Point
@@ -596,6 +609,10 @@ all_cards_3 = [
 ]
 
 all_cards = [all_cards_1, all_cards_2, all_cards_3]
+np_all_cards_1 = np.array(all_cards_1, dtype=np.int8)
+np_all_cards_2 = np.array(all_cards_2, dtype=np.int8)
+np_all_cards_3 = np.array(all_cards_3, dtype=np.int8)
+len_all_cards = np.array([len(all_cards_1[0]), len(all_cards_2[0]), len(all_cards_3[0])], dtype=np.int8)
 
 def _print_round_and_scores(board):
 	print('='*15, f' round {board.bank[0][idx_points]}    ', end='')

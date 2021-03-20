@@ -1,50 +1,38 @@
 #!/home/best/dev/splendor/venv/bin/python3
 
-from .SplendorLogic import all_nobles, all_cards_1, all_cards_2, all_cards_3, list_different_gems_up_to_2, list_different_gems_up_to_3, cards_symmetries, reserve_symmetries
+from .SplendorLogic import np_all_nobles, np_all_cards_1, np_all_cards_2, np_all_cards_3, len_all_cards, np_different_gems_up_to_2, np_different_gems_up_to_3, np_cards_symmetries, np_reserve_symmetries
 import numpy as np
 
 from numba import jit, njit, jit_module
 import numba
 
-
-
-np_all_cards_1 = np.array(all_cards_1, dtype=np.int8)
-np_all_cards_2 = np.array(all_cards_2, dtype=np.int8)
-np_all_cards_3 = np.array(all_cards_3, dtype=np.int8)
-np_all_nobles  = np.array(all_nobles , dtype=np.int8)
-np_different_gems_up_to_2 = np.array(list_different_gems_up_to_2, dtype=np.int8)
-np_different_gems_up_to_3 = np.array(list_different_gems_up_to_3, dtype=np.int8)
-len_all_cards = np.array([len(all_cards_1[0]), len(all_cards_2[0]), len(all_cards_3[0])], dtype=np.int8)
-np_cards_symmetries = np.array(cards_symmetries)
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
-@jit(nopython=True, fastmath=True, cache=True, nogil=True)
+@njit(cache=True)
 def observation_size(num_players):
 	return (32+12*num_players, 7)
 
-@jit(nopython=True, fastmath=True, cache=True, nogil=True)
+@njit(cache=True)
 def action_size():
 	return 81
 
-@jit(nopython=True, fastmath=True, cache=True, nogil=True)
+@njit(cache=True)
 def my_random_choice(prob):
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
-	# print('numba:', prob, ' ', result)
 	return result
 
-@jit(nopython=True, fastmath=True, cache=True, nogil=True)
+@njit(cache=True)
 def my_packbits(array):
 	product = np.multiply(array.astype(np.uint8), mask[:len(array)])
 	return product.sum()
 
-@jit(nopython=True, fastmath=True, cache=True, nogil=True)
+@njit(cache=True)
 def my_unpackbits(value):
 	return (np.bitwise_and(value, mask) != 0).astype(np.uint8)
 
-@jit(nopython=True, fastmath=True, cache=True, nogil=True)
+@njit(cache=True)
 def np_all_axis1(x):
-	"""Numba compatible version of np.all(x, axis=1)."""
 	out = np.ones(x.shape[0], dtype=np.bool8)
 	for i in range(x.shape[1]):
 		out = np.logical_and(out, x[:, i])
@@ -191,23 +179,24 @@ class Board():
 				new_policy = _copy_and_permute(policy, permutation, 4*tier)
 				new_valid_actions = _copy_and_permute(valid_actions, permutation, 4*tier)
 				symmetries.append((self.state.copy(), new_policy, new_valid_actions))
-				cards_tiers[:] = cards_tiers_backup
+				self.cards_tiers[:] = cards_tiers_backup
 		
 		# Permute reserved cards
 		for player in range(self.num_players):
-			nb_reserved_cards = _nb_of_reserved_cards(player, self.players_reserved)
-			if nb_reserved_cards in [2,3]:
-				for permutation in [(1, 0, 2)] if nb_reserved_cards == 2 else [(1, 2, 0), (2, 0, 1)]:
-					players_reserved_backup = self.players_reserved.copy()
-					_swap_cards(self.players_reserved[6*player:6*player+6, :], permutation)
-					if player == 0:
-						new_policy = _copy_and_permute(policy, permutation, 12+15)
-						new_valid_actions = _copy_and_permute(valid_actions, permutation, 12+15)
-					else:
-						new_policy = policy.copy()
-						new_valid_actions = valid_actions.copy()
-					symmetries.append((self.state.copy(), new_policy, new_valid_actions))
-					self.players_reserved[:] = players_reserved_backup
+			nb_reserved_cards = self._nb_of_reserved_cards(player)
+			for permutation in np_reserve_symmetries[nb_reserved_cards]:
+				if permutation[0] < 0:
+					continue
+				players_reserved_backup = self.players_reserved.copy()
+				_swap_cards(self.players_reserved[6*player:6*player+6, :], permutation)
+				if player == 0:
+					new_policy = _copy_and_permute(policy, permutation, 12+15)
+					new_valid_actions = _copy_and_permute(valid_actions, permutation, 12+15)
+				else:
+					new_policy = policy.copy()
+					new_valid_actions = valid_actions.copy()
+				symmetries.append((self.state.copy(), new_policy, new_valid_actions))
+				self.players_reserved[:] = players_reserved_backup
 
 		return symmetries
 

@@ -11,8 +11,7 @@ import numpy as np
 class SplendorGame(Game):
 	def __init__(self, num_players):
 		self.num_players = num_players
-		self.board = Board(num_players)
-		self.board2 = Board2(num_players)
+		self.board = Board2(num_players)
 
 	def getInitBoard(self):
 		self.board.init_game()
@@ -28,48 +27,18 @@ class SplendorGame(Game):
 		return 15
 
 	def getNextState(self, board, player, action):
-		board_copy = board.copy()
-
-		self.board.copy_state(board, copy_or_not=True)
+		self.board.copy_state(board, True)
 		self.board.make_move(action, 0 if player==1 else 1)
-		result = self.board.get_state()
-
-		if action > 12+15:
-			self.board2.copy_state(board_copy, True)
-			self.board2.make_move(action, 0 if player==1 else 1)
-			result2 = self.board2.get_state()
-			if not np.array_equal(result, result2):
-				breakpoint()
-
-		return (result, -player)
+		return (self.board.get_state(), -player)
 
 
 	def getValidMoves(self, board, player):
-		board_copy = board.copy()
-
-		self.board.copy_state(board, copy_or_not=False)
-		result = self.board.valid_moves(0 if player==1 else 1)
-
-		self.board2.copy_state(board_copy, False)
-		result2 = self.board2.valid_moves(0 if player==1 else 1)
-		if not np.array_equal(result, result2):
-			breakpoint()
-
-		return result
+		self.board.copy_state(board, False)
+		return self.board.valid_moves(0 if player==1 else 1)
 
 	def getGameEnded(self, board, player):
-		board_copy = board.copy()
-
-		self.board.copy_state(board, copy_or_not=False)
+		self.board.copy_state(board, False)
 		ended, winners = self.board.check_end_game()
-
-		self.board2.copy_state(board_copy, False)
-		ended2, winners2 = self.board2.check_end_game()
-		if ended != ended2:
-			breakpoint()
-		if not np.array_equal(winners, winners2):
-			breakpoint()
-
 		if not ended:			# not finished
 			return 0
 
@@ -78,52 +47,24 @@ class SplendorGame(Game):
 		return 1 if winners[0 if player==1 else 1] else -1
 
 	def getScore(self, board, player):
-		self.board.copy_state(board, copy_or_not=False)
+		self.board.copy_state(board, False)
 		return self.board.get_score(0 if player==1 else 1)
 
 	def getRound(self, board):
-		self.board.copy_state(board, copy_or_not=False)
+		self.board.copy_state(board, False)
 		return self.board.get_round()
 
 	def getCanonicalForm(self, board, player):
 		if player == 1:
 			return board
 
-		board_copy = board.copy()
-		
-		self.board.copy_state(board, copy_or_not=True)
+		self.board.copy_state(board, True)
 		self.board.swap_players()
-		result = self.board.get_state()
-
-		self.board2.copy_state(board_copy, True)
-		self.board2.swap_players()
-		result2 = self.board2.get_state()
-		if not np.array_equal(result, result2):
-			breakpoint()
-
-		return result
+		return self.board.get_state()
 
 	def getSymmetries(self, board, pi, valid_actions):
-		board_copy = board.copy()
-		pi_copy = np.array(pi, dtype=np.float32).copy()
-
-		self.board.copy_state(board, copy_or_not=True)
-		result = self.board.get_symmetries(pi, valid_actions)
-
-
-		self.board2.copy_state(board_copy, True)
-		result2 = self.board.get_symmetries(pi_copy, valid_actions)
-		for a,b in zip(result, result2):
-			a1, a2, a3 = a
-			b1, b2, b3 = b
-			if not np.array_equal(a1,b1):
-				breakpoint()
-			if not np.array_equal(a2,b2):
-				breakpoint()
-			if not np.array_equal(a3,b3):
-				breakpoint()
-
-		return result
+		self.board.copy_state(board, True)
+		return self.board.get_symmetries(np.array(pi, dtype=np.float32), valid_actions)
 
 	def stringRepresentation(self, board):
 		return board.tobytes()
