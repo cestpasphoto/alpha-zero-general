@@ -1,8 +1,8 @@
 import sys
 sys.path.append('..')
 from Game import Game
-from .SplendorLogic import Board, observation_size, action_size, move_to_short_str, print_board
-from .SplendorLogicNumba2 import Board as Board2
+from .SplendorLogic import observation_size, action_size, move_to_short_str, print_board
+from .SplendorLogicNumba import Board
 import numpy as np
 
 # (Game convention) -1 = 1 (SplendorLogic convention)
@@ -11,7 +11,7 @@ import numpy as np
 class SplendorGame(Game):
 	def __init__(self, num_players):
 		self.num_players = num_players
-		self.board = Board2(num_players)
+		self.board = Board(num_players)
 
 	def getInitBoard(self):
 		self.board.init_game()
