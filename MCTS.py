@@ -3,7 +3,12 @@ import math
 
 import numpy as np
 
+from splendor.SplendorGame import getGameEnded, getNextState, getValidMoves, getCanonicalForm
+from numba import njit
+
 EPS = 1e-8
+NAN = -42.
+MINFLOAT = float('-inf')
 
 log = logging.getLogger(__name__)
 
@@ -18,13 +23,19 @@ class MCTS():
         self.nnet = nnet
         self.args = args
         self.dirichlet_noise = dirichlet_noise
-        self.Qsa = {}  # stores Q values for s,a (as defined in the paper)
-        self.Nsa = {}  # stores #times edge s,a was visited
-        self.Ns = {}  # stores #times board s was visited
-        self.Ps = {}  # stores initial policy (returned by neural net)
 
-        self.Es = {}  # stores game.getGameEnded ended for board s
-        self.Vs = {}  # stores game.getValidMoves for board s
+        # Contains tuple of Es, Vs, Ps, Ns, Qsa, Nsa
+        #       Vs stores game.getGameEnded ended for board s
+        #       Es stores game.getValidMoves for board s
+        #       Ps stores initial policy (returned by neural net)    
+        #       Ns stores #times board s was visited
+        #       Qsa stores Q values for s,a (as defined in the paper)
+        #       Nsa stores #times edge s,a was visited
+        self.nodes_data = {} # stores data for each nodes in a single dictionary
+        self.Qsa_default = np.full (self.game.getActionSize(), NAN, dtype=np.float64)
+        self.Nsa_default = np.zeros(self.game.getActionSize()     , dtype=np.int64)
+
+        self.rng = np.random.default_rng()
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -37,21 +48,21 @@ class MCTS():
         """
         if self.game.getRound(canonicalBoard) == 0:
             # first move, cleaning tree
-            self.Qsa, self.Nsa, self.Ns, self.Ps, self.Es, self.Vs = {}, {}, {}, {}, {}, {}
+            self.nodes_data = {}
 
-        is_full_search = force_full_search or (np.random.random_sample() < self.args.prob_fullMCTS)
+        is_full_search = force_full_search or (self.rng.random() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         for i in range(nb_MCTS_sims):
             dir_noise = (i == 0 and self.dirichlet_noise and is_full_search)
             self.search(canonicalBoard, dirichlet_noise=dir_noise)
 
         s = self.game.stringRepresentation(canonicalBoard)
-        counts = [self.Nsa.get((s, a), 0) for a in range(self.game.getActionSize())]
+        counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())]
 
         # Compute kl-divergence on probs vs self.Ps[s]
         probs = np.array(counts)
         probs = probs / probs.sum()
-        surprise = (np.log(probs+EPS) - np.log(self.Ps[s]+EPS)).dot(probs).item()
+        surprise = (np.log(probs+EPS) - np.log(self.nodes_data[s][2]+EPS)).dot(probs).item()
 
         if temp == 0:
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
@@ -86,78 +97,91 @@ class MCTS():
         """
 
         s = self.game.stringRepresentation(canonicalBoard)
+        Es, Vs, Ps, Ns, Qsa, Nsa = self.nodes_data.get(s, (None, )*6)
 
-        if s not in self.Es:
-            self.Es[s] = self.game.getGameEnded(canonicalBoard, 1)
-        if self.Es[s] != 0:
+        if Es is None:
+            Es = getGameEnded(self.game.board, canonicalBoard, 1)
+            if Es != 0:
+                # terminal node
+                self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
+                return -Es
+        elif Es != 0:
             # terminal node
-            return -self.Es[s]
+            return -Es
 
-        if s not in self.Ps:
-            valids = self.game.getValidMoves(canonicalBoard, 1)
+        if Ps is None:
+            Vs = getValidMoves(self.game.board, canonicalBoard, 1)
             # leaf node
-            self.Ps[s], v = self.nnet.predict(canonicalBoard, valids)
+            Ps, v = self.nnet.predict(canonicalBoard, Vs)
             if dirichlet_noise:
-                self.applyDirNoise(s, valids)
-            sum_Ps_s = np.sum(self.Ps[s])
-            if sum_Ps_s > 0:
-                self.Ps[s] /= sum_Ps_s  # renormalize
-            else:
-                # if all valid moves were masked make all valid moves equally probable
+                self.applyDirNoise(Ps, Vs)
+            normalise(Ps)
 
-                # NB! All valid moves may be masked if either your NNet architecture is insufficient or you've get overfitting or something else.
-                # If you have got dozens or hundreds of these messages you should pay attention to your NNet and/or training process.   
-                log.error("All valid moves were masked, doing a workaround.")
-                self.Ps[s] = self.Ps[s] + valids
-                self.Ps[s] /= np.sum(self.Ps[s])
-
-            self.Vs[s] = valids
-            self.Ns[s] = 0
+            Ns, Qsa, Nsa = 0, self.Qsa_default.copy(), self.Nsa_default.copy()
+            self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
             return -v
 
-        valids = self.Vs[s]
         if dirichlet_noise:
-            self.applyDirNoise(s, valids)
-            sum_Ps_s = np.sum(self.Ps[s])
-            self.Ps[s] /= sum_Ps_s      # renormalize
-        cur_best = -float('inf')
-        best_act = -1
+            self.applyDirNoise(Ps, Vs)
+            normalise(Ps)
 
         # pick the action with the highest upper confidence bound
-        for a in range(self.game.getActionSize()):
-            if valids[a]:
-                if (s, a) in self.Qsa:
-                    u = self.Qsa[(s, a)] + self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (
-                            1 + self.Nsa[(s, a)])
-                else:
-                    u = self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)  # Q = 0 ?
-
-                if u > cur_best:
-                    cur_best = u
-                    best_act = a
-
-        a = best_act
-        next_s, next_player = self.game.getNextState(canonicalBoard, 1, a)
-        next_s = self.game.getCanonicalForm(next_s, next_player)
+        # get next state and get canonical version of it
+        a, next_s = get_next_best_action_and_canonical_state(
+            Es, Vs, Ps, Ns, Qsa, Nsa,
+            self.args.cpuct,
+            self.game.board,
+            canonicalBoard
+        )
 
         v = self.search(next_s)
 
-        if (s, a) in self.Qsa:
-            self.Qsa[(s, a)] = (self.Nsa[(s, a)] * self.Qsa[(s, a)] + v) / (self.Nsa[(s, a)] + 1)
-            self.Nsa[(s, a)] += 1
+        Qsa[a] = (Nsa[a] * Qsa[a] + v) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
+        Nsa[a] += 1
+        Ns += 1
 
-        else:
-            self.Qsa[(s, a)] = v
-            self.Nsa[(s, a)] = 1
-
-        self.Ns[s] += 1
+        self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
         return -v
 
 
-    def applyDirNoise(self, s, valids):
-        dir_values = np.random.dirichlet([self.args.dirichletAlpha] * np.count_nonzero(valids))
+    def applyDirNoise(self, Ps, Vs):
+        dir_values = self.rng.dirichlet([self.args.dirichletAlpha] * np.count_nonzero(Vs))
         dir_idx = 0
-        for idx in range(len(self.Ps[s])):
-            if valids[idx]:
-               self.Ps[s][idx] = (0.75 * self.Ps[s][idx]) + (0.25 * dir_values[dir_idx])
+        for idx in range(len(Ps)):
+            if Vs[idx]:
+               Ps[idx] = (0.75 * Ps[idx]) + (0.25 * dir_values[dir_idx])
                dir_idx += 1
+
+
+# pick the action with the highest upper confidence bound
+@njit(cache=True, fastmath=True)
+def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct):
+    cur_best = MINFLOAT
+    best_act = -1
+
+    for a, valid in enumerate(Vs):
+        if valid:
+            if Qsa[a] != NAN:
+                u = Qsa[a] + cpuct * Ps[a] * math.sqrt(Ns) / (1 + Nsa[a])
+            else:
+                u = cpuct * Ps[a] * math.sqrt(Ns + EPS)  # Q = 0 ?
+
+            if u > cur_best:
+                cur_best, best_act = u, a
+
+    return best_act
+
+
+@njit(cache=True, fastmath=True)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct)
+
+    next_s, next_player = getNextState(gameboard, canonicalBoard, 1, a)
+    next_s = getCanonicalForm(gameboard, next_s, next_player)
+
+    return a, next_s
+
+@njit(cache=True, fastmath=True)
+def normalise(vector):
+    sum_vector = np.sum(vector)
+    vector /= sum_vector

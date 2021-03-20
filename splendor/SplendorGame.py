@@ -4,9 +4,42 @@ from Game import Game
 from .SplendorLogic import observation_size, action_size, move_to_short_str, print_board
 from .SplendorLogicNumba import Board
 import numpy as np
+from numba import jit, njit
 
 # (Game convention) -1 = 1 (SplendorLogic convention)
 # (Game convention)  1 = 0 (SplendorLogic convention)
+
+@njit(cache=True, fastmath=True)
+def getGameEnded(splendorgameboard, board, player):
+	splendorgameboard.copy_state(board, False)
+	ended, winners = splendorgameboard.check_end_game()
+	np_winners = np.array(winners, dtype=np.bool_)
+	if not ended:			# not finished
+		return 0.
+
+	if np_winners.sum() != 1:   # finished but no winners or several
+		return 0.01
+	return 1. if np_winners[0 if player==1 else 1] else -1.
+
+@njit(cache=True, fastmath=True)
+def getNextState(splendorgameboard, board, player, action):
+	splendorgameboard.copy_state(board, True)
+	splendorgameboard.make_move(action, 0 if player==1 else 1)
+	return (splendorgameboard.get_state(), -player)
+
+@njit(cache=True, fastmath=True)
+def getValidMoves(splendorgameboard, board, player):
+	splendorgameboard.copy_state(board, False)
+	return splendorgameboard.valid_moves(0 if player==1 else 1)
+
+@njit(cache=True, fastmath=True)
+def getCanonicalForm(splendorgameboard, board, player):
+	if player == 1:
+		return board
+
+	splendorgameboard.copy_state(board, True)
+	splendorgameboard.swap_players()
+	return splendorgameboard.get_state()
 
 class SplendorGame(Game):
 	def __init__(self, num_players):
@@ -68,6 +101,7 @@ class SplendorGame(Game):
 
 	def stringRepresentation(self, board):
 		return board.tobytes()
+		# return hash(board.tobytes())
 
 
 def generate_board(n_moves=10):

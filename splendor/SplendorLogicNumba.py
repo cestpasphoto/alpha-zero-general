@@ -271,7 +271,7 @@ class Board():
 		# Detect empty reserve slot
 		reserve_slots = [6*player+2*i for i in range(3)]
 		for slot in reserve_slots:
-			if self.players_reserved[slot,:5].sum() != 0:
+			if self.players_reserved[slot,:5].sum() == 0:
 				empty_slot = slot
 				break
 		

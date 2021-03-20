@@ -4,7 +4,8 @@ import Arena
 from MCTS import MCTS
 from splendor.SplendorPlayers import *
 from splendor.SplendorGame import SplendorGame as Game
-from splendor.SplendorLogic import Board, print_board
+from splendor.SplendorLogic import print_board
+from splendor.SplendorLogicNumba import Board
 from splendor.NNet import NNetWrapper as NNet
 
 import numpy as np
@@ -58,7 +59,9 @@ def play(args):
 	return result
 
 def display(numpy_board):
-	print_board(Board(2, numpy_board))
+	board = Board(2)
+	board.copy_state(numpy_board, False)
+	print_board(board)
 
 def profiling(args):
 	import cProfile, pstats
