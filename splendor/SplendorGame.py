@@ -1,7 +1,8 @@
 import sys
 sys.path.append('..')
 from Game import Game
-from .SplendorLogic import Board, observation_size, action_size
+from .SplendorLogic import Board, observation_size, action_size, move_to_short_str, print_board
+from .SplendorLogicNumba import valid_moves, copy_state, check_end_game, make_move, get_symmetries
 import numpy as np
 
 # (Game convention) -1 = 1 (SplendorLogic convention)
@@ -26,18 +27,51 @@ class SplendorGame(Game):
 		return 15
 
 	def getNextState(self, board, player, action):
+		board_copy = board.copy()
+		
+		# self.board.seed(99999)
+
 		self.board.copy_state(board, copy_or_not=True)
 		self.board.make_move(action, 0 if player==1 else 1)
-		return (self.board.get_state(), -player)
+		result = self.board.get_state()
+
+		# np.random.seed(99999)
+		if action > 12+15:
+			bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = copy_state(board_copy)
+			make_move(action, 0 if player==1 else 1, cards_tiers, players_gems, players_cards, nobles, nb_deck_tiers, bank, players_nobles, players_reserved)
+			if not np.array_equal(result, board_copy):
+				breakpoint()
+
+		return (result, -player)
 
 
 	def getValidMoves(self, board, player):
+		board_copy = board.copy()
+
 		self.board.copy_state(board, copy_or_not=False)
-		return self.board.valid_moves(0 if player==1 else 1)
+		result = self.board.valid_moves(0 if player==1 else 1)
+
+		bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = copy_state(board_copy)
+		result2 = valid_moves(0 if player==1 else 1, cards_tiers, players_gems, players_cards, nb_deck_tiers, players_reserved, bank)
+
+		if not np.array_equal(result, result2):
+			breakpoint()
+
+		return result
 
 	def getGameEnded(self, board, player):
+		board_copy = board.copy()
+
 		self.board.copy_state(board, copy_or_not=False)
 		ended, winners = self.board.check_end_game()
+
+		bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = copy_state(board_copy)
+		ended2, winners2 = check_end_game(bank, players_cards, players_nobles)
+		if ended != ended2:
+			breakpoint()
+		if not np.array_equal(winners, winners2):
+			breakpoint()
+
 		if not ended:			# not finished
 			return 0
 
@@ -46,14 +80,20 @@ class SplendorGame(Game):
 		return 1 if winners[0 if player==1 else 1] else -1
 
 	def getScore(self, board, player):
+		board_copy = board.copy()
+
 		self.board.copy_state(board, copy_or_not=False)
 		return self.board.get_score(0 if player==1 else 1)
 
 	def getRound(self, board):
+		board_copy = board.copy()
+
 		self.board.copy_state(board, copy_or_not=False)
 		return self.board.get_round()
 
 	def getCanonicalForm(self, board, player):
+		board_copy = board.copy()
+
 		if player == 1:
 			return board
 
@@ -62,8 +102,26 @@ class SplendorGame(Game):
 		return self.board.get_state()
 
 	def getSymmetries(self, board, pi, valid_actions):
+		board_copy = board.copy()
+		pi2 = np.array(pi, dtype=np.float32)
+
 		self.board.copy_state(board, copy_or_not=True)
-		return self.board.get_symmetries(pi, valid_actions)
+		result = self.board.get_symmetries(pi, valid_actions)
+
+
+		bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = copy_state(board_copy)
+		result2 = get_symmetries(pi2, valid_actions, board_copy, cards_tiers, players_reserved)
+		for a,b in zip(result, result2):
+			a1, a2, a3 = a
+			b1, b2, b3 = b
+			if not np.array_equal(a1,b1):
+				breakpoint()
+			if not np.array_equal(a2,b2):
+				breakpoint()
+			if not np.array_equal(a3,b3):
+				breakpoint()
+
+		return result
 
 	def stringRepresentation(self, board):
 		return board.tobytes()

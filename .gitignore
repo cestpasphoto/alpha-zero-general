@@ -1,6 +1,8 @@
 *.pyc
 *.onnx
 *.prof
+*.nbi
+*.nbc
 .DS_Store
 
 /temp/
