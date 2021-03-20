@@ -1,12 +1,13 @@
 #!./venv/bin/python3
 
-from .SplendorLogic import all_nobles, all_cards_1, all_cards_2, all_cards_3, list_different_gems_up_to_2, list_different_gems_up_to_3, cards_symmetries, reserve_symmetries
+from SplendorLogic import all_nobles, all_cards_1, all_cards_2, all_cards_3, list_different_gems_up_to_2, list_different_gems_up_to_3, cards_symmetries, reserve_symmetries
 import numpy as np
 
 import time
 
 from numba import jit, njit, jit_module
-
+from numba.experimental import jitclass
+from numba import int8, float32 
 
 
 np_all_cards_1 = np.array(all_cards_1, dtype=np.int8)
@@ -20,7 +21,7 @@ mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
 def rand_choice_nb(prob):
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
-	print('numba:', prob, ' ', result)
+	# print('numba:', prob, ' ', result)
 	return result
 
 def my_packbits(array):
@@ -356,23 +357,26 @@ jit_module(nopython=True, fastmath=True, cache=True, nogil=True)
 
 ####################################################
 
+
+
+
 # @njit(fastmath=True, cache=True)
 # def test_function():
 # 	state, bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = init_game()
 
 # 	for _ in range(10):
-# 		# item = np.random.randint(0, 12)
-# 		#_buy(item, 1, cards_tiers, players_gems, players_cards, nobles, nb_deck_tiers, bank, players_nobles)
-# 		# x = _valid_reserve_optim(1, cards_tiers, nb_deck_tiers, players_reserved)
-# 		x = valid_moves(1, cards_tiers, players_gems, players_cards, nb_deck_tiers, players_reserved, bank)
-# 		# move = np.random.randint(0, 81)
-# 		# make_move(move, 0, cards_tiers, players_gems, players_cards, nobles, nb_deck_tiers, bank, players_nobles, players_reserved)
-# 		# x = check_end_game(bank, players_cards, players_nobles)
-# 		# swap_players(players_gems, players_cards, players_nobles, players_reserved)
-# 		# policy = np.random.rand(81).astype(np.float32)
-# 		# valid_actions = np.random.randint(0, 2, 81).astype(np.bool_)
-# 		# l = get_symmetries(policy, valid_actions, state, cards_tiers, players_reserved)
-# 		# get_round(bank)
+		# item = np.random.randint(0, 12)
+		#_buy(item, 1, cards_tiers, players_gems, players_cards, nobles, nb_deck_tiers, bank, players_nobles)
+		# x = _valid_reserve_optim(1, cards_tiers, nb_deck_tiers, players_reserved)
+		# x = valid_moves(1, cards_tiers, players_gems, players_cards, nb_deck_tiers, players_reserved, bank)
+		# move = np.random.randint(0, 81)
+		# make_move(move, 0, cards_tiers, players_gems, players_cards, nobles, nb_deck_tiers, bank, players_nobles, players_reserved)
+		# x = check_end_game(bank, players_cards, players_nobles)
+		# swap_players(players_gems, players_cards, players_nobles, players_reserved)
+		# policy = np.random.rand(81).astype(np.float32)
+		# valid_actions = np.random.randint(0, 2, 81).astype(np.bool_)
+		# l = get_symmetries(policy, valid_actions, state, cards_tiers, players_reserved)
+		# get_round(bank)
 		
 
 # test_function()
@@ -380,3 +384,50 @@ jit_module(nopython=True, fastmath=True, cache=True, nogil=True)
 # for _ in range(1000):
 # 	test_function()
 # print((time.time() - start_time) * 1000)
+
+
+spec = [
+	('bank'            , int8[:,:]),
+	('cards_tiers'     , int8[:,:]),
+	('nb_deck_tiers'   , int8[:,:]),
+	('nobles'          , int8[:,:]),
+	('players_gems'    , int8[:,:]),
+	('players_nobles'  , int8[:,:]),
+	('players_cards'   , int8[:,:]),
+	('players_reserved', int8[:,:]),
+]
+
+@jitclass(spec)
+class MyClassTest(object):
+	def __init__(self, value):
+		self.bank             = np.zeros((1   ,7), dtype=np.int8)
+		self.cards_tiers      = np.zeros((2*12,7), dtype=np.int8)
+		self.nb_deck_tiers    = np.zeros((6   ,7), dtype=np.int8)
+		self.nobles           = np.zeros((3   ,7), dtype=np.int8)
+		self.players_gems     = np.zeros((2   ,7), dtype=np.int8)
+		self.players_nobles   = np.zeros((6   ,7), dtype=np.int8)
+		self.players_cards    = np.zeros((2   ,7), dtype=np.int8)
+		self.players_reserved = np.zeros((12  ,7), dtype=np.int8)
+
+
+	def copy_state(self, state):
+		n = 2
+		self.bank             = state[0     :1      ,:]	# 1
+		self.cards_tiers      = state[1     :25     ,:]	# 2*12
+		self.nb_deck_tiers    = state[25    :31     ,:]	# 6
+		self.nobles           = state[31    :32+n   ,:]	# N+1
+		self.players_gems     = state[32+n  :32+2*n ,:]	# N
+		self.players_nobles   = state[32+2*n:32+5*n ,:]	# 3*N
+		self.players_cards    = state[32+5*n:32+6*n ,:]	# N
+		self.players_reserved = state[32+6*n:32+12*n,:]	# 6*N
+
+mybag = MyClassTest(21)
+mybag.copy_state(np.ones((56,7), dtype=np.int8))
+print(mybag.bank)
+breakpoint()
+
+
+# (Pdb) valid_moves.inspect_types()                                                                                                                             
+# valid_moves (Literal[int](1), array(int8, 2d, A), array(int8, 2d, A), array(int8, 2d, A), array(int8, 2d, A), array(int8, 2d, A), array(int8, 2d, A))
+
+# copy_state (array(int8, 2d, C),) 

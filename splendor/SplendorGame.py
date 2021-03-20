@@ -2,7 +2,7 @@ import sys
 sys.path.append('..')
 from Game import Game
 from .SplendorLogic import Board, observation_size, action_size, move_to_short_str, print_board
-from .SplendorLogicNumba import valid_moves, copy_state, check_end_game, make_move, get_symmetries
+from .SplendorLogicNumba2 import Board as Board2
 import numpy as np
 
 # (Game convention) -1 = 1 (SplendorLogic convention)
@@ -12,6 +12,7 @@ class SplendorGame(Game):
 	def __init__(self, num_players):
 		self.num_players = num_players
 		self.board = Board(num_players)
+		self.board2 = Board2(num_players)
 
 	def getInitBoard(self):
 		self.board.init_game()
@@ -28,18 +29,16 @@ class SplendorGame(Game):
 
 	def getNextState(self, board, player, action):
 		board_copy = board.copy()
-		
-		# self.board.seed(99999)
 
 		self.board.copy_state(board, copy_or_not=True)
 		self.board.make_move(action, 0 if player==1 else 1)
 		result = self.board.get_state()
 
-		# np.random.seed(99999)
 		if action > 12+15:
-			bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = copy_state(board_copy)
-			make_move(action, 0 if player==1 else 1, cards_tiers, players_gems, players_cards, nobles, nb_deck_tiers, bank, players_nobles, players_reserved)
-			if not np.array_equal(result, board_copy):
+			self.board2.copy_state(board_copy, True)
+			self.board2.make_move(action, 0 if player==1 else 1)
+			result2 = self.board2.get_state()
+			if not np.array_equal(result, result2):
 				breakpoint()
 
 		return (result, -player)
@@ -51,9 +50,8 @@ class SplendorGame(Game):
 		self.board.copy_state(board, copy_or_not=False)
 		result = self.board.valid_moves(0 if player==1 else 1)
 
-		bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = copy_state(board_copy)
-		result2 = valid_moves(0 if player==1 else 1, cards_tiers, players_gems, players_cards, nb_deck_tiers, players_reserved, bank)
-
+		self.board2.copy_state(board_copy, False)
+		result2 = self.board2.valid_moves(0 if player==1 else 1)
 		if not np.array_equal(result, result2):
 			breakpoint()
 
@@ -65,8 +63,8 @@ class SplendorGame(Game):
 		self.board.copy_state(board, copy_or_not=False)
 		ended, winners = self.board.check_end_game()
 
-		bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = copy_state(board_copy)
-		ended2, winners2 = check_end_game(bank, players_cards, players_nobles)
+		self.board2.copy_state(board_copy, False)
+		ended2, winners2 = self.board2.check_end_game()
 		if ended != ended2:
 			breakpoint()
 		if not np.array_equal(winners, winners2):
@@ -80,37 +78,41 @@ class SplendorGame(Game):
 		return 1 if winners[0 if player==1 else 1] else -1
 
 	def getScore(self, board, player):
-		board_copy = board.copy()
-
 		self.board.copy_state(board, copy_or_not=False)
 		return self.board.get_score(0 if player==1 else 1)
 
 	def getRound(self, board):
-		board_copy = board.copy()
-
 		self.board.copy_state(board, copy_or_not=False)
 		return self.board.get_round()
 
 	def getCanonicalForm(self, board, player):
-		board_copy = board.copy()
-
 		if player == 1:
 			return board
 
+		board_copy = board.copy()
+		
 		self.board.copy_state(board, copy_or_not=True)
 		self.board.swap_players()
-		return self.board.get_state()
+		result = self.board.get_state()
+
+		self.board2.copy_state(board_copy, True)
+		self.board2.swap_players()
+		result2 = self.board2.get_state()
+		if not np.array_equal(result, result2):
+			breakpoint()
+
+		return result
 
 	def getSymmetries(self, board, pi, valid_actions):
 		board_copy = board.copy()
-		pi2 = np.array(pi, dtype=np.float32)
+		pi_copy = np.array(pi, dtype=np.float32).copy()
 
 		self.board.copy_state(board, copy_or_not=True)
 		result = self.board.get_symmetries(pi, valid_actions)
 
 
-		bank, cards_tiers, nb_deck_tiers, nobles, players_gems, players_nobles, players_cards, players_reserved = copy_state(board_copy)
-		result2 = get_symmetries(pi2, valid_actions, board_copy, cards_tiers, players_reserved)
+		self.board2.copy_state(board_copy, True)
+		result2 = self.board.get_symmetries(pi_copy, valid_actions)
 		for a,b in zip(result, result2):
 			a1, a2, a3 = a
 			b1, b2, b3 = b

@@ -99,7 +99,7 @@ class Board():
 		
 		scores = [self.get_score(p) for p in range(self.num_players)]
 		score_max = max(scores)
-		end = (score_max >= 15) or (self.bank[0][idx_points] >= self.max_moves)
+		end = (score_max >= self.score_win) or (self.bank[0][idx_points] >= self.max_moves)
 		winners = [(s == score_max) for s in scores] if end else [False, False]
 		return end, winners
 
@@ -278,7 +278,7 @@ class Board():
 	def _get_gems(self, i, player):
 		if i < len(list_different_gems_up_to_3): # Different gems
 			gems = list_different_gems_up_to_3[i][:5]
-		else: # 2 identical gems
+		else:                                    # 2 identical gems
 			color = i - len(list_different_gems_up_to_3)
 			gems = np.array([2*int(i==color) for i in range(5)])
 		self.bank[0][:5] -= gems
@@ -296,7 +296,7 @@ class Board():
 	def _give_gems(self, i, player):
 		if i < len(list_different_gems_up_to_2): # Different gems
 			gems = list_different_gems_up_to_2[i][:5]
-		else: # 2 identical gems
+		else:                                    # 2 identical gems
 			color = i - len(list_different_gems_up_to_2)
 			gems = np.array([2*int(i==color) for i in range(5)])
 		self.bank[0][:5] += gems
