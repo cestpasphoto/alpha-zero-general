@@ -169,6 +169,12 @@ class Board():
 			for i, p in enumerate(permutation):
 				new_array[start_index+i] = array[start_index+p]
 			return new_array
+		def _copy_and_permute2(array, permutation, start_index, other_start_index):
+			new_array = array.copy()
+			for i, p in enumerate(permutation):
+				new_array[start_index      +i] = array[start_index      +p]
+				new_array[other_start_index+i] = array[other_start_index+p]
+			return new_array
 
 		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
 		# Permute common cards within same tier
@@ -176,8 +182,8 @@ class Board():
 			for permutation in np_cards_symmetries:
 				cards_tiers_backup = self.cards_tiers.copy()
 				_swap_cards(self.cards_tiers[8*tier:8*tier+8, :], permutation)
-				new_policy = _copy_and_permute(policy, permutation, 4*tier)
-				new_valid_actions = _copy_and_permute(valid_actions, permutation, 4*tier)
+				new_policy = _copy_and_permute2(policy, permutation, 4*tier, 12+4*tier)
+				new_valid_actions = _copy_and_permute2(valid_actions, permutation, 4*tier, 12+4*tier)
 				symmetries.append((self.state.copy(), new_policy, new_valid_actions))
 				self.cards_tiers[:] = cards_tiers_backup
 		
@@ -275,11 +281,11 @@ class Board():
 				empty_slot = slot
 				break
 		
-		if i < 12:
+		if i < 12: # reserve visible card
 			tier, index = divmod(i, 4)
 			self.players_reserved[empty_slot:empty_slot+2] = self.cards_tiers[8*tier+2*index:8*tier+2*index+2]
 			self._fill_new_card(tier, index)
-		else:
+		else:      # reserve from deck
 			tier = i - 12
 			self.players_reserved[empty_slot:empty_slot+2] = self._get_deck_card(tier)
 		

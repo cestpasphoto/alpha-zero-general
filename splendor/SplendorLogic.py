@@ -14,17 +14,18 @@ def action_size():
 def move_to_str(move):
 	color_names = ['white', 'blue', 'green', 'red', 'black', 'gold']
 	if   move < 12:
-	    tier, index = divmod(move, 4)
-	    return f'bought from tier {tier} index {index}'
+		tier, index = divmod(move, 4)
+		return f'bought from tier {tier} index {index}'
 	elif move < 12+15:
-	    tier, index = divmod(move-12, 5)
-	    if index == 4:
-	        return f'reserved from deck of tier {tier}'
-	    else:
-	        return f'reserved from tier {tier} index {index}'
+		if move < 12+12:
+			tier, index = divmod(move-12, 5)
+			return f'reserved from tier {tier} index {index}'
+		else:
+			tier = move-12-12
+			return f'reserved from deck of tier {tier}'
 	elif move < 12+15+3:
-	    index = move-12-15
-	    return f'bought from reserve {index}'
+		index = move-12-15
+		return f'bought from reserve {index}'
 	elif move < 12+15+3+30:
 		i = move - 12-15-3
 		if i < len(list_different_gems_up_to_3):
@@ -40,22 +41,23 @@ def move_to_str(move):
 		else:
 			return f'gave back 2 {color_names[i-len(list_different_gems_up_to_2)]}'
 	else:
-	    return f'empty move'
+		return f'empty move'
 
 def move_to_short_str(move):
 	color_names = ['white', 'blue', 'green', 'red', 'black', 'gold']
 	if   move < 12:
-	    tier, index = divmod(move, 4)
-	    return f'buy tier{tier}-card{index}'
+		tier, index = divmod(move, 4)
+		return f'buy tier{tier}-card{index}'
 	elif move < 12+15:
-	    tier, index = divmod(move-12, 5)
-	    if index == 4:
-	        return f'rsv t{tier}-deck'
-	    else:
-	        return f'rsv t{tier}-c{index}'
+		if move < 12+12:
+			tier, index = divmod(move-12, 5)
+			return f'rsv t{tier}-c{index}'
+		else:
+			tier = move-12-12
+			return f'rsv t{tier}-deck'
 	elif move < 12+15+3:
-	    index = move-12-15
-	    return f'buy {index} in reserve'
+		index = move-12-15
+		return f'buy {index} in reserve'
 	elif move < 12+15+3+30:
 		i = move - 12-15-3
 		if i < len(list_different_gems_up_to_3):
@@ -71,7 +73,7 @@ def move_to_short_str(move):
 		else:
 			return f'give {light_colors[i-len(list_different_gems_up_to_2)] + "    " + Style.RESET_ALL}'
 	else:
-	    return f'empty'
+		return f'empty'
 
 def row_to_str(row, n=2):
 	if row < 1:
