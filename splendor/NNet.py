@@ -49,7 +49,7 @@ class NNetWrapper(NeuralNet):
 		examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
 		examples_weights = examples_weights / examples_weights.sum()
 
-		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=100, mininterval=0.5, disable=None)
+		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 		for epoch in range(self.args['epochs']):
 			t.set_description(f'Train ep{epoch + 1}')
 			self.nnet.train()

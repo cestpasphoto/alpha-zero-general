@@ -6,16 +6,19 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 
 * [x] Added Dirichlet Noise as per original [DeepMind paper](https://www.nature.com/articles/nature24270.epdf), using this [pull request](https://github.com/suragnair/alpha-zero-general/pull/186)
 * [x] Compute policy gradients properly when some actions are invalid based on [A Closer Look at Invalid Action Masking inPolicy Gradient Algorithms](https://arxiv.org/pdf/2006.14171.pdf) and its [repo](https://github.com/vwxyzjn/invalid-action-masking)
-* [ ] Improvements based on [Accelerating Self-Play Learning in Go](https://arxiv.org/pdf/1902.10565.pdf)
+* [x] Improvements based on [Accelerating Self-Play Learning in Go](https://arxiv.org/pdf/1902.10565.pdf)
 * [ ] Set up HyperParameters Optimization, like Hyperband or Population-Based Training
+* [x] Optimized MCTS, thanks to Numba reaching about 1500 rollouts/sec on 1 CPU core without GPU
+* [x] Optimized Neural Network inference latency, thanks to ONNX
+* [x] Compact console log
 
 ### Splendor
 
 * [x] Support of [Splendor game](https://en.wikipedia.org/wiki/Splendor_(game)) with 2 players
 * [ ] Support of 3-4 players
 * [ ] Proper MCTS handling of "chance" factor when revealing new deck card
-* [ ] Optimized implementation of Splendor
-* [ ] Explore various architecture
+* [x] Optimized implementation of Splendor, thanks to Numba
+* [x] Explore various architecture
 
 ### Others changes
 

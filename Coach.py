@@ -95,7 +95,7 @@ class Coach():
             if not self.skipFirstSelfPlay or i > 1:
                 iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 
-                for _ in tqdm(range(self.args.numEps), desc="Self Play", ncols=100):
+                for _ in tqdm(range(self.args.numEps), desc="Self Play", ncols=120):
                     self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0))  # reset search tree
                     iterationTrainExamples += self.executeEpisode()
                     if len(iterationTrainExamples) == self.args.maxlenOfQueue:
