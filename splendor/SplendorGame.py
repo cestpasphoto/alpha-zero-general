@@ -101,7 +101,6 @@ class SplendorGame(Game):
 
 	def stringRepresentation(self, board):
 		return board.tobytes()
-		# return hash(board.tobytes())
 
 
 def generate_board(n_moves=10):

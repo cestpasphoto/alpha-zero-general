@@ -92,7 +92,7 @@ class Board():
 			for index in range(4):
 				self._fill_new_card(tier, index)
 		# Nobles
-		nobles_indexes = np.random.choice(len(np_all_nobles), size=self.num_nobles)
+		nobles_indexes = np.random.choice(len(np_all_nobles), size=self.num_nobles, replace=False)
 		for i, index in enumerate(nobles_indexes):
 			self.nobles[i, :] = np_all_nobles[index]
 
