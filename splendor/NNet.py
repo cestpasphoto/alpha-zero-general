@@ -56,7 +56,7 @@ class NNetWrapper(NeuralNet):
 			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
 	
 			for _ in range(batch_count):
-				# sample_ids = np.random.randint(len(examples), size=self.args['batch_size'])
+				# sample_ids = np.random.randint(len(examples), size=self.args['batch_size'], replace=False)
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
 				boards, pis, vs, scdiffs, valid_actions, surprises = list(zip(*[examples[i] for i in sample_ids]))
 				boards = torch.FloatTensor(np.array(boards).astype(np.float32))
