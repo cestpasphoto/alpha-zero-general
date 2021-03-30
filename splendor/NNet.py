@@ -78,7 +78,7 @@ class NNetWrapper(NeuralNet):
 				l_v = self.loss_v(target_vs, out_v)
 				l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
 				l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
-				total_loss = l_pi + l_v + l_scdiff_c + l_scdiff_p
+				total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
 
 				# record loss
 				pi_losses.update(l_pi.item(), boards.size(0))
