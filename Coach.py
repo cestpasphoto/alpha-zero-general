@@ -112,8 +112,8 @@ class Coach():
                 self.trainExamplesHistory.pop(0)
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)  
-            if i % 5 == 0:
-                self.saveTrainExamples(i - 1) # HUGE PEAK, MEMORY CONSUMPTION TOO HIGH
+            # if i % 5 == 0:
+            self.saveTrainExamples(i - 1) # HUGE PEAK, MEMORY CONSUMPTION TOO HIGH
             # shuffle examples before training
             trainExamples = []
             for e in self.trainExamplesHistory:
