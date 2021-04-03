@@ -90,7 +90,7 @@ class Board():
 		# Tiers
 		for tier in range(3):
 			for index in range(4):
-				self._fill_new_card(tier, index)
+				self._fill_new_card(tier, index, False)
 		# Nobles
 		nobles_indexes = np.random.choice(len(np_all_nobles), size=self.num_nobles, replace=False)
 		for i, index in enumerate(nobles_indexes):
@@ -109,11 +109,11 @@ class Board():
 		result[80] = True #empty move
 		return result
 
-	def make_move(self, move, player):
+	def make_move(self, move, player, deterministic):
 		if   move < 12:
-			self._buy(move, player)
+			self._buy(move, player, deterministic)
 		elif move < 12+15:
-			self._reserve(move-12, player)
+			self._reserve(move-12, player, deterministic)
 		elif move < 12+15+3:
 			self._buy_reserve(move-12-15, player)
 		elif move < 12+15+3+30:
@@ -231,11 +231,12 @@ class Board():
 			card = np_all_cards_3[color][card_index]
 		return card
 
-	def _fill_new_card(self, tier, index):
+	def _fill_new_card(self, tier, index, deterministic):
 		self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = 0
-		card = self._get_deck_card(tier)
-		if card is not None:
-			self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = card
+		if not deterministic:
+			card = self._get_deck_card(tier)
+			if card is not None:
+				self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = card
 
 	def _buy_card(self, card0, card1, player):
 		card_cost = card0[:5]
@@ -263,17 +264,17 @@ class Board():
 
 		return np.logical_and(enough_gems_and_gold, not_empty_cards).astype(np.int8)
 
-	def _buy(self, i, player):
+	def _buy(self, i, player, deterministic):
 		tier, index = divmod(i, 4)
 		self._buy_card(self.cards_tiers[2*i], self.cards_tiers[2*i+1], player)
-		self._fill_new_card(tier, index)
+		self._fill_new_card(tier, index, deterministic)
 
 	def _valid_reserve_optim(self, player):
 		not_empty_cards = np.vstack((self.cards_tiers[:2*12:2,:5], self.nb_deck_tiers[::2, :5])).sum(axis=1) != 0
 		empty_slot = (self.players_reserved[6*player+5][:5].sum() == 0)
 		return np.logical_and(not_empty_cards, empty_slot).astype(np.int8)
 
-	def _reserve(self, i, player):
+	def _reserve(self, i, player, deterministic):
 		# Detect empty reserve slot
 		reserve_slots = [6*player+2*i for i in range(3)]
 		for slot in reserve_slots:
@@ -284,7 +285,7 @@ class Board():
 		if i < 12: # reserve visible card
 			tier, index = divmod(i, 4)
 			self.players_reserved[empty_slot:empty_slot+2] = self.cards_tiers[8*tier+2*index:8*tier+2*index+2]
-			self._fill_new_card(tier, index)
+			self._fill_new_card(tier, index, deterministic)
 		else:      # reserve from deck
 			tier = i - 12
 			self.players_reserved[empty_slot:empty_slot+2] = self._get_deck_card(tier)

@@ -176,7 +176,7 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct):
 def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard):
     a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct)
 
-    next_s, next_player = getNextState(gameboard, canonicalBoard, 1, a)
+    next_s, next_player = getNextState(gameboard, canonicalBoard, 1, a, True)
     next_s = getCanonicalForm(gameboard, next_s, next_player)
 
     return a, next_s

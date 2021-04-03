@@ -22,9 +22,9 @@ def getGameEnded(splendorgameboard, board, player):
 	return 1. if np_winners[0 if player==1 else 1] else -1.
 
 @njit(fastmath=True)
-def getNextState(splendorgameboard, board, player, action):
+def getNextState(splendorgameboard, board, player, action, deterministic=False):
 	splendorgameboard.copy_state(board, True)
-	splendorgameboard.make_move(action, 0 if player==1 else 1)
+	splendorgameboard.make_move(action, 0 if player==1 else 1, deterministic)
 	return (splendorgameboard.get_state(), -player)
 
 @njit(fastmath=True)
@@ -59,9 +59,9 @@ class SplendorGame(Game):
 	def getMaxScoreDiff(self):
 		return 15
 
-	def getNextState(self, board, player, action):
+	def getNextState(self, board, player, action, deterministic=False):
 		self.board.copy_state(board, True)
-		self.board.make_move(action, 0 if player==1 else 1)
+		self.board.make_move(action, 0 if player==1 else 1, deterministic)
 		return (self.board.get_state(), -player)
 
 
