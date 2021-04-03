@@ -172,7 +172,7 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct):
     return best_act
 
 
-@njit(cache=True, fastmath=True)
+@njit(fastmath=True) # no cache because it relies on jitclass which isn't compatible with cache
 def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard):
     a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct)
 
