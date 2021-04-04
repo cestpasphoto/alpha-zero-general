@@ -8,6 +8,7 @@ from numba import njit
 
 EPS = 1e-8
 NAN = -42.
+k = 0.5
 MINFLOAT = float('-inf')
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class MCTS():
         self.Nsa_default = np.zeros(self.game.getActionSize()     , dtype=np.int64)
 
         self.rng = np.random.default_rng()
+        self.step = 0
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -52,12 +54,23 @@ class MCTS():
 
         is_full_search = force_full_search or (self.rng.random() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
-        for i in range(nb_MCTS_sims):
-            dir_noise = (i == 0 and self.dirichlet_noise and is_full_search)
-            self.search(canonicalBoard, dirichlet_noise=dir_noise)
+        forced_playouts = (is_full_search and self.args.forced_playouts)
+        for self.step in range(nb_MCTS_sims):
+            dir_noise       = (self.step == 0 and is_full_search and self.dirichlet_noise)
+            
+            self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
 
         s = self.game.stringRepresentation(canonicalBoard)
-        counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())]
+        counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
+        Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
+
+        # Policy target pruning
+        if forced_playouts:
+            best_count = max(counts)
+            adjusted_counts = [Nsa-int(math.sqrt(k*Psa*nb_MCTS_sims)) if Nsa != best_count else Nsa for (Nsa, Psa) in zip(counts, Psas)]
+            adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
+            # assert sum(adjusted_counts) > 0
+            counts = adjusted_counts
 
         # Compute kl-divergence on probs vs self.Ps[s]
         probs = np.array(counts)
@@ -76,7 +89,7 @@ class MCTS():
         probs = [x / counts_sum for x in counts]
         return probs, surprise, is_full_search
 
-    def search(self, canonicalBoard, dirichlet_noise=False):
+    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
@@ -131,7 +144,9 @@ class MCTS():
             Es, Vs, Ps, Ns, Qsa, Nsa,
             self.args.cpuct,
             self.game.board,
-            canonicalBoard
+            canonicalBoard,
+            forced_playouts,
+            self.step,
         )
 
         v = self.search(next_s)
@@ -155,12 +170,16 @@ class MCTS():
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True)
-def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct):
+def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step):
     cur_best = MINFLOAT
     best_act = -1
 
     for a, valid in enumerate(Vs):
         if valid:
+            if forced_playouts:
+                if Nsa[a] < int(math.sqrt(k * Ps[a] * step)): # Nsa is zero when not set
+                    return a
+
             if Qsa[a] != NAN:
                 u = Qsa[a] + cpuct * Ps[a] * math.sqrt(Ns) / (1 + Nsa[a])
             else:
@@ -173,8 +192,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct):
 
 
 @njit(fastmath=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard):
-    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard, forced_playouts, step):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step)
 
     next_s, next_player = getNextState(gameboard, canonicalBoard, 1, a, True)
     next_s = getCanonicalForm(gameboard, next_s, next_player)
