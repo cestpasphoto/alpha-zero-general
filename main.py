@@ -26,6 +26,9 @@ def run(args):
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
 		vl_weight=args.vl_weight,
+		save_optim_state=args.save_optim_state,
+		cyclic_lr=args.cyclic_lr,
+		surprise_weight=args.surprise_weight,
 	)
 	nnet = nn(g, nn_args)
 
@@ -92,6 +95,10 @@ def main():
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=128  , type=int  , help='')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=8    , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10   , type=int  , help='Weight for value loss')
+	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
+	parser.add_argument('--save-optim-state', '-S' , action='store_true', help='Save learning optimizer state between iterations')
+	parser.add_argument('--cyclic-lr'       , '-Y' , action='store_true', help='Enable cyclic learning rate')
+	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
 
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')

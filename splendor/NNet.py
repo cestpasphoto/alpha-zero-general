@@ -36,6 +36,7 @@ class NNetWrapper(NeuralNet):
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.max_diff = game.getMaxScoreDiff()
+		self.optimizer = None
 
 	def train(self, examples):
 		"""
@@ -43,11 +44,20 @@ class NNetWrapper(NeuralNet):
 		"""
 		self.switch_target('training')
 
-		optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
+		if self.optimizer is None:
+			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])		
 		batch_count = int(len(examples) / self.args['batch_size'])
-		examples_surprises = np.array([x[5] for x in examples])
-		examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
-		examples_weights = examples_weights / examples_weights.sum()
+
+		if self.args['cyclic_lr']:
+			# scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.args['learn_rate'], max_lr=self.args['learn_rate']*10)
+			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], total_steps=self.args['epochs']*batch_count*10)
+
+		if self.args['surprise_weight']:
+			examples_surprises = np.array([x[5] for x in examples])
+			examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
+			examples_weights = examples_weights / examples_weights.sum()
+		else:
+			examples_weights = None
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 		for epoch in range(self.args['epochs']):
@@ -56,7 +66,6 @@ class NNetWrapper(NeuralNet):
 			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
 	
 			for _ in range(batch_count):
-				# sample_ids = np.random.randint(len(examples), size=self.args['batch_size'], replace=False)
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
 				boards, pis, vs, scdiffs, valid_actions, surprises = list(zip(*[examples[i] for i in sample_ids]))
 				boards = torch.FloatTensor(np.array(boards).astype(np.float32))
@@ -87,12 +96,15 @@ class NNetWrapper(NeuralNet):
 				t.set_postfix(PI=pi_losses, V=v_losses, SD=scdiff_losses, refresh=False)
 
 				# compute gradient and do SGD step
-				optimizer.zero_grad(set_to_none=True)
+				self.optimizer.zero_grad(set_to_none=True)
 				total_loss.backward()
-				optimizer.step()
+				self.optimizer.step()
+				if self.args['cyclic_lr']:
+					scheduler.step()
 
 				t.update()
 		t.close()
+		
 
 	def predict(self, board, valid_actions):
 		"""
@@ -147,6 +159,8 @@ class NNetWrapper(NeuralNet):
 			'state_dict': self.nnet.state_dict(),
 			'full_model': self.nnet,
 		}
+		if self.optimizer is not None and self.args['save_optim_state']:
+			data['optim_state'] = self.optimizer.state_dict(),
 		data.update(additional_keys)
 		torch.save(data, filepath)
 
@@ -159,7 +173,7 @@ class NNetWrapper(NeuralNet):
 		try:
 			checkpoint = torch.load(filepath, map_location='cpu')
 			try:
-				self.nnet.load_state_dict(checkpoint['state_dict'])	
+				self.nnet.load_state_dict(checkpoint['state_dict'])
 			except:
 				if self.nnet.version > 0:
 					try:
@@ -170,6 +184,10 @@ class NNetWrapper(NeuralNet):
 						print('Had to load FULL MODEL, was not able to load state_dict, saved archi-version was', checkpoint['full_model'].version)
 				else:
 					self.nnet = checkpoint['full_model']
+			if self.args['save_optim_state']:
+				if 'optim_state' in checkpoint:
+					self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
+					self.optimizer.load_state_dict(checkpoint['optim_state'][0]) 	# Weird that we have to do that
 		except:
 			print("MODEL {} CAN'T BE READ but file exists".format(filepath))
 			return
