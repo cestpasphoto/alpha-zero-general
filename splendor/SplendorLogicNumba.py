@@ -101,11 +101,11 @@ class Board():
 
 	def valid_moves(self, player):
 		result = np.zeros(81, dtype=np.bool_)
-		result[0         :12]            = self._valid_buy_optim(player)
-		result[12        :12+15]         = self._valid_reserve_optim(player)
-		result[12+15     :12+15+3]       = self._valid_buy_reserve_optim(player)
-		result[12+15+3   :12+15+3+30]    = np.concatenate((self._valid_get_gems_optim(player) , self._valid_get_gems_identical_optim(player)))
-		result[12+15+3+30:12+15+3+30+20] = np.concatenate((self._valid_give_gems_optim(player), self._valid_give_gems_identical_optim(player)))
+		result[0         :12]            = self._valid_buy(player)
+		result[12        :12+15]         = self._valid_reserve(player)
+		result[12+15     :12+15+3]       = self._valid_buy_reserve(player)
+		result[12+15+3   :12+15+3+30]    = np.concatenate((self._valid_get_gems(player) , self._valid_get_gems_identical(player)))
+		result[12+15+3+30:12+15+3+30+20] = np.concatenate((self._valid_give_gems(player), self._valid_give_gems_identical(player)))
 		result[80] = True #empty move
 		return result
 
@@ -253,7 +253,7 @@ class Board():
 
 		self._give_nobles_if_earned(player)
 
-	def _valid_buy_optim(self, player):
+	def _valid_buy(self, player):
 		cards_cost = self.cards_tiers[:2*12:2,:5]
 
 		player_gems = self.players_gems[player][:5]
@@ -269,9 +269,17 @@ class Board():
 		self._buy_card(self.cards_tiers[2*i], self.cards_tiers[2*i+1], player)
 		self._fill_new_card(tier, index, deterministic)
 
-	def _valid_reserve_optim(self, player):
+	def _valid_reserve(self, player):
 		not_empty_cards = np.vstack((self.cards_tiers[:2*12:2,:5], self.nb_deck_tiers[::2, :5])).sum(axis=1) != 0
-		empty_slot = (self.players_reserved[6*player+5][:5].sum() == 0)
+
+		allowed_reserved_cards = 3
+		#if self.bank[0][idx_points] > 40 or self.bank[0][idx_points] % 2 == 1:
+		#	allowed_reserved_cards = 3
+		#elif self.bank[0][idx_points] > 20:
+		#	allowed_reserved_cards = 2
+		#else:
+		#	allowed_reserved_cards = 1
+		empty_slot = (self.players_reserved[6*player+2*(allowed_reserved_cards-1)+1][:5].sum() == 0)
 		return np.logical_and(not_empty_cards, empty_slot).astype(np.int8)
 
 	def _reserve(self, i, player, deterministic):
@@ -294,7 +302,7 @@ class Board():
 			self.players_gems[player][idx_gold] += 1
 			self.bank[0][idx_gold] -= 1
 
-	def _valid_buy_reserve_optim(self, player):
+	def _valid_buy_reserve(self, player):
 		card_index = np.arange(3)
 		cards_cost = self.players_reserved[6*player+2*card_index,:5]
 
@@ -314,14 +322,14 @@ class Board():
 			self.players_reserved[start_index:6*player+4] = self.players_reserved[start_index+2:6*player+6]
 		self.players_reserved[6*player+4:6*player+6] = 0 # empty last reserve slot
 
-	def _valid_get_gems_optim(self, player):
+	def _valid_get_gems(self, player):
 		gems = np_different_gems_up_to_3[:,:5]
 		enough_in_bank = np_all_axis1((self.bank[0][:5] - gems) >= 0)
 		not_too_many_gems = self.players_gems[player].sum() + gems.sum(axis=1) <= 10
 		result = np.logical_and(enough_in_bank, not_too_many_gems).astype(np.int8)
 		return result
 
-	def _valid_get_gems_identical_optim(self, player):
+	def _valid_get_gems_identical(self, player):
 		colors = np.arange(5)
 		enough_in_bank = self.bank[0][colors] >= 4
 		not_too_many_gems = self.players_gems[player].sum() + 2 <= 10
@@ -338,12 +346,12 @@ class Board():
 		self.bank[0][:5] -= gems
 		self.players_gems[player][:5] += gems
 
-	def _valid_give_gems_optim(self, player):
+	def _valid_give_gems(self, player):
 		gems = np_different_gems_up_to_2[:,:5]
 		result = np_all_axis1((self.players_gems[player][:5] - gems) >= 0).astype(np.int8)
 		return result
 
-	def _valid_give_gems_identical_optim(self, player):
+	def _valid_give_gems_identical(self, player):
 		colors = np.arange(5)
 		return (self.players_gems[player][colors] >= 2).astype(np.int8)
 

@@ -49,8 +49,8 @@ class NNetWrapper(NeuralNet):
 		batch_count = int(len(examples) / self.args['batch_size'])
 
 		if self.args['cyclic_lr']:
-			# scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=self.args['learn_rate'], max_lr=self.args['learn_rate']*10)
-			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], total_steps=self.args['epochs']*batch_count*10)
+			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], anneal_strategy='cos', total_steps=self.args['epochs']*batch_count*10)
+			# scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], anneal_strategy='linear', total_steps=self.args['epochs']*batch_count*10)
 
 		if self.args['surprise_weight']:
 			examples_surprises = np.array([x[5] for x in examples])
@@ -227,7 +227,7 @@ class NNetWrapper(NeuralNet):
 			(dummy_board, dummy_valid_actions),
 			temporary_file,
 			export_params=True,
-			opset_version=11, # the ONNX version to export the model to
+			opset_version=12, # the ONNX version to export the model to
 			do_constant_folding=True,
 			input_names = ['board', 'valid_actions'],
 			output_names = ['pi', 'v', 'scdiffs'],

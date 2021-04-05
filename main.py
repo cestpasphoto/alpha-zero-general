@@ -67,9 +67,10 @@ def profiling(args):
 
 	# debrief
 	profiler.dump_stats('execution.prof')
-	pstats.Stats(profiler).sort_stats('cumtime').print_stats(20)
-	print()
-	pstats.Stats(profiler).sort_stats('tottime').print_stats(10)
+	# pstats.Stats(profiler).sort_stats('cumtime').print_stats(20)
+	# print()
+	# pstats.Stats(profiler).sort_stats('tottime').print_stats(10)
+	print('check dumped stats in execution.prof')
 
 def game_test():
 	from splendor.SplendorGame import test_game
