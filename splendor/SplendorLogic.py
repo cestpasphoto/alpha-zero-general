@@ -18,7 +18,7 @@ def move_to_str(move):
 		return f'bought from tier {tier} index {index}'
 	elif move < 12+15:
 		if move < 12+12:
-			tier, index = divmod(move-12, 5)
+			tier, index = divmod(move-12, 4)
 			return f'reserved from tier {tier} index {index}'
 		else:
 			tier = move-12-12
@@ -50,7 +50,7 @@ def move_to_short_str(move):
 		return f'buy tier{tier}-card{index}'
 	elif move < 12+15:
 		if move < 12+12:
-			tier, index = divmod(move-12, 5)
+			tier, index = divmod(move-12, 4)
 			return f'rsv t{tier}-c{index}'
 		else:
 			tier = move-12-12
