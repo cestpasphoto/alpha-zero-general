@@ -55,9 +55,11 @@ def run(args):
 def profiling(args):
 	import cProfile, pstats
 	profiler = cProfile.Profile()
-	print('\nstart profiling')
-	args.numIters, args.numEps, args.epochs = 1, 5, 1 # also, add a "return" just after self-play in Coach.py
+	args.numIters, args.numEps, args.epochs = 1, 1, 1 # warmup run
+	run(args)
 
+	print('\nstart profiling')
+	args.numIters, args.numEps, args.epochs = 1, 30, 1
 	# Core of the training
 	profiler.enable()
 	run(args)
