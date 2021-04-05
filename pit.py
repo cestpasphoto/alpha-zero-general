@@ -30,11 +30,17 @@ def create_player(name, args):
 		return HumanPlayer(game).play
 
 	# set default values but will be overloaded when loading checkpoint
-	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1)
+	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1, save_optim_state=False)
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(name)
 	additional_keys = net.load_checkpoint(cpt_dir, cpt_file)
-	mcts = MCTS(game, net, dotdict({'numMCTSSims': additional_keys.get('numMCTSSims', args.numMCTSSims), 'prob_fullMCTS': 1., 'cpuct': additional_keys.get('cpuct', args.cpuct)}))
+	mcts_args = dotdict({
+		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
+		'cpuct'           : args.cpuct       if args.cpuct       else additional_keys.get('cpuct'      , 1.0),
+		'prob_fullMCTS'   : 1.,
+		'forced_playouts' : False,
+	})
+	mcts = MCTS(game, net, mcts_args)
 	player = lambda x: np.argmax(mcts.getActionProb(x, temp=0, force_full_search=True)[0])
 	return player
 
@@ -89,8 +95,8 @@ def main():
 	parser.add_argument('--profile'           , action='store_true', help='enable profiling')
 	parser.add_argument('--display'           , action='store_true', help='display')
 
-	parser.add_argument('--numMCTSSims', '-m' , action='store', default=100  , type=int  , help='Number of games moves for MCTS to simulate.')
-	parser.add_argument('--cpuct'      , '-c' , action='store', default=1.0  , type=float, help='')
+	parser.add_argument('--numMCTSSims', '-m' , action='store', default=None  , type=int  , help='Number of games moves for MCTS to simulate.')
+	parser.add_argument('--cpuct'      , '-c' , action='store', default=None  , type=float, help='')
 
 	parser.add_argument('--player1'    , '-p' , action='store', default=None , help='P1: either file or human, greedy, random')
 	parser.add_argument('--player2'    , '-P' , action='store', default=None , help='P2: either file or human, greedy, random')
