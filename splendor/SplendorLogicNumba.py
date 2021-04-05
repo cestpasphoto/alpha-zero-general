@@ -2,9 +2,11 @@
 
 from .SplendorLogic import np_all_nobles, np_all_cards_1, np_all_cards_2, np_all_cards_3, len_all_cards, np_different_gems_up_to_2, np_different_gems_up_to_3, np_cards_symmetries, np_reserve_symmetries
 import numpy as np
-
-from numba import jit, njit, jit_module
+from numba import njit
 import numba
+
+ENABLE_ACTION_RESERVE  = False
+ENABLE_ACTION_GIVEBACK = False
 
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
@@ -270,6 +272,8 @@ class Board():
 		self._fill_new_card(tier, index, deterministic)
 
 	def _valid_reserve(self, player):
+		if not ENABLE_ACTION_RESERVE:
+			return np.zeros(12+3, dtype=np.int8)
 		not_empty_cards = np.vstack((self.cards_tiers[:2*12:2,:5], self.nb_deck_tiers[::2, :5])).sum(axis=1) != 0
 
 		allowed_reserved_cards = 3
@@ -347,11 +351,15 @@ class Board():
 		self.players_gems[player][:5] += gems
 
 	def _valid_give_gems(self, player):
+		if not ENABLE_ACTION_GIVEBACK:
+			return np.zeros(np_different_gems_up_to_2.shape[0], dtype=np.int8)
 		gems = np_different_gems_up_to_2[:,:5]
 		result = np_all_axis1((self.players_gems[player][:5] - gems) >= 0).astype(np.int8)
 		return result
 
 	def _valid_give_gems_identical(self, player):
+		if not ENABLE_ACTION_GIVEBACK:
+			return np.zeros(5, dtype=np.int8)
 		colors = np.arange(5)
 		return (self.players_gems[player][colors] >= 2).astype(np.int8)
 
