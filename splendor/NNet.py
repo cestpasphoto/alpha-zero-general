@@ -240,5 +240,7 @@ class NNetWrapper(NeuralNet):
 			}
 		)
 
-		self.ort_session = ort.InferenceSession(temporary_file)
+		opts = ort.SessionOptions()
+		opts.intra_op_num_threads, opts.inter_op_num_threads, opts.inter_op_num_threads = 1, 1, ort.ExecutionMode.ORT_SEQUENTIAL
+		self.ort_session = ort.InferenceSession(temporary_file, sess_options=opts)
 		os.remove(temporary_file)

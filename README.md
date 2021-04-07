@@ -11,10 +11,10 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
   * [x] Forced Playouts and Policy Target Pruning
   * [x] Global Pooling
   * [ ] Auxiliary Policy Targets
-  * [ ] Score Targets
+  * [x] Score Targets
 * [ ] Set up HyperParameters Optimization, like Hyperband or Population-Based Training
-* [x] Optimized MCTS, thanks to Numba reaching **about 1500 rollouts/sec on 1 CPU core** without GPU
-* [x] Optimized Neural Network inference latency, thanks to ONNX
+* [x] Optimized MCTS, thanks to Numba
+* [x] Optimized Neural Network inference latency, thanks to ONNX reaching **about 1000-3000 rollouts/sec on 1 CPU core** without batching and without GPU
 * [x] Compact console log
 
 ### Splendor

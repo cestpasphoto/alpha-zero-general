@@ -5,35 +5,35 @@ import numpy as np
 from numba import njit
 import numba
 
-ENABLE_ACTION_RESERVE  = False
-ENABLE_ACTION_GIVEBACK = False
+ENABLE_ACTION_RESERVE  = True
+ENABLE_ACTION_GIVEBACK = True
 
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
 	return (32+12*num_players, 7)
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def action_size():
 	return 81
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def my_random_choice(prob):
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
 	return result
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def my_packbits(array):
 	product = np.multiply(array.astype(np.uint8), mask[:len(array)])
 	return product.sum()
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def my_unpackbits(value):
 	return (np.bitwise_and(value, mask) != 0).astype(np.uint8)
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def np_all_axis1(x):
 	out = np.ones(x.shape[0], dtype=np.bool8)
 	for i in range(x.shape[1]):

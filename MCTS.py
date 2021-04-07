@@ -169,7 +169,7 @@ class MCTS():
 
 
 # pick the action with the highest upper confidence bound
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step):
     cur_best = MINFLOAT
     best_act = -1
@@ -191,7 +191,7 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step):
     return best_act
 
 
-@njit(fastmath=True) # no cache because it relies on jitclass which isn't compatible with cache
+@njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
 def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard, forced_playouts, step):
     a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step)
 
@@ -200,7 +200,7 @@ def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, ga
 
     return a, next_s
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def normalise(vector):
     sum_vector = np.sum(vector)
     vector /= sum_vector

@@ -9,7 +9,7 @@ from numba import jit, njit
 # (Game convention) -1 = 1 (SplendorLogic convention)
 # (Game convention)  1 = 0 (SplendorLogic convention)
 
-@njit(fastmath=True) # No cache, because relies jitclass which isn't compatible with cache
+@njit(fastmath=True, nogil=True) # No cache, because relies jitclass which isn't compatible with cache
 def getGameEnded(splendorgameboard, board, player):
 	splendorgameboard.copy_state(board, False)
 	ended, winners = splendorgameboard.check_end_game()
@@ -21,18 +21,18 @@ def getGameEnded(splendorgameboard, board, player):
 		return 0.01
 	return 1. if np_winners[0 if player==1 else 1] else -1.
 
-@njit(fastmath=True)
+@njit(fastmath=True, nogil=True)
 def getNextState(splendorgameboard, board, player, action, deterministic=False):
 	splendorgameboard.copy_state(board, True)
 	splendorgameboard.make_move(action, 0 if player==1 else 1, deterministic)
 	return (splendorgameboard.get_state(), -player)
 
-@njit(fastmath=True)
+@njit(fastmath=True, nogil=True)
 def getValidMoves(splendorgameboard, board, player):
 	splendorgameboard.copy_state(board, False)
 	return splendorgameboard.valid_moves(0 if player==1 else 1)
 
-@njit(fastmath=True)
+@njit(fastmath=True, nogil=True)
 def getCanonicalForm(splendorgameboard, board, player):
 	if player == 1:
 		return board
