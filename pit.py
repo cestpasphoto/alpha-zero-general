@@ -18,9 +18,12 @@ use this script to play any two agents against each other, or play manually with
 any agent.
 """
 
-game = Game(2)
+game = None
 
 def create_player(name, args):
+	global game
+	if game is None:
+		game = Game(2)
 	# all players
 	if name == 'random':
 		return RandomPlayer(game).play
@@ -54,15 +57,39 @@ def play(args):
 		args.player1 += '/best.pt'
 	p1_name = os.path.basename(os.path.dirname(args.player1))
 
-	os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress tensorflow warning about cuda not available
 	results = []
-
 	print(args.player1, 'vs', args.player2)
 	player1, player2 = create_player(args.player1, args), create_player(args.player2, args)
 	human = 'human' in [args.player1, args.player2]
 	arena = Arena.Arena(player1, player2, game, display=display)
 	result = arena.playGames(args.num_games, verbose=args.display or human)
 	return result
+
+def plays(args):
+	import subprocess
+	import math
+	players = subprocess.check_output(['find', args.compare, '-name', 'best.pt', '-mmin', '-'+str(args.compare_age*60)])
+	players = players.decode('utf-8').strip().split('\n')
+	n = len(players)
+
+	nb_iterations = math.ceil(n/args.compare_threads)
+	target_nb_threads = math.ceil(n/nb_iterations)
+	current_threads_list = subprocess.check_output(['ps', '-e', '-o', 'cmd']).decode('utf-8').split('\n')
+	idx_thread = sum([1 for t in current_threads_list if 'pit.py' in t]) - 1
+	if idx_thread == 0:
+		print(players)
+		print(f'\t{n} models, will need {nb_iterations} * {n//2} iterations * {target_nb_threads} threads')
+	if idx_thread < target_nb_threads-1:
+		print(f'\tPlease call same script {target_nb_threads-1-idx_thread} time(s) more in other console')
+	elif idx_thread >= target_nb_threads:
+		print(f'I already have enough processes, exiting current one')
+		exit()
+
+	for p1 in range(idx_thread, n, target_nb_threads):
+		args.player1 = players[p1]
+		for p2_delta in range(1, 1+n//2):
+			args.player2 = players[ (p1 + p2_delta)%n ]
+			play(args)
 
 def display(numpy_board):
 	board = Board(2)
@@ -91,20 +118,26 @@ def main():
 	import argparse
 	parser = argparse.ArgumentParser(description='tester')  
 
-	parser.add_argument('--num-games'  , '-n' , action='store', default=30   , type=int  , help='')
+	parser.add_argument('--num-games'      , '-n' , action='store', default=30   , type=int  , help='')
 	parser.add_argument('--profile'           , action='store_true', help='enable profiling')
 	parser.add_argument('--display'           , action='store_true', help='display')
 
-	parser.add_argument('--numMCTSSims', '-m' , action='store', default=None  , type=int  , help='Number of games moves for MCTS to simulate.')
-	parser.add_argument('--cpuct'      , '-c' , action='store', default=None  , type=float, help='')
+	parser.add_argument('--numMCTSSims'    , '-m' , action='store', default=None  , type=int  , help='Number of games moves for MCTS to simulate.')
+	parser.add_argument('--cpuct'          , '-c' , action='store', default=None  , type=float, help='')
 
-	parser.add_argument('--player1'    , '-p' , action='store', default=None , help='P1: either file or human, greedy, random')
-	parser.add_argument('--player2'    , '-P' , action='store', default=None , help='P2: either file or human, greedy, random')
+	parser.add_argument('--player1'        , '-p' , action='store', default=None , help='P1: either file or human, greedy, random')
+	parser.add_argument('--player2'        , '-P' , action='store', default=None , help='P2: either file or human, greedy, random')
+
+	parser.add_argument('--compare'        , '-C' , action='store', default=None , help='Compare all best.pt located in the specified folders')
+	parser.add_argument('--compare-age'    , '-A' , action='store', default=12   , help='Maximum age (in hour) of best.pt to be compared', type=int)
+	parser.add_argument('--compare-threads', '-T' , action='store', default=6    , help='No of threads to run comparison on', type=int)
 
 	args = parser.parse_args()
 	
 	if args.profile:
 		profiling(args)
+	elif args.compare:
+		plays(args)
 	else:
 		play(args)
 
