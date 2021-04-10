@@ -172,28 +172,54 @@ class NNetWrapper(NeuralNet):
 			return			
 		try:
 			checkpoint = torch.load(filepath, map_location='cpu')
-			try:
-				self.nnet.load_state_dict(checkpoint['state_dict'])
-			except:
-				if self.nnet.version > 0:
-					try:
-						self.nnet.load_state_dict(checkpoint['state_dict'], strict=False)	
-						print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
-					except:
-						self.nnet = checkpoint['full_model']
-						print('Had to load FULL MODEL, was not able to load state_dict, saved archi-version was', checkpoint['full_model'].version)
-				else:
-					self.nnet = checkpoint['full_model']
+			self.load_network(checkpoint, strict=False)
 			if self.args['save_optim_state']:
 				if 'optim_state' in checkpoint:
 					self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
 					self.optimizer.load_state_dict(checkpoint['optim_state'][0]) 	# Weird that we have to do that
+				else:
+					print('No dump of optimizer state :-(')
 		except:
 			print("MODEL {} CAN'T BE READ but file exists".format(filepath))
 			return
 		self.switch_target('just_loaded')
 		return checkpoint
 			
+	def load_network(self, checkpoint, strict=False):
+		def load_not_strict(network_state_to_load, target_network):
+			target_state = target_network.state_dict()
+			for name, params in network_state_to_load.items():
+				if name in target_state:
+					target_params = target_state[name]
+					if target_params.shape == params.shape:
+						params.copy_(target_params)
+						# print(f'no problem to copy {name}')
+					else:
+						if len(target_params.shape) == 2:
+							min_size_0, min_size_1 = min(target_params.shape[0], params.shape[0]), min(target_params.shape[1], params.shape[1])
+							target_params[:min_size_0, :min_size_1] = params[:min_size_0, :min_size_1]
+						else:
+							min_size = min(target_params.shape[0], params.shape[0])
+							target_params[:min_size] = params[:min_size]
+							print(f'load {params.shape}  target {target_params.shape} --> {(min_size_0)}')
+				# else:
+				# 	print(f'hasnt loaded layer {name} because not in target')
+
+
+		try:
+			self.nnet.load_state_dict(checkpoint['state_dict'])
+		except:
+			if self.nnet.version > 0:
+				try:
+					load_not_strict(checkpoint['state_dict'], self.nnet)
+					print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
+				except:
+					self.nnet = checkpoint['full_model']
+					print('Had to load FULL MODEL, was not able to load state_dict, saved archi-version was', checkpoint['full_model'].version)
+			else:
+				self.nnet = checkpoint['full_model']
+
+
 	def switch_target(self, mode):
 		target_device = self.device[mode]
 		if target_device == self.current_mode:
