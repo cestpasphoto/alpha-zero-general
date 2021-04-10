@@ -67,6 +67,9 @@ class SplendorNNet(nn.Module):
 			if type(m) == nn.Linear:
 				nn.init.kaiming_uniform_(m.weight)
 				nn.init.zeros_(m.bias)
+			elif type(m) == nn.Sequential:
+				for module in m:
+					_init(module)
 
 		if self.version == 1:
 			dense2d, dense1d = [256,256], [512,256,256]
