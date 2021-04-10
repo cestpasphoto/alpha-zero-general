@@ -183,6 +183,46 @@ class SplendorNNet(nn.Module):
 				nn.Linear(256, self.scdiff_size)
 			)
 
+		elif self.version == 98:
+			self.dense2d_1 = nn.Sequential(
+				nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(7), nn.ReLU(),
+				nn.Linear(128, 128)                            , nn.ReLU(), # no batchnorm before max pooling
+			)
+
+			self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=7)
+
+			self.dense2d_2 = nn.Identity()
+			self.partialgpool_2 = nn.Identity()
+
+			self.dense2d_3 = nn.Sequential(
+				nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
+			self.dense1d_4 = nn.Sequential(
+				nn.Linear(64*4+(128-64)*7, 128), nn.ReLU(),
+			)
+			self.partialgpool_4 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
+			
+			self.dense1d_5 = nn.Sequential(
+				nn.Linear(128, 128), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, 1)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.scdiff_size)
+			)
 
 		if self.version >= 2:
 			self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
