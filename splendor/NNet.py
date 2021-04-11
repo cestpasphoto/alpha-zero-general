@@ -49,8 +49,8 @@ class NNetWrapper(NeuralNet):
 		batch_count = int(len(examples) / self.args['batch_size'])
 
 		if self.args['cyclic_lr']:
-			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], anneal_strategy='cos', total_steps=self.args['epochs']*batch_count*10)
-			# scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], anneal_strategy='linear', total_steps=self.args['epochs']*batch_count*10)
+			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate']*10, anneal_strategy='cos', total_steps=self.args['epochs']*batch_count)
+			# scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate']*10, anneal_strategy='linear', total_steps=self.args['epochs']*batch_count)
 
 		if self.args['surprise_weight']:
 			examples_surprises = np.array([x[5] for x in examples])
@@ -159,7 +159,7 @@ class NNetWrapper(NeuralNet):
 			'state_dict': self.nnet.state_dict(),
 			'full_model': self.nnet,
 		}
-		if self.optimizer is not None and self.args['save_optim_state']:
+		if self.optimizer is not None:
 			data['optim_state'] = self.optimizer.state_dict(),
 		data.update(additional_keys)
 		torch.save(data, filepath)
