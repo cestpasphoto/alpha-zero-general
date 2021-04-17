@@ -110,7 +110,7 @@ def main():
 	parser.add_argument('--test'                   , action='store_true', help='test logic')
 	
 	args = parser.parse_args()
-	args.arenaCompare = 30
+	args.arenaCompare = 30 if args.numEps < 500 else 50
 	args.maxlenOfQueue = int(2.5e6/(1.2*args.numItersHistory)) # at most 2GB per process, with each example weighing 1.2kB
 	if args.timeIters > 0:
 		args.numIters = 1000

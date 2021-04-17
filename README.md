@@ -13,9 +13,10 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
   * [ ] Auxiliary Policy Targets
   * [x] Score Targets
 * [ ] Set up HyperParameters Optimization, like Hyperband or Population-Based Training
-* [x] Optimized MCTS, thanks to Numba
-* [x] Optimized Neural Network inference latency, thanks to ONNX reaching **about 1000-3000 rollouts/sec on 1 CPU core** without batching and without GPU
-* [x] Compact console log
+* [x] Speed optimized
+  * [x] Reaching **about 3000 rollouts/sec on 1 CPU core** without batching and without GPU, meaning 1 full game in 30 seconds when using 1600 rollouts for each move
+  * [x] Neural Network inference speed and especially latency improved, thanks to ONNX 
+  * [x] MCTS and logic optimized thanks to Numba, NN inference is now >80% time spent during self-plays based on profilers
 
 ### Splendor
 
@@ -31,12 +32,31 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 * [x] Improved prints (logging, tqdm, colored bards depending on current Arena results)
 * [x] Parameters can be set in cmdline, added new parameters like time limit
 
-### Contributors and Credits
-* [Shantanu Thakoor](https://github.com/ShantanuThakoor) and [Megha Jhunjhunwala](https://github.com/jjw-megha) helped with core design and implementation.
-* [Shantanu Kumar](https://github.com/SourKream) contributed TensorFlow and Keras models for Othello.
-* [Evgeny Tyurin](https://github.com/evg-tyurin) contributed rules and a trained model for TicTacToe.
-* [MBoss](https://github.com/1424667164) contributed rules and a model for GoBang.
-* [Jernej Habjan](https://github.com/JernejHabjan) contributed RTS game.
-* [Adam Lawson](https://github.com/goshawk22) contributed rules and a trained model for 3D TicTacToe.
-* [Carlos Aguayo](https://github.com/carlos-aguayo) contributed rules and a trained model for Dots and Boxes along with a [JavaScript implementation](https://github.com/carlos-aguayo/carlos-aguayo.github.io/tree/master/alphazero).
+### Technical details
+#### Dependencies
+`pip3 install onnxruntime-noopenmp numba tqdm colorama coloredlogs`
+and
+`pip3 install torch==1.8.1+cpu -f https://download.pytorch.org/whl/torch_stable.html`
 
+The noopenmp version of onnxruntime is faster for single thread execution. This is the recommended way for fast exploration of hyperparameters, using several threads.
+
+#### How to play versus saved engine
+`./pit.py -p ../results/saved_engine/best.pt -P human -n 1`
+
+Switch -p and -P options if human wants to be first player
+
+#### Recommended settings
+`main.py -m 1600 -V 98 -v 15 -T 30 -e 500 -i 5 -p 2 -d 0.10 -b 32 -l 0.0003 --updateThreshold 0.
+55 -C ../results/mytest`:
+
+* Start by disabling card reserve actions in first lines of splendor/SplendorLogicNumba.py
+* `-V 98` : define architecture. 98 is smaller than 8 but seems to give better results (faster learning?)
+* `-v 15`: define loss weights of value estimation vs policy, higher mean more weights to value loss. Suraganair value of 1 lead to very bad performance, I had good results with `-v 30` during first iterations, and then decrease it down to `-v 10`
+* `-b 32 -l 0.0003 -p 2`: define batch size, learning rate and number of epochs. Larger number of epochs degrades performance, same for larger batch sizes
+* `--updateThreshold 0.55`: result of iteration is kept if winning ratio in self-play is above this threshold. Suraganair value of 60% win seems too high to me
+
+Use of forced rollouts, surprise weight, cyclic learning rate or tuning cpuct value hadn't lead to any significant improvement.
+
+#### How to evaluate training results
+If you executed several training in parallel, you can evaluate the results obtained in the last 24 hours by using this command (execute as many times as threads):
+`./pit.py -A 24 -T 8`
