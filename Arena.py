@@ -1,4 +1,5 @@
 import logging
+import bisect
 
 from tqdm import tqdm
 
@@ -76,10 +77,13 @@ class Arena():
             twoWon: games won by player2
             draws:  games won by nobody
         """
+        ratio_boundaries = [        1-0.60,        1-0.55,        0.55,        0.60         ]
+        colors           = ['#d60000',     '#d66b00',     '#f9f900',   '#a0d600',  '#6b8e00'] #https://icolorpalette.com/ff3b3b_ff9d3b_ffce3b_ffff3b_ceff3b
+
         oneWon, twoWon, draws = 0, 0, 0
         t = tqdm(range(num), desc="Arena.playGames", ncols=120, disable=None)
         for i in t:
-            # Since trees aren't resetted, the first games (1vs2) can't be
+            # Since trees may not be resetted, the first games (1vs2) can't be
             # considered as fair as the last games (2vs1). Switching between 
             # 1vs2 and 2vs1 like below seems more fair:
             # 1 2 2 1   1 2 2 1  ...
@@ -95,7 +99,7 @@ class Arena():
 
             t.set_postfix(one_wins=oneWon, two_wins=twoWon, refresh=False)
             ratio = oneWon / (oneWon+twoWon) if oneWon+twoWon>0 else 0.5
-            t.colour='green' if ratio>=0.60 else ('red' if ratio<=0.40 else 'yellow') #'#e59400'
+            t.colour = colors[bisect.bisect_right(ratio_boundaries, ratio)]
         t.close()
 
         return oneWon, twoWon, draws
