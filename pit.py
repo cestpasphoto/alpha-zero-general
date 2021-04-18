@@ -125,8 +125,8 @@ def main():
 	parser.add_argument('--numMCTSSims'    , '-m' , action='store', default=None  , type=int  , help='Number of games moves for MCTS to simulate.')
 	parser.add_argument('--cpuct'          , '-c' , action='store', default=None  , type=float, help='')
 
-	parser.add_argument('--player1'        , '-p' , action='store', default=None , help='P1: either file or human, greedy, random')
-	parser.add_argument('--player2'        , '-P' , action='store', default=None , help='P2: either file or human, greedy, random')
+	parser.add_argument('--player1'        , '-p' , action='store', default=None        , help='P1: either file or human, greedy, random')
+	parser.add_argument('--player2'        , '-P' , action='store', default=None        , help='P2: either file or human, greedy, random')
 
 	parser.add_argument('--compare'        , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
 	parser.add_argument('--compare-age'    , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
@@ -136,7 +136,7 @@ def main():
 	
 	if args.profile:
 		profiling(args)
-	elif args.compare:
+	elif args.compare_age:
 		plays(args)
 	else:
 		play(args)
