@@ -128,9 +128,9 @@ def main():
 	parser.add_argument('--player1'        , '-p' , action='store', default=None , help='P1: either file or human, greedy, random')
 	parser.add_argument('--player2'        , '-P' , action='store', default=None , help='P2: either file or human, greedy, random')
 
-	parser.add_argument('--compare'        , '-C' , action='store', default=None , help='Compare all best.pt located in the specified folders')
-	parser.add_argument('--compare-age'    , '-A' , action='store', default=12   , help='Maximum age (in hour) of best.pt to be compared', type=int)
-	parser.add_argument('--compare-threads', '-T' , action='store', default=6    , help='No of threads to run comparison on', type=int)
+	parser.add_argument('--compare'        , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
+	parser.add_argument('--compare-age'    , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
+	parser.add_argument('--compare-threads', '-T' , action='store', default=6           , help='No of threads to run comparison on', type=int)
 
 	args = parser.parse_args()
 	
