@@ -68,28 +68,37 @@ def play(args):
 def plays(args):
 	import subprocess
 	import math
+	import itertools
+	import time
 	players = subprocess.check_output(['find', args.compare, '-name', 'best.pt', '-mmin', '-'+str(args.compare_age*60)])
 	players = players.decode('utf-8').strip().split('\n')
-	n = len(players)
+	list_tasks = list(itertools.combinations(players, 2))
+	n = len(list_tasks)
 
-	nb_iterations = math.ceil(n/args.compare_threads)
-	target_nb_threads = math.ceil(n/nb_iterations)
+	nb_tasks_per_thread = math.ceil(n/args.max_compare_threads)
+	nb_threads = math.ceil(n/nb_tasks_per_thread)
 	current_threads_list = subprocess.check_output(['ps', '-e', '-o', 'cmd']).decode('utf-8').split('\n')
 	idx_thread = sum([1 for t in current_threads_list if 'pit.py' in t]) - 1
 	if idx_thread == 0:
 		print(players)
-		print(f'\t{n} models, will need {nb_iterations} * {n//2} iterations * {target_nb_threads} threads')
-	if idx_thread < target_nb_threads-1:
-		print(f'\tPlease call same script {target_nb_threads-1-idx_thread} time(s) more in other console')
-	elif idx_thread >= target_nb_threads:
+		print(f'\t{n} pits to do, splitted in {nb_tasks_per_thread} tasks * {nb_threads} threads')
+	if idx_thread < nb_threads-1:
+		print(f'\tPlease call same script {nb_threads-1-idx_thread} time(s) more in other console')
+	elif idx_thread >= nb_threads:
 		print(f'I already have enough processes, exiting current one')
 		exit()
 
-	for p1 in range(idx_thread, n, target_nb_threads):
-		args.player1 = players[p1]
-		for p2_delta in range(1, 1+n//2):
-			args.player2 = players[ (p1 + p2_delta)%n ]
+	last_kbd_interrupt = 0.
+	for (p1, p2) in list_tasks[idx_thread::nb_threads]:
+		args.player1, args.player2 = p1, p2
+		try:
 			play(args)
+		except KeyboardInterrupt:
+			now = time.time()
+			if now - last_kbd_interrupt < 10:
+				exit(0)
+			last_kbd_interrupt = now
+			print('Skipping this pit (hit CRTL-C once more to stop all)')
 
 def display(numpy_board):
 	board = Board(2)
@@ -118,19 +127,19 @@ def main():
 	import argparse
 	parser = argparse.ArgumentParser(description='tester')  
 
-	parser.add_argument('--num-games'      , '-n' , action='store', default=30   , type=int  , help='')
-	parser.add_argument('--profile'           , action='store_true', help='enable profiling')
-	parser.add_argument('--display'           , action='store_true', help='display')
+	parser.add_argument('--num-games'          , '-n' , action='store', default=30   , type=int  , help='')
+	parser.add_argument('--profile'                   , action='store_true', help='enable profiling')
+	parser.add_argument('--display'                   , action='store_true', help='display')
 
-	parser.add_argument('--numMCTSSims'    , '-m' , action='store', default=None  , type=int  , help='Number of games moves for MCTS to simulate.')
-	parser.add_argument('--cpuct'          , '-c' , action='store', default=None  , type=float, help='')
+	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None  , type=int  , help='Number of games moves for MCTS to simulate.')
+	parser.add_argument('--cpuct'              , '-c' , action='store', default=None  , type=float, help='')
 
-	parser.add_argument('--player1'        , '-p' , action='store', default=None        , help='P1: either file or human, greedy, random')
-	parser.add_argument('--player2'        , '-P' , action='store', default=None        , help='P2: either file or human, greedy, random')
+	parser.add_argument('--player1'            , '-p' , action='store', default=None        , help='P1: either file or human, greedy, random')
+	parser.add_argument('--player2'            , '-P' , action='store', default=None        , help='P2: either file or human, greedy, random')
 
-	parser.add_argument('--compare'        , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
-	parser.add_argument('--compare-age'    , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
-	parser.add_argument('--compare-threads', '-T' , action='store', default=6           , help='No of threads to run comparison on', type=int)
+	parser.add_argument('--compare'            , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
+	parser.add_argument('--compare-age'        , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
+	parser.add_argument('--max-compare-threads', '-T' , action='store', default=6           , help='No of threads to run comparison on', type=int)
 
 	args = parser.parse_args()
 	
