@@ -299,8 +299,9 @@ class Board():
 			self.players_reserved[empty_slot:empty_slot+2] = self.cards_tiers[8*tier+2*index:8*tier+2*index+2]
 			self._fill_new_card(tier, index, deterministic)
 		else:      # reserve from deck
-			tier = i - 12
-			self.players_reserved[empty_slot:empty_slot+2] = self._get_deck_card(tier)
+			if not deterministic:
+				tier = i - 12
+				self.players_reserved[empty_slot:empty_slot+2] = self._get_deck_card(tier)
 		
 		if self.bank[0][idx_gold] > 0 and self.players_gems[player].sum() <= 9:
 			self.players_gems[player][idx_gold] += 1
