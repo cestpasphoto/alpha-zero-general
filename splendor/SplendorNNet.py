@@ -144,32 +144,38 @@ class SplendorNNet(nn.Module):
 
 		elif self.version == 9:
 			self.dense2d_1 = nn.Sequential(
-				nn.Linear(self.nb_vect, 512), nn.BatchNorm1d(7), nn.ReLU(),
-				nn.Linear(512, 512)                            , nn.ReLU(), # no batchnorm before max pooling
+				nn.Linear(self.nb_vect, 256), nn.BatchNorm1d(7), nn.ReLU(),
+				nn.Linear(256, 256)                            , nn.ReLU(), # no batchnorm before max pooling
 			)
-			self.partialgpool_1 = DenseAndPartialGPool(512, 512, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=7)
+			self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=7)
 
 			self.dense2d_2 = nn.Sequential(
-				nn.Linear(512, 512), nn.BatchNorm1d(7), nn.ReLU(),
-				nn.Linear(512, 512)                   , nn.ReLU(), # no batchnorm before max pooling
+				nn.Linear(256, 256), nn.BatchNorm1d(7), nn.ReLU(),
+				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
 			)
-			self.partialgpool_2 = DenseAndPartialGPool(512, 512, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=7)
+			self.partialgpool_2 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=7)
 
 			self.dense2d_3 = nn.Sequential(
-				nn.Linear(512, 256)                   , nn.ReLU(), # no batchnorm before max pooling
+				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
 			)
 			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
 
 			self.dense1d_4 = nn.Sequential(
-				nn.Linear(64*4+(256-64)*7, 512), nn.ReLU(),
+				nn.Linear(64*4+(256-64)*7, 256), nn.ReLU(),
 			)
-			self.partialgpool_4 = DenseAndPartialGPool(512, 512, nb_groups=8, nb_items_in_groups=4, channels_for_batchnorm=1)
+			self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=1)
 
 			self.dense1d_5 = nn.Sequential(
-				nn.Linear(512, 256), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
 				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
 			)
-			self.partialgpool_5 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
+			self.partialgpool_5 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=1)
+
+			self.dense1d_6 = nn.Sequential(
+				nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.partialgpool_6 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=1)
 
 			self.output_layers_PI = nn.Sequential(
 				nn.Linear(256, 256),
@@ -272,6 +278,9 @@ class SplendorNNet(nn.Module):
 			x = F.dropout(self.partialgpool_4(x), p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.dense1d_5(x)     , p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
+			if self.version == 9:
+				x = F.dropout(self.dense1d_6(x)     , p=self.args['dropout'], training=self.training)
+				x = self.partialgpool_6(x)
 			
 			v = self.output_layers_V(x).squeeze(1)
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
