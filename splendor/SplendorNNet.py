@@ -268,13 +268,13 @@ class SplendorNNet(nn.Module):
 			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
 			
 			x = self.dense2d_1(x)
-			x = self.partialgpool_1(x)
+			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
 			if self.version == 9:
-				x = self.dense2d_2(x)
-				x = self.partialgpool_2(x)
-			x = self.dense2d_3(x)
+				x = F.dropout(self.dense2d_2(x), p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.partialgpool_2(x), p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.dense2d_3(x), p=self.args['dropout'], training=self.training)
 			x = self.flatten_and_gpool(x)
-			x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training) 
+			x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.partialgpool_4(x), p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.dense1d_5(x)     , p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
