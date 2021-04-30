@@ -26,8 +26,8 @@ class MCTS():
         self.dirichlet_noise = dirichlet_noise
 
         # Contains tuple of Es, Vs, Ps, Ns, Qsa, Nsa
-        #       Vs stores game.getGameEnded ended for board s
-        #       Es stores game.getValidMoves for board s
+        #       Es stores game.getGameEnded ended for board s
+        #       Vs stores game.getValidMoves for board s
         #       Ps stores initial policy (returned by neural net)    
         #       Ns stores #times board s was visited
         #       Qsa stores Q values for s,a (as defined in the paper)
@@ -113,17 +113,17 @@ class MCTS():
         Es, Vs, Ps, Ns, Qsa, Nsa = self.nodes_data.get(s, (None, )*6)
 
         if Es is None:
-            Es = getGameEnded(self.game.board, canonicalBoard, 1)
-            if Es != 0:
+            Es = getGameEnded(self.game.board, canonicalBoard)
+            if Es.any():
                 # terminal node
                 self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
-                return -Es
-        elif Es != 0:
+                return np.roll(Es, 1)
+        elif Es.any():
             # terminal node
-            return -Es
+            return np.roll(Es, 1)
 
         if Ps is None:
-            Vs = getValidMoves(self.game.board, canonicalBoard, 1)
+            Vs = getValidMoves(self.game.board, canonicalBoard, 0)
             # leaf node
             Ps, v = self.nnet.predict(canonicalBoard, Vs)
             if dirichlet_noise:
@@ -132,7 +132,7 @@ class MCTS():
 
             Ns, Qsa, Nsa = 0, self.Qsa_default.copy(), self.Nsa_default.copy()
             self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
-            return -v
+            return np.roll(v, 1)
 
         if dirichlet_noise:
             self.applyDirNoise(Ps, Vs)
@@ -151,12 +151,12 @@ class MCTS():
 
         v = self.search(next_s)
 
-        Qsa[a] = (Nsa[a] * Qsa[a] + v) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
+        Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
         Nsa[a] += 1
         Ns += 1
 
         self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
-        return -v
+        return np.roll(v, 1)
 
 
     def applyDirNoise(self, Ps, Vs):
@@ -195,7 +195,7 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step):
 def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard, forced_playouts, step):
     a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step)
 
-    next_s, next_player = getNextState(gameboard, canonicalBoard, 1, a, True)
+    next_s, next_player = getNextState(gameboard, canonicalBoard, 0, a, True)
     next_s = getCanonicalForm(gameboard, next_s, next_player)
 
     return a, next_s

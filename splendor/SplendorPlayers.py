@@ -1,15 +1,16 @@
 import numpy as np
 import random
 
-from .SplendorLogic import print_board, move_to_short_str
+from .SplendorLogic import print_board, move_to_str
 
 class RandomPlayer():
 	def __init__(self, game):
 		self.game = game
 
 	def play(self, board):
-		valids = self.game.getValidMoves(board, 1)
-		return random.choices(range(self.game.getActionSize()), weights=valids, k=1)[0]
+		valids = self.game.getValidMoves(board, 0)
+		action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int), k=1)[0]
+		return action
 
 
 class HumanPlayer():
@@ -18,12 +19,12 @@ class HumanPlayer():
 
 	def play(self, board):
 		# print_board(self.game.board)
-		valid = self.game.getValidMoves(board, 1)
+		valid = self.game.getValidMoves(board, 0)
 		for i, v in enumerate(valid):
 			if i in [12,12+15,12+15+3+30]:
 				print()
 			if v:
-				print(f'{i} = {move_to_short_str(i)}', end='   ')
+				print(f'{i} = {move_to_str(i, short=True)}', end='   ')
 		print()
 		while True:
 			input_move = input()
@@ -42,11 +43,11 @@ class GreedyPlayer():
 		self.game = game
 
 	def play(self, board):
-		valids = self.game.getValidMoves(board, 1)
+		valids = self.game.getValidMoves(board, 0)
 		candidates = []
-		initial_score = self.game.getScore(board, 1)
+		initial_score = self.game.getScore(board, 0)
 		for m in [m_ for m_, v in enumerate(valids) if v>0]:
-			nextBoard, _ = self.game.getNextState(board, 1, m)
+			nextBoard, _ = self.game.getNextState(board, 0, m)
 			score = self.game.getScore(nextBoard, 1)
 			candidates += [(score, m)]
 		max_score = max(candidates, key=lambda x: x[0])[0]

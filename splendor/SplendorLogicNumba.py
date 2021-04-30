@@ -142,23 +142,29 @@ class Board():
 
 	def check_end_game(self):
 		if self.bank[0][idx_points] % self.num_players != 0: # Check only when 1st player is about to play
-			return False, [False, False]
+			return np.full(self.num_players, 0., dtype=np.float32)
 		
-		scores = [self.get_score(p) for p in range(self.num_players)]
-		score_max = max(scores)
+		scores = np.array([self.get_score(p) for p in range(self.num_players)])
+		score_max = scores.max()
 		end = (score_max >= self.score_win) or (self.bank[0][idx_points] >= self.max_moves)
-		winners = [(s == score_max) for s in scores] if end else [False, False]
-		return end, winners
+		if not end:
+			return np.full(self.num_players, 0., dtype=np.float32)
+		single_winner = ((scores == score_max).sum() == 1)
+		winners = [(1. if single_winner else 0.01) if s == score_max else -1. for s in scores]
+		return np.array(winners, dtype=np.float32)
 
-	def swap_players(self):
-		def _swap(array, half_size):
-			tmp_copy = array[:half_size,:].copy()
-			array[:half_size,:] = array[half_size:2*half_size,:]
-			array[half_size:2*half_size,:] = tmp_copy
-		_swap(self.players_gems, 1)
-		_swap(self.players_cards, 1)
-		_swap(self.players_nobles, 3)
-		_swap(self.players_reserved, 6)
+	# if n=1, transform P0 to Pn, P1 to P0, ... and Pn to Pn-1
+	# else do this action n times
+	def swap_players(self, nb_swaps):
+		def _roll_in_place_axis0(array, shift):
+			tmp_copy = array.copy()
+			size0 = array.shape[0]
+			for i in range(size0):
+				array[i,:] = tmp_copy[(i+shift)%size0,:]
+		_roll_in_place_axis0(self.players_gems    , 1*nb_swaps)
+		_roll_in_place_axis0(self.players_nobles  , 3*nb_swaps)
+		_roll_in_place_axis0(self.players_cards   , 1*nb_swaps)
+		_roll_in_place_axis0(self.players_reserved, 6*nb_swaps)
 
 	def get_symmetries(self, policy, valid_actions):
 		def _swap_cards(cards, permutation):
@@ -277,12 +283,6 @@ class Board():
 		not_empty_cards = np.vstack((self.cards_tiers[:2*12:2,:5], self.nb_deck_tiers[::2, :5])).sum(axis=1) != 0
 
 		allowed_reserved_cards = 3
-		#if self.bank[0][idx_points] > 40 or self.bank[0][idx_points] % 2 == 1:
-		#	allowed_reserved_cards = 3
-		#elif self.bank[0][idx_points] > 20:
-		#	allowed_reserved_cards = 2
-		#else:
-		#	allowed_reserved_cards = 1
 		empty_slot = (self.players_reserved[6*player+2*(allowed_reserved_cards-1)+1][:5].sum() == 0)
 		return np.logical_and(not_empty_cards, empty_slot).astype(np.int8)
 

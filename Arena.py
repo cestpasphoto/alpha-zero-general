@@ -39,23 +39,23 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
-        players = [self.player1, None, self.player2] if other_way else [self.player2, None, self.player1]
-        curPlayer = 1
+        players = [self.player1, self.player2, self.player2] if other_way else [self.player2, self.player1, self.player1]
+        curPlayer = 0
         board = self.game.getInitBoard()
         it = 0
-        while self.game.getGameEnded(board, curPlayer) == 0:
+        while not self.game.getGameEnded(board).any():
             it += 1
             if verbose:
                 if self.display:
                     self.display(board)
-                print(f'Turn {it} Player {curPlayer} (=P{0 if curPlayer==1 else 1})')
+                print(f'Turn {it} Player {curPlayer}: ', end='')
                 
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
-            action = players[curPlayer + 1](canonical_board)
-            valids = self.game.getValidMoves(canonical_board, 1)
+            action = players[curPlayer](canonical_board)
+            valids = self.game.getValidMoves(canonical_board, 0)
 
             if verbose:
-                print(f'He decided to {move_to_str(action)}')
+                print(f'P{curPlayer} decided to {move_to_str(action)}')
 
             if valids[action] == 0:
                 assert valids[action] > 0
@@ -63,9 +63,9 @@ class Arena():
         if verbose:
             if self.display:
                 self.display(board)
-            print("Game over: Turn ", str(it), "Result ", str(self.game.getGameEnded(board, 1)))
+            print("Game over: Turn ", str(it), "Result ", self.game.getGameEnded(board))
             
-        return curPlayer * self.game.getGameEnded(board, curPlayer)
+        return self.game.getGameEnded(board)[0]
 
     def playGames(self, num, verbose=False):
         """
@@ -90,9 +90,9 @@ class Arena():
             one_vs_two = (i%4 == 0) or (i%4 == 3)
             t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'), refresh=False)
             gameResult = self.playGame(verbose=verbose, other_way=not one_vs_two)
-            if gameResult == (1 if one_vs_two else -1):
+            if gameResult == (1. if one_vs_two else -1.):
                 oneWon += 1
-            elif gameResult == (-1 if one_vs_two else 1):
+            elif gameResult == (-1. if one_vs_two else 1.):
                 twoWon += 1
             else:
                 draws += 1

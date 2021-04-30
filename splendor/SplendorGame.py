@@ -1,7 +1,7 @@
 import sys
 sys.path.append('..')
 from Game import Game
-from .SplendorLogic import observation_size, action_size, move_to_short_str, print_board
+from .SplendorLogic import observation_size, action_size, print_board
 from .SplendorLogicNumba import Board
 import numpy as np
 from numba import jit, njit
@@ -10,35 +10,28 @@ from numba import jit, njit
 # (Game convention)  1 = 0 (SplendorLogic convention)
 
 @njit(fastmath=True, nogil=True) # No cache, because relies jitclass which isn't compatible with cache
-def getGameEnded(splendorgameboard, board, player):
+def getGameEnded(splendorgameboard, board):
 	splendorgameboard.copy_state(board, False)
-	ended, winners = splendorgameboard.check_end_game()
-	np_winners = np.array(winners, dtype=np.bool_)
-	if not ended:			# not finished
-		return 0.
-
-	if np_winners.sum() != 1:   # finished but no winners or several
-		return 0.01
-	return 1. if np_winners[0 if player==1 else 1] else -1.
+	return splendorgameboard.check_end_game()
 
 @njit(fastmath=True, nogil=True)
 def getNextState(splendorgameboard, board, player, action, deterministic=False):
 	splendorgameboard.copy_state(board, True)
-	splendorgameboard.make_move(action, 0 if player==1 else 1, deterministic)
-	return (splendorgameboard.get_state(), -player)
+	splendorgameboard.make_move(action, player, deterministic)
+	return (splendorgameboard.get_state(), (player+1)%splendorgameboard.num_players)
 
 @njit(fastmath=True, nogil=True)
 def getValidMoves(splendorgameboard, board, player):
 	splendorgameboard.copy_state(board, False)
-	return splendorgameboard.valid_moves(0 if player==1 else 1)
+	return splendorgameboard.valid_moves(player)
 
 @njit(fastmath=True, nogil=True)
 def getCanonicalForm(splendorgameboard, board, player):
-	if player == 1:
+	if player == 0:
 		return board
 
 	splendorgameboard.copy_state(board, True)
-	splendorgameboard.swap_players()
+	splendorgameboard.swap_players(player)
 	return splendorgameboard.get_state()
 
 class SplendorGame(Game):
@@ -61,38 +54,32 @@ class SplendorGame(Game):
 
 	def getNextState(self, board, player, action, deterministic=False):
 		self.board.copy_state(board, True)
-		self.board.make_move(action, 0 if player==1 else 1, deterministic)
-		return (self.board.get_state(), -player)
+		self.board.make_move(action, player, deterministic)
+		return (self.board.get_state(), (player+1)%self.num_players)
 
 
 	def getValidMoves(self, board, player):
 		self.board.copy_state(board, False)
-		return self.board.valid_moves(0 if player==1 else 1)
+		return self.board.valid_moves(player)
 
-	def getGameEnded(self, board, player):
+	def getGameEnded(self, board):
 		self.board.copy_state(board, False)
-		ended, winners = self.board.check_end_game()
-		if not ended:			# not finished
-			return 0
-
-		if sum(winners) != 1:   # finished but no winners or several
-			return 0.01
-		return 1 if winners[0 if player==1 else 1] else -1
+		return self.board.check_end_game()
 
 	def getScore(self, board, player):
 		self.board.copy_state(board, False)
-		return self.board.get_score(0 if player==1 else 1)
+		return self.board.get_score(player)
 
 	def getRound(self, board):
 		self.board.copy_state(board, False)
 		return self.board.get_round()
 
 	def getCanonicalForm(self, board, player):
-		if player == 1:
+		if player == 0:
 			return board
 
 		self.board.copy_state(board, True)
-		self.board.swap_players()
+		self.board.swap_players(player)
 		return self.board.get_state()
 
 	def getSymmetries(self, board, pi, valid_actions):

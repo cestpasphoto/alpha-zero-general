@@ -120,7 +120,8 @@ class NNetWrapper(NeuralNet):
 				'board': board.astype(np.float32).reshape((-1, self.nb_vect, self.vect_dim)),
 				'valid_actions': np.array(valid_actions).astype(np.bool_).reshape((-1, self.action_size)),
 			})
-			return np.exp(ort_outs[0])[0], ort_outs[1][0][0]
+			pi, v = np.exp(ort_outs[0]), ort_outs[1][0]
+			return pi[0], (np.array([v[0], -v[0]], dtype=np.float32) if v.size == 1 else v)
 
 		else:
 			board = torch.FloatTensor(board.astype(np.float32))
@@ -130,8 +131,9 @@ class NNetWrapper(NeuralNet):
 			self.nnet.eval()
 			with torch.no_grad():
 				pi, v, _ = self.nnet(board, valid_actions)
+			pi, v = torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0][0]
 
-			return torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0][0]
+			return pi, np.array([v, -v], dtype=np.float32)
 
 	def loss_pi(self, targets, outputs):
 		return -torch.sum(targets * outputs) / targets.size()[0]
