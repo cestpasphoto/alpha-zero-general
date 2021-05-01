@@ -46,7 +46,7 @@ spec = [
 	('current_player_index', numba.int8),
 	('num_gems_in_play'    , numba.int8),
 	('num_nobles'          , numba.int8),
-	('max_moves'           , numba.int8),
+	('max_moves'           , numba.uint8),
 	('score_win'           , numba.int8),
 
 	('state'           , numba.int8[:,:]),
@@ -67,7 +67,7 @@ class Board():
 		self.current_player_index = 0
 		self.num_gems_in_play = {2: 4, 3: 5, 4: 7}[n]
 		self.num_nobles = {2:3, 3:4, 4:5}[n]
-		self.max_moves = 126
+		self.max_moves = 62 * num_players
 		self.score_win = 15
 		self.state = np.zeros(observation_size(self.num_players), dtype=np.int8)
 		self.init_game()
@@ -141,12 +141,12 @@ class Board():
 		self.players_reserved = self.state[32+6*n:32+12*n,:]	# 6*N
 
 	def check_end_game(self):
-		if self.bank[0][idx_points] % self.num_players != 0: # Check only when 1st player is about to play
+		if self.get_round() % self.num_players != 0: # Check only when 1st player is about to play
 			return np.full(self.num_players, 0., dtype=np.float32)
 		
-		scores = np.array([self.get_score(p) for p in range(self.num_players)])
+		scores = np.array([self.get_score(p) for p in range(self.num_players)], dtype=np.int8)
 		score_max = scores.max()
-		end = (score_max >= self.score_win) or (self.bank[0][idx_points] >= self.max_moves)
+		end = (score_max >= self.score_win) or (self.get_round() >= self.max_moves)
 		if not end:
 			return np.full(self.num_players, 0., dtype=np.float32)
 		single_winner = ((scores == score_max).sum() == 1)
@@ -215,7 +215,7 @@ class Board():
 		return symmetries
 
 	def get_round(self):
-		return self.bank[0][idx_points]
+		return self.bank[0].astype(np.uint8)[idx_points]
 
 	def _get_deck_card(self, tier):
 		nb_remaining_cards_per_color = self.nb_deck_tiers[2*tier,:5]

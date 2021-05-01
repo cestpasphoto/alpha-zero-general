@@ -288,10 +288,11 @@ np_all_cards_3 = np.array(all_cards_3, dtype=np.int8)
 len_all_cards = np.array([len(all_cards_1[0]), len(all_cards_2[0]), len(all_cards_3[0])], dtype=np.int8)
 
 def _print_round_and_scores(board):
-	print('='*15, f' round {board.bank[0][idx_points]}    ', end='')
-	for p in range(board.num_players):
+	n = board.num_players
+	print('='*10*n, f' round {board.get_round()}    ', end='')
+	for p in range(n):
 		print(f'{Style.BRIGHT}P{p}{Style.RESET_ALL}: {board.get_score(p)} points  ', end='')
-	print('='*15, Style.RESET_ALL)
+	print('='*10*n, Style.RESET_ALL)
 
 def _print_nobles(board):
 	print(f'{Style.BRIGHT}Nobles:  {Style.RESET_ALL}', end='')

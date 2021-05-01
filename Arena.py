@@ -39,7 +39,7 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
-        players = [self.player1, self.player2, self.player2] if other_way else [self.player2, self.player1, self.player1]
+        players = [self.player2, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2]
         curPlayer = 0
         board = self.game.getInitBoard()
         it = 0
@@ -48,6 +48,7 @@ class Arena():
             if verbose:
                 if self.display:
                     self.display(board)
+                print()
                 print(f'Turn {it} Player {curPlayer}: ', end='')
                 
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
