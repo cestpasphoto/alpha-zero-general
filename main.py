@@ -15,7 +15,7 @@ coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
 def run(args):
 	log.debug('Loading %s...', Game.__name__)
-	g = Game(2)
+	g = Game(3)
 
 	log.debug('Loading %s...', nn.__name__)
 	nn_args = dict(

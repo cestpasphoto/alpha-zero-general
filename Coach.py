@@ -47,7 +47,7 @@ class Coach():
         """
         trainExamples = []
         board = self.game.getInitBoard()
-        self.curPlayer = 1
+        self.curPlayer = 0
         episodeStep = 0
 
         while True:
@@ -57,7 +57,7 @@ class Coach():
 
             pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp)
             if is_full_search:
-                valids = self.game.getValidMoves(canonicalBoard, 1)
+                valids = self.game.getValidMoves(canonicalBoard, 0)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
                     trainExamples.append([b, self.curPlayer, p, v, surprise])
@@ -65,14 +65,14 @@ class Coach():
             action = np.random.choice(len(pi), p=pi)
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
-            r = self.game.getGameEnded(board, self.curPlayer)
-            if r != 0:
-                final_scores_diff = self.game.getScore(board, self.curPlayer) - self.game.getScore(board, -self.curPlayer)
+            r = self.game.getGameEnded(board)
+            if r.any():
+                final_scores = [self.game.getScore(board, p) for p in range(self.game.num_players)]
                 return [(
                     x[0],                                # board
                     x[2],                                # policy
-                    r if x[1] == self.curPlayer else -r, # winner
-                    final_scores_diff if x[1] == self.curPlayer else -final_scores_diff, # score difference
+                    np.roll(r, -x[1]),                   # winner
+                    np.roll([f-final_scores[x[1]] for f in final_scores], -x[1]), # score difference
                     x[3],                                # valids
                     x[4],                                # surprise
                 ) for x in trainExamples]
