@@ -72,10 +72,12 @@ class NNetWrapper(NeuralNet):
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
-				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1)).astype(np.float32))
+				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, 3)).astype(np.float32))
 				for i in range(len(scdiffs)):
-					score_diff = min(max(scdiffs[i] + self.max_diff, 0), 2*self.max_diff)
-					target_scdiffs[i, score_diff] = 1
+					score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
+					target_scdiffs[i, score_diff[0], 0] = 1
+					target_scdiffs[i, score_diff[1], 1] = 1
+					target_scdiffs[i, score_diff[2], 2] = 1
 
 				# predict
 				if self.device['training'] == 'cuda':
@@ -133,13 +135,13 @@ class NNetWrapper(NeuralNet):
 				pi, v, _ = self.nnet(board, valid_actions)
 			pi, v = torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0][0]
 
-			return pi, np.array([v, -v], dtype=np.float32)
+			return pi, (np.array([v, -v], dtype=np.float32) if v.size == 1 else v)
 
 	def loss_pi(self, targets, outputs):
 		return -torch.sum(targets * outputs) / targets.size()[0]
 
 	def loss_v(self, targets, outputs):
-		return torch.sum((targets - outputs.view(-1)) ** 2) / targets.size()[0]
+		return torch.sum((targets - outputs) ** 2) / targets.size()[0]
 
 	def loss_scdiff_cdf(self, targets, outputs):
 		l2_diff = torch.square(torch.cumsum(targets, axis=1) - torch.cumsum(torch.exp(outputs), axis=1))
