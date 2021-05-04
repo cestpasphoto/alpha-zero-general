@@ -5,12 +5,6 @@ from colorama import Style, Fore, Back
 import random
 import itertools
 
-def observation_size(num_players):
-	return (32+12*num_players, 7)
-
-def action_size():
-	return 81
-
 def move_to_str(move, short=False):
 	color_names = ['white', 'blue', 'green', 'red', 'black', 'gold']
 	if   move < 12:

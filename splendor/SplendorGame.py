@@ -1,8 +1,8 @@
 import sys
 sys.path.append('..')
 from Game import Game
-from .SplendorLogic import observation_size, action_size, print_board
-from .SplendorLogicNumba import Board
+from .SplendorLogic import print_board
+from .SplendorLogicNumba import Board, observation_size, action_size
 import numpy as np
 from numba import jit, njit
 

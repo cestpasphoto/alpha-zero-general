@@ -13,7 +13,7 @@ mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
-	return (32+12*num_players, 7)
+	return (32 + 10*num_players + num_players*num_players, 7)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -131,14 +131,14 @@ class Board():
 			return
 		self.state = state.copy() if copy_or_not else state
 		n = self.num_players
-		self.bank             = self.state[0     :1      ,:]	# 1
-		self.cards_tiers      = self.state[1     :25     ,:]	# 2*12
-		self.nb_deck_tiers    = self.state[25    :31     ,:]	# 6
-		self.nobles           = self.state[31    :32+n   ,:]	# N+1
-		self.players_gems     = self.state[32+n  :32+2*n ,:]	# N
-		self.players_nobles   = self.state[32+2*n:32+5*n ,:]	# 3*N
-		self.players_cards    = self.state[32+5*n:32+6*n ,:]	# N
-		self.players_reserved = self.state[32+6*n:32+12*n,:]	# 6*N
+		self.bank             = self.state[0         :1          ,:]	# 1
+		self.cards_tiers      = self.state[1         :25         ,:]	# 2*12
+		self.nb_deck_tiers    = self.state[25        :31         ,:]	# 6
+		self.nobles           = self.state[31        :32+n       ,:]	# N+1
+		self.players_gems     = self.state[32+n      :32+2*n     ,:]	# N
+		self.players_nobles   = self.state[32+2*n    :32+3*n+n*n ,:]	# N*(N+1)
+		self.players_cards    = self.state[32+3*n+n*n:32+4*n+n*n ,:]	# N
+		self.players_reserved = self.state[32+4*n+n*n:32+10*n+n*n,:]	# 6*N
 
 	def check_end_game(self):
 		if self.get_round() % self.num_players != 0: # Check only when 1st player is about to play
@@ -375,10 +375,10 @@ class Board():
 		self.players_gems[player][:5] -= gems
 
 	def _give_nobles_if_earned(self, player):
-		for i_noble in range(3):
+		for i_noble in range(self.num_nobles):
 			noble = self.nobles[i_noble][:5]
 			if noble.sum() > 0 and np.all(self.players_cards[player][:5] >= noble):
-				self.players_nobles[3*player+i_noble] = self.nobles[i_noble]
+				self.players_nobles[self.num_nobles*player+i_noble] = self.nobles[i_noble]
 				self.nobles[i_noble] = 0
 
 	def _nb_of_reserved_cards(self, player):
