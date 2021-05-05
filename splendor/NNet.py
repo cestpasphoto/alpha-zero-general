@@ -36,6 +36,7 @@ class NNetWrapper(NeuralNet):
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.max_diff = game.getMaxScoreDiff()
+		self.num_players = game.num_players
 		self.optimizer = None
 
 	def train(self, examples):
@@ -75,9 +76,8 @@ class NNetWrapper(NeuralNet):
 				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, 3)).astype(np.float32))
 				for i in range(len(scdiffs)):
 					score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
-					target_scdiffs[i, score_diff[0], 0] = 1
-					target_scdiffs[i, score_diff[1], 1] = 1
-					target_scdiffs[i, score_diff[2], 2] = 1
+					for player in range(self.num_players):
+						target_scdiffs[i, score_diff[player], player] = 1
 
 				# predict
 				if self.device['training'] == 'cuda':

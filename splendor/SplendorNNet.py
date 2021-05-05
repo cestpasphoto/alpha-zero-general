@@ -59,6 +59,8 @@ class SplendorNNet(nn.Module):
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.scdiff_size = 2 * game.getMaxScoreDiff() + 1
+		self.num_players = game.num_players
+		self.num_scdiffs = {2: 1, 3: 3, 4: 6}[self.num_players] # Number of combinations of 2 players
 		self.args = args
 		self.version = args['nn_version']
 
@@ -266,12 +268,12 @@ class SplendorNNet(nn.Module):
 
 			self.output_layers_V = nn.Sequential(
 				nn.Linear(128, 128),
-				nn.Linear(128, 3)
+				nn.Linear(128, self.num_players)
 			)
 
 			self.output_layers_SDIFF = nn.Sequential(
 				nn.Linear(128, 128),
-				nn.Linear(128, 3*self.scdiff_size)
+				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
 			)
 
 		if self.version >= 2:
@@ -328,6 +330,6 @@ class SplendorNNet(nn.Module):
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 			if self.version >= 300:
-				return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, 3, self.scdiff_size).transpose(1,2), dim=1)
+				return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
 			else:
 				return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff, dim=1)

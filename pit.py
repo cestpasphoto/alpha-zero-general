@@ -7,6 +7,7 @@ from splendor.SplendorGame import SplendorGame as Game
 from splendor.SplendorLogic import print_board
 from splendor.SplendorLogicNumba import Board
 from splendor.NNet import NNetWrapper as NNet
+from main import NUMBER_PLAYERS
 
 import numpy as np
 from utils import *
@@ -23,7 +24,7 @@ game = None
 def create_player(name, args):
 	global game
 	if game is None:
-		game = Game(2)
+		game = Game(NUMBER_PLAYERS)
 	# all players
 	if name == 'random':
 		return RandomPlayer(game).play
@@ -101,7 +102,7 @@ def plays(args):
 			print('Skipping this pit (hit CRTL-C once more to stop all)')
 
 def display(numpy_board):
-	board = Board(2)
+	board = Board(NUMBER_PLAYERS)
 	board.copy_state(numpy_board, False)
 	print_board(board)
 
