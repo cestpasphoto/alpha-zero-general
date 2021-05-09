@@ -141,15 +141,15 @@ class NNetWrapper(NeuralNet):
 		return -torch.sum(targets * outputs) / targets.size()[0]
 
 	def loss_v(self, targets, outputs):
-		return torch.sum((targets - outputs) ** 2) / targets.size()[0]
+		return torch.sum((targets - outputs) ** 2) / (targets.size()[0] * targets.size()[-1]) # Normalize by batch size * nb of players
 
 	def loss_scdiff_cdf(self, targets, outputs):
 		l2_diff = torch.square(torch.cumsum(targets, axis=1) - torch.cumsum(torch.exp(outputs), axis=1))
-		return 0.02 * torch.sum(l2_diff) / targets.size()[0]
+		return 0.02 * torch.sum(l2_diff) / (targets.size()[0] * targets.size()[-1]) # Normalize by batch size * nb of scdiffs
 
 	def loss_scdiff_pdf(self, targets, outputs):
 		cross_entropy = -torch.sum( torch.mul(targets, outputs) )
-		return 0.02 * cross_entropy / targets.size()[0]
+		return 0.02 * cross_entropy / (targets.size()[0] * targets.size()[-1]) # Normalize by batch size * nb of scdiffs
 
 	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', additional_keys={}):
 		filepath = os.path.join(folder, filename)
