@@ -100,7 +100,7 @@ def main():
 	parser.add_argument('--epochs'          , '-p' , action='store', default=5    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=128  , type=int  , help='')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=8    , type=int  , help='Which architecture to choose')
-	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10   , type=int  , help='Weight for value loss')
+	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10.  , type=float, help='Weight for value loss')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--save-optim-state', '-S' , action='store_true', help='Save learning optimizer state between iterations')
 	parser.add_argument('--cyclic-lr'       , '-Y' , action='store_true', help='Enable cyclic learning rate')

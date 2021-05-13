@@ -21,7 +21,7 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 ### Splendor
 
 * [x] Support of [Splendor game](https://en.wikipedia.org/wiki/Splendor_(game)) with 2 players
-* [ ] Support of 3-4 players
+* [x] Support of 3-4 players (just change NUMBER_PLAYERS in main.py)
 * [x] Proper MCTS handling of "chance" factor when revealing new deck card
 * [x] Optimized implementation of Splendor, thanks to Numba
 * [x] Explore various architecture
