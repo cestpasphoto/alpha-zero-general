@@ -73,7 +73,7 @@ class NNetWrapper(NeuralNet):
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
-				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, 3)).astype(np.float32))
+				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
 				for i in range(len(scdiffs)):
 					score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
 					for player in range(self.num_players):
