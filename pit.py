@@ -173,7 +173,7 @@ def main():
 	if args.profile:
 		profiling(args)
 	elif args.convert:
-		convert_to_new_format(args.convert, nn_version=98)
+		convert_to_new_format(args.convert)
 	elif args.compare_age:
 		plays(args)
 	else:
