@@ -7,8 +7,8 @@ class RandomPlayer():
 	def __init__(self, game):
 		self.game = game
 
-	def play(self, board):
-		valids = self.game.getValidMoves(board, 0)
+	def play(self, board, player=0):
+		valids = self.game.getValidMoves(board, player)
 		action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int), k=1)[0]
 		return action
 
