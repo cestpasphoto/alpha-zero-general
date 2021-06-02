@@ -48,6 +48,31 @@ def create_player(name, args):
 	player = lambda x: np.argmax(mcts.getActionProb(x, temp=0, force_full_search=True)[0])
 	return player
 
+def convert_to_new_format(name):
+	from splendor.SplendorNNet import SplendorNNet as snnet
+	import torch
+	nn_version = {2: 98, 3: 398}[NUMBER_PLAYERS]
+	print(f'Converting {name} assuming {NUMBER_PLAYERS} players and nn_version={nn_version}')
+
+	# Load
+	old_checkpoint = torch.load(name, map_location='cpu')
+	old_nnet = old_checkpoint['full_model']
+
+	# Create new network from scratch
+	game = Game(NUMBER_PLAYERS)
+	new_nnet = snnet(game, old_nnet.args)
+
+	# Save
+	new_data = {
+		'state_dict': new_nnet.state_dict(),
+		'full_model': new_nnet,
+	}
+	old_checkpoint.update(new_data)
+	cpt_dir, cpt_file = os.path.split(name)
+	new_filepath = os.path.join(cpt_dir, '_temp.pt')
+	torch.save(old_checkpoint, new_filepath)
+	print('File written to ' + new_filepath)
+
 def play(args):
 	if None in [args.player1, args.player2]:
 		raise Exception('Please specify a player (ai folder, random, greedy or human)')
@@ -130,6 +155,7 @@ def main():
 
 	parser.add_argument('--num-games'          , '-n' , action='store', default=30   , type=int  , help='')
 	parser.add_argument('--profile'                   , action='store_true', help='enable profiling')
+	parser.add_argument('--convert'                   , action='store', default='', help='Old network to transform to new format')
 	parser.add_argument('--display'                   , action='store_true', help='display')
 
 	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None  , type=int  , help='Number of games moves for MCTS to simulate.')
@@ -146,6 +172,8 @@ def main():
 	
 	if args.profile:
 		profiling(args)
+	elif args.convert:
+		convert_to_new_format(args.convert, nn_version=98)
 	elif args.compare_age:
 		plays(args)
 	else:
