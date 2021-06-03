@@ -58,16 +58,20 @@ def convert_to_new_format(name):
 	old_checkpoint = torch.load(name, map_location='cpu')
 	old_nnet = old_checkpoint['full_model']
 
-	# Create new network from scratch
-	game = Game(NUMBER_PLAYERS)
-	new_nnet = snnet(game, old_nnet.args)
+	# # Create new network from scratch
+	# game = Game(NUMBER_PLAYERS)
+	# new_nnet = snnet(game, old_nnet.args)
 
-	# Save
-	new_data = {
-		'state_dict': new_nnet.state_dict(),
-		'full_model': new_nnet,
-	}
-	old_checkpoint.update(new_data)
+	# # Save
+	# new_data = {
+	# 	'state_dict': new_nnet.state_dict(),
+	# 	'full_model': new_nnet,
+	# }
+	# old_checkpoint.update(new_data)
+
+	old_nnet.num_players = NUMBER_PLAYERS
+	old_nnet.num_scdiffs = {2: 1, 3: 3, 4: 6}[NUMBER_PLAYERS]
+
 	cpt_dir, cpt_file = os.path.split(name)
 	new_filepath = os.path.join(cpt_dir, '_temp.pt')
 	torch.save(old_checkpoint, new_filepath)
