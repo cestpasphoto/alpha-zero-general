@@ -73,128 +73,7 @@ class SplendorNNet(nn.Module):
 				for module in m:
 					_init(module)
 
-		if self.version == 1:
-			dense2d, dense1d = [256,256], [512,256,256]
-			self.linear2D = nn.ModuleList([nn.Linear(prev, cur) for prev, cur in zip([self.nb_vect] +dense2d, dense2d)])
-			self.linear2D.apply(_init)
-			self.linear1D = nn.ModuleList([nn.Linear(prev, cur) for prev, cur in zip([dense2d[-1]*9]+dense1d, dense1d)])
-			self.linear1D.apply(_init)
-			self.batch_norms = nn.ModuleList([nn.BatchNorm1d(cur) for cur in dense1d])
-	 
-			self.output_layer_PI     = nn.Linear(dense1d[-1], self.action_size)
-			self.output_layer_V      = nn.Linear(dense1d[-1], 1)
-			self.output_layer_SDIFF  = nn.Linear(dense1d[-1], self.scdiff_size)
-			self.maxpool = nn.MaxPool2d((5,1))
-			self.avgpool = nn.AvgPool2d((5,1))
-
-		elif self.version in [3, 8, 10]:
-			self.dense2d_1 = nn.Sequential(
-				nn.Linear(self.nb_vect, 256), nn.BatchNorm1d(7), nn.ReLU(),
-				nn.Linear(256, 256)                            , nn.ReLU(), # no batchnorm before max pooling
-			)
-			if self.version == 3:
-				self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=7)
-			elif self.version == 8:
-				self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=7)
-			else:
-				self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=7)
-
-			self.dense2d_2 = nn.Identity()
-			self.partialgpool_2 = nn.Identity()
-
-			self.dense2d_3 = nn.Sequential(
-				nn.Linear(256, 128)                   , nn.ReLU(), # no batchnorm before max pooling
-			)
-			if self.version in [3,8]:
-				self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
-				self.dense1d_4 = nn.Sequential(
-					nn.Linear(64*4+(128-64)*7, 256), nn.ReLU(),
-				)
-			else:
-				self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=32, nb_channels_to_pool=5)
-				self.dense1d_4 = nn.Sequential(
-					nn.Linear(32*4+(128-32)*7, 256), nn.ReLU(),
-				)
-
-			if self.version == 3:
-				self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=4, channels_for_batchnorm=1)
-			elif self.version == 8:
-				self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
-			else:
-				self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
-
-			self.dense1d_5 = nn.Sequential(
-				nn.Linear(256, 128), nn.BatchNorm1d(1), nn.ReLU(),
-				nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
-			)
-			self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
-
-			self.output_layers_PI = nn.Sequential(
-				nn.Linear(128, 128),
-				nn.Linear(128, self.action_size)
-			)
-
-			self.output_layers_V = nn.Sequential(
-				nn.Linear(128, 128),
-				nn.Linear(128, 1)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(128, 128),
-				nn.Linear(128, self.scdiff_size)
-			)
-
-		elif self.version == 9:
-			self.dense2d_1 = nn.Sequential(
-				nn.Linear(self.nb_vect, 256), nn.BatchNorm1d(7), nn.ReLU(),
-				nn.Linear(256, 256)                            , nn.ReLU(), # no batchnorm before max pooling
-			)
-			self.partialgpool_1 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=7)
-
-			self.dense2d_2 = nn.Sequential(
-				nn.Linear(256, 256), nn.BatchNorm1d(7), nn.ReLU(),
-				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
-			)
-			self.partialgpool_2 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=7)
-
-			self.dense2d_3 = nn.Sequential(
-				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
-			)
-			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
-
-			self.dense1d_4 = nn.Sequential(
-				nn.Linear(64*4+(256-64)*7, 256), nn.ReLU(),
-			)
-			self.partialgpool_4 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=1)
-
-			self.dense1d_5 = nn.Sequential(
-				nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
-				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
-			)
-			self.partialgpool_5 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=1)
-
-			self.dense1d_6 = nn.Sequential(
-				nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
-				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
-			)
-			self.partialgpool_6 = DenseAndPartialGPool(256, 256, nb_groups=8, nb_items_in_groups=8, channels_for_batchnorm=1)
-
-			self.output_layers_PI = nn.Sequential(
-				nn.Linear(256, 256),
-				nn.Linear(256, self.action_size)
-			)
-
-			self.output_layers_V = nn.Sequential(
-				nn.Linear(256, 256),
-				nn.Linear(256, 1)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(256, 256),
-				nn.Linear(256, self.scdiff_size)
-			)
-
-		elif self.version == 98:
+		if self.version == 98:
 			self.dense2d_1 = nn.Sequential(
 				nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(7), nn.ReLU(),
 				nn.Linear(128, 128)                            , nn.ReLU(), # no batchnorm before max pooling
@@ -227,12 +106,12 @@ class SplendorNNet(nn.Module):
 
 			self.output_layers_V = nn.Sequential(
 				nn.Linear(128, 128),
-				nn.Linear(128, 1)
+				nn.Linear(128, self.num_players)
 			)
 
 			self.output_layers_SDIFF = nn.Sequential(
 				nn.Linear(128, 128),
-				nn.Linear(128, self.scdiff_size)
+				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
 			)
 
 		elif self.version == 398:
@@ -276,57 +155,26 @@ class SplendorNNet(nn.Module):
 				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
 			)
 
-		if self.version >= 2:
-			self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
-			for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_3, self.flatten_and_gpool]:
-				layer2D.apply(_init)
-			for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V, self.output_layers_SDIFF]:
-				layer1D.apply(_init)
+		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
+		for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_3, self.flatten_and_gpool]:
+			layer2D.apply(_init)
+		for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V, self.output_layers_SDIFF]:
+			layer1D.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		if self.version == 1:
-			if len(input_data.shape) == 3:
-				x = input_data.permute(0,2,1).view(-1, self.vect_dim, self.nb_vect)
-			else:
-				x = input_data.permute(1,0).view(-1, self.vect_dim, self.nb_vect)
-			
-			for layer2d in self.linear2D:
-				x = F.relu(layer2d(x))
-			
-			x_5lay,_ = x.split([5,2], 1)
-			x_max    = self.maxpool(x_5lay)
-			x_avg    = self.avgpool(x_5lay)
-			x = nn.Flatten()(torch.cat((x_max, x_avg, x), 1))
+		x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
+		
+		x = self.dense2d_1(x)
+		x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
+		x = F.dropout(self.dense2d_3(x), p=self.args['dropout'], training=self.training)
+		x = self.flatten_and_gpool(x)
+		x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training)
+		x = F.dropout(self.partialgpool_4(x), p=self.args['dropout'], training=self.training)
+		x = F.dropout(self.dense1d_5(x)     , p=self.args['dropout'], training=self.training)
+		x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
+		
+		v = self.output_layers_V(x).squeeze(1)
+		sdiff = self.output_layers_SDIFF(x).squeeze(1)
+		pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-			for layer1d, bn in zip(self.linear1D, self.batch_norms):
-				x = F.dropout(F.relu(bn(layer1d(x))), p=self.args['dropout'], training=self.training)
-			
-			v = self.output_layer_V(x)
-			sdiff = self.output_layer_SDIFF(x)
-			pi = torch.where(valid_actions, self.output_layer_PI(x), torch.FloatTensor([-1e8]))
-			
-			return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff, dim=1),
-
-		if self.version >= 2:
-			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
-			
-			x = self.dense2d_1(x)
-			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
-			if self.version == 9:
-				x = F.dropout(self.dense2d_2(x), p=self.args['dropout'], training=self.training)
-				x = F.dropout(self.partialgpool_2(x), p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.dense2d_3(x), p=self.args['dropout'], training=self.training)
-			x = self.flatten_and_gpool(x)
-			x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.partialgpool_4(x), p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.dense1d_5(x)     , p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
-			if self.version == 9:
-				x = F.dropout(self.dense1d_6(x)     , p=self.args['dropout'], training=self.training)
-				x = self.partialgpool_6(x)
-			
-			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
-			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
-
-			return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
+		return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
