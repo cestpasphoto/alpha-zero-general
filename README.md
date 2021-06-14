@@ -49,11 +49,11 @@ Switch -p and -P options if human wants to be first player
 `main.py -m 1600 -V 98 -v 15 -T 30 -e 500 -i 5 -p 2 -d 0.10 -b 32 -l 0.0003 --updateThreshold 0.
 55 -C ../results/mytest`:
 
-* Start by disabling card reserve actions in first lines of splendor/SplendorLogicNumba.py
-* `-V 98` : define architecture. 98 is smaller than 8 but seems to give better results (faster learning?)
+* Start by defining proper number of players in main.py and disabling card reserve actions in first lines of splendor/SplendorLogicNumba.py
 * `-v 15`: define loss weights of value estimation vs policy, higher mean more weights to value loss. Suraganair value of 1 lead to very bad performance, I had good results with `-v 30` during first iterations, and then decrease it down to `-v 10`
 * `-b 32 -l 0.0003 -p 2`: define batch size, learning rate and number of epochs. Larger number of epochs degrades performance, same for larger batch sizes
 * `--updateThreshold 0.55`: result of iteration is kept if winning ratio in self-play is above this threshold. Suraganair value of 60% win seems too high to me
+* `-V 398` : define architecture. Smaller ones lead to poor results and expirements with larger ones gave similar results (not improved, and slower learning)
 
 Use of forced rollouts, surprise weight, cyclic learning rate or tuning cpuct value hadn't lead to any significant improvement.
 
