@@ -54,7 +54,7 @@ def to_new_format(name):
 	from pickle import Pickler, Unpickler
 
 	if name.endswith('.pt'):
-		nn_version = {2: 398, 3: 398}[NUMBER_PLAYERS]
+		nn_version = {2: 398, 3: 398, 4: 398}[NUMBER_PLAYERS]
 		print(f'Converting {name} assuming {NUMBER_PLAYERS} players and nn_version={nn_version}, following warnings are OK')
 
 		# Load
@@ -69,6 +69,8 @@ def to_new_format(name):
 		with torch.no_grad():
 			new_nnet.nnet.output_layers_V[1].bias[1]     = -new_nnet.nnet.output_layers_V[1].bias[0]
 			new_nnet.nnet.output_layers_V[1].weight[1,:] = -new_nnet.nnet.output_layers_V[1].weight[0,:]
+			new_nnet.nnet.output_layers_SDIFF[1].bias[:31]   = new_nnet.nnet.output_layers_SDIFF[1].bias[31:]
+			new_nnet.nnet.output_layers_SDIFF[1].weight[:31] = new_nnet.nnet.output_layers_SDIFF[1].weight[31:]
 
 		# Save
 		new_data = {
