@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
 
-NUMBER_PLAYERS = 2
+NUMBER_PLAYERS = 4
 
 
 def run(args):

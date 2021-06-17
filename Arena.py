@@ -7,6 +7,12 @@ log = logging.getLogger(__name__)
 
 from splendor.SplendorLogic import move_to_str
 
+
+
+NUMBER_PLAYERS = 4
+
+
+
 class Arena():
     """
     An Arena class where any 2 agents can be pit against each other.
@@ -39,7 +45,12 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
-        players = [self.player2, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2]
+        if NUMBER_PLAYERS == 2:
+            players = [self.player2, self.player1]                             if other_way else [self.player1, self.player2]
+        elif NUMBER_PLAYERS == 3:
+            players = [self.player2, self.player1, self.player1]               if other_way else [self.player1, self.player2, self.player2]
+        elif NUMBER_PLAYERS == 4:
+            players = [self.player2, self.player1, self.player2, self.player1] if other_way else [self.player1, self.player2, self.player1, self.player2]
         curPlayer = 0
         board = self.game.getInitBoard()
         it = 0
