@@ -17,24 +17,51 @@ class HumanPlayer():
 	def __init__(self, game):
 		self.game = game
 
-	def play(self, board):
-		# print_board(self.game.board)
-		valid = self.game.getValidMoves(board, 0)
+	def show_all_moves(self, valid):
 		for i, v in enumerate(valid):
 			if i in [12,12+15,12+15+3+30]:
 				print()
 			if v:
 				print(f'{i} = {move_to_str(i, short=True)}', end='   ')
 		print()
+
+	def show_main_moves(self, valid):
+		# Number of max gems that player can take
+		if any(valid[45:55]):
+			can_take = 3
+		elif any(valid[35:45]):
+			can_take = 2
+		elif any(valid[30:35]):
+			can_take = 1
+		else:
+			can_take = 0
+		need_to_give_gems = (self.game.board.players_gems[0].sum() >= 9)
+
+		print()
+		if any(valid[12:27]):
+			print(f'12-26 = rsv', end='   ')
+		for i, v in enumerate(valid):
+			if v:
+				if 0<=i<12 or 27<=i<30 or (30<=i<35 and can_take<=1) or (35<=i<45 and can_take<=2) or 45<=i<60 or (60<=i<80 and need_to_give_gems):
+					print(f'{i} = {move_to_str(i, short=True)}', end='   ')		
+		print('(+ to show all moves)')
+
+	def play(self, board):
+		# print_board(self.game.board)
+		valid = self.game.getValidMoves(board, 0)
+		self.show_main_moves(valid)
 		while True:
 			input_move = input()
-			try:
-				a = int(input_move)
-				if not valid[a]:
-					raise Exception('')
-				break
-			except:
-				print('Invalid move:', input_move)
+			if input_move == '+':
+				self.show_all_moves(valid)
+			else:
+				try:
+					a = int(input_move)
+					if not valid[a]:
+						raise Exception('')
+					break
+				except:
+					print('Invalid move:', input_move)
 		return a
 
 
