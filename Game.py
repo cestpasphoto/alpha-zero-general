@@ -33,12 +33,14 @@ class Game():
         """
         pass
 
-    def getNextState(self, board, player, action):
+    def getNextState(self, board, player, action, deterministic=False):
         """
         Input:
             board: current board
             player: current player (1 or -1)
             action: action taken by current player
+            deterministic: False to apply "chance factor" (for real moves), True
+                           for deterministic results (for MCTS exploration)
 
         Returns:
             nextBoard: board after applying action
@@ -59,16 +61,36 @@ class Game():
         """
         pass
 
-    def getGameEnded(self, board, player):
+    def getGameEnded(self, board):
         """
         Input:
             board: current board
-            player: current player (1 or -1)
 
         Returns:
             r: 0 if game has not ended. 1 if player won, -1 if player lost,
                small non-zero value for draw.
                
+        """
+        pass
+
+    def getScore(self, board, player):
+        """
+        Input:
+            board: current board
+            player: player you want to have score (may not be current player)
+
+        Returns:
+            score of such player
+        """
+        pass
+
+    def getRound(self, board):
+        """
+        Input:
+            board: current board
+
+        Returns:
+            number of played rounds so far
         """
         pass
 
