@@ -2,6 +2,7 @@ import os
 os.environ['NUMBA_DISABLE_JIT'] = '1'
 
 from splendor.SplendorGame import SplendorGame as Game
+from splendor.SplendorGame import NUMBER_PLAYERS
 from splendor.SplendorLogic import print_board, move_to_str
 from splendor.SplendorLogicNumba import Board, observation_size
 from splendor.SplendorPlayers import RandomPlayer
@@ -13,12 +14,10 @@ import numpy as np
 import base64
 import json
 
-from main import NUMBER_PLAYERS
-TRAINING_STR = 'AAICAQIFGgABAwEAAAAAAQAAAAAAAAECAQEAAAEAAAAAAAAAAAADAAAAAAABAAAAAAAAAwAAAAAAAAAAAQAAAAUAAAAAAAABAAAAAAIEAgAAAQAAAAABAAAAAgAAAAUDAAABAAAAAAACAAAGAAAAAAAAAQAAAAMABwMAAAAAAAABAAAABQAAAAcAAAAAAAAAAQAEAAcAAAAAAAAAAQAAAAQDBgMAAAAAAAABAAAABAYHBgYHAAC99331fwAABQUEBgYAAOzc8Pz8AAAEBAEEAwAA8PCA8LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAICAQMCAAACAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAEAAAEBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
-
 best_NN = {
 	2: '/home/best/dev/results/it11_T20/best2.pt',
 	3: '/home/best/dev/results/3A_it8_v2_m1600_bis/best.pt',
+	3: '/home/best/dev/results/4D_it4_m1600_T20_v5b/best.pt',
 }[NUMBER_PLAYERS]
 
 def deserialize(state_str):
@@ -27,7 +26,7 @@ def deserialize(state_str):
 		state_int = [x for x in state_bytes]
 		state_np = np.array(state_int, dtype=np.int8).reshape(observation_size(NUMBER_PLAYERS))
 		
-		game = Game(NUMBER_PLAYERS)
+		game = Game()
 		game.board.copy_state(state_np, True)
 		return game
 	except:
@@ -85,9 +84,6 @@ def main():
 	parser.add_argument('--display'     , '-d' , action='store_true', help='Just display')
 	parser.add_argument('--test'               , action='store', default=0 , help='Enable test mode', type=int)
 	args = parser.parse_args()
-
-	if len(args.state_base64) < 5:
-		args.state_base64 = TRAINING_STR
 
 	if args.test > 0:
 		print(json.dumps({'best_action': 19, 'new_state': 'aaa'}))

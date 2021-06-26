@@ -1,17 +1,10 @@
 import logging
-import bisect
-
-from tqdm import tqdm
-
 log = logging.getLogger(__name__)
 
+import bisect
+from tqdm import tqdm
 from splendor.SplendorLogic import move_to_str
-
-
-
-NUMBER_PLAYERS = 4
-
-
+from splendor.SplendorGame import NUMBER_PLAYERS
 
 class Arena():
     """

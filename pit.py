@@ -4,10 +4,10 @@ import Arena
 from MCTS import MCTS
 from splendor.SplendorPlayers import *
 from splendor.SplendorGame import SplendorGame as Game
+from splendor.SplendorGame import NUMBER_PLAYERS
 from splendor.SplendorLogic import print_board
 from splendor.SplendorLogicNumba import Board
 from splendor.NNet import NNetWrapper as NNet
-from main import NUMBER_PLAYERS
 
 import numpy as np
 from utils import *
@@ -24,7 +24,7 @@ game = None
 def create_player(name, args):
 	global game
 	if game is None:
-		game = Game(NUMBER_PLAYERS)
+		game = Game()
 	# all players
 	if name == 'random':
 		return RandomPlayer(game).play
@@ -62,7 +62,7 @@ def to_new_format(name):
 		old_nnet = old_checkpoint['full_model']
 
 		# Create new network from scratch
-		game = Game(NUMBER_PLAYERS)
+		game = Game()
 		new_nnet = NNet(game, old_nnet.args)
 		new_nnet.load_network(old_checkpoint, strict=False)
 		# new_nnet.load_state_dict(old_checkpoint['state_dict'])

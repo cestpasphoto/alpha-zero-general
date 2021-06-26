@@ -6,6 +6,12 @@ from .SplendorLogicNumba import Board, observation_size, action_size
 import numpy as np
 from numba import jit, njit
 
+
+
+NUMBER_PLAYERS = 3
+
+
+
 # (Game convention) -1 = 1 (SplendorLogic convention)
 # (Game convention)  1 = 0 (SplendorLogic convention)
 
@@ -35,9 +41,9 @@ def getCanonicalForm(splendorgameboard, board, player):
 	return splendorgameboard.get_state()
 
 class SplendorGame(Game):
-	def __init__(self, num_players):
-		self.num_players = num_players
-		self.board = Board(num_players)
+	def __init__(self):
+		self.num_players = NUMBER_PLAYERS
+		self.board = Board(NUMBER_PLAYERS)
 
 	def getInitBoard(self):
 		self.board.init_game()
