@@ -15,9 +15,9 @@ import base64
 import json
 
 best_NN = {
-	2: '/home/best/dev/results/it11_T20/best2.pt',
-	3: '/home/best/dev/results/3A_it8_v2_m1600_bis/best.pt',
-	3: '/home/best/dev/results/4D_it4_m1600_T20_v5b/best.pt',
+	2: 'splendor/pretrained_2players.pt',
+	3: 'splendor/pretrained_3players.pt',
+	4: 'splendor/pretrained_4players.pt',
 }[NUMBER_PLAYERS]
 
 def deserialize(state_str):

@@ -25,6 +25,7 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 * [x] Proper MCTS handling of "chance" factor when revealing new deck card
 * [x] Optimized implementation of Splendor, thanks to Numba
 * [x] Explore various architecture
+* [x] Added pretrained models for 2-3-4 players
 
 ### Others changes
 
@@ -41,7 +42,7 @@ and
 The noopenmp version of onnxruntime is faster for single thread execution. This is the recommended way for fast exploration of hyperparameters, using several threads.
 
 #### How to play versus saved engine
-`./pit.py -p ../results/saved_engine/best.pt -P human -n 1`
+`./pit.py -p splendor/pretrained_2players.pt -P human -n 1`
 
 Switch -p and -P options if human wants to be first player
 
