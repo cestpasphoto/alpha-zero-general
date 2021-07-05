@@ -2,12 +2,12 @@
 
 import Arena
 from MCTS import MCTS
-from splendor.SplendorPlayers import *
-from splendor.SplendorGame import SplendorGame as Game
-from splendor.SplendorGame import NUMBER_PLAYERS
-from splendor.SplendorLogic import print_board
-from splendor.SplendorLogicNumba import Board
-from splendor.NNet import NNetWrapper as NNet
+from minivilles.MinivillesPlayers import *
+from minivilles.MinivillesGame import MinivillesGame as Game
+from minivilles.MinivillesGame import NUMBER_PLAYERS
+from minivilles.MinivillesDisplay import print_board
+from minivilles.MinivillesLogicNumba import Board
+from minivilles.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *
@@ -47,69 +47,6 @@ def create_player(name, args):
 	mcts = MCTS(game, net, mcts_args)
 	player = lambda x: np.argmax(mcts.getActionProb(x, temp=0, force_full_search=True)[0])
 	return player
-
-def to_new_format(name):
-	from splendor.SplendorNNet import SplendorNNet as snnet
-	import torch
-	from pickle import Pickler, Unpickler
-
-	if name.endswith('.pt'):
-		nn_version = {2: 398, 3: 398, 4: 398}[NUMBER_PLAYERS]
-		print(f'Converting {name} assuming {NUMBER_PLAYERS} players and nn_version={nn_version}, following warnings are OK')
-
-		# Load
-		old_checkpoint = torch.load(name, map_location='cpu')
-		old_nnet = old_checkpoint['full_model']
-
-		# Create new network from scratch
-		game = Game()
-		new_nnet = NNet(game, old_nnet.args)
-		new_nnet.load_network(old_checkpoint, strict=False)
-		# new_nnet.load_state_dict(old_checkpoint['state_dict'])
-		with torch.no_grad():
-			new_nnet.nnet.output_layers_V[1].bias[1]     = -new_nnet.nnet.output_layers_V[1].bias[0]
-			new_nnet.nnet.output_layers_V[1].weight[1,:] = -new_nnet.nnet.output_layers_V[1].weight[0,:]
-			new_nnet.nnet.output_layers_SDIFF[1].bias[:31]   = new_nnet.nnet.output_layers_SDIFF[1].bias[31:]
-			new_nnet.nnet.output_layers_SDIFF[1].weight[:31] = new_nnet.nnet.output_layers_SDIFF[1].weight[31:]
-
-		# Save
-		new_data = {
-			'state_dict': new_nnet.nnet.state_dict(),
-			'full_model': new_nnet.nnet,
-		}
-		old_checkpoint.update(new_data)
-
-		cpt_dir, cpt_file = os.path.split(name)
-		new_filepath = os.path.join(cpt_dir, '_temp.pt')
-		torch.save(old_checkpoint, new_filepath)
-		print('File written to ' + new_filepath)
-
-	elif name.endswith('.examples'):
-		# Load
-		with open(name, "rb") as f:
-			trainExamplesHistory = Unpickler(f).load()
-
-		# Replace
-		for examples in trainExamplesHistory:
-			for i, example in enumerate(examples):
-				# Winner
-				if abs(example[2]) == 1 or abs(example[2]) == 0.01:
-					new_example_2 = [example[2], -example[2]]
-				else:
-					print('** Unexpected **')
-				# Score difference
-				new_example_3 = np.array([0, example[3]], dtype=np.int8)
-				examples[i] = (example[0], example[1], new_example_2, new_example_3, example[4], example[5])
-
-		# Save
-		cpt_dir, cpt_file = os.path.split(name)
-		new_filepath = os.path.join(cpt_dir, '_new.examples')
-		with open(new_filepath, "wb") as f:
-			Pickler(f).dump(trainExamplesHistory)
-		print('File written to ' + new_filepath)
-	else:
-		print('wtf is this file: ', name)
-
 
 def play(args):
 	if None in [args.player1, args.player2]:

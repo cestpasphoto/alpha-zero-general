@@ -3,8 +3,9 @@ log = logging.getLogger(__name__)
 
 import bisect
 from tqdm import tqdm
-from splendor.SplendorLogic import move_to_str
-from splendor.SplendorGame import NUMBER_PLAYERS
+from minivilles.MinivillesGame import NUMBER_PLAYERS
+from minivilles.MinivillesDisplay import move_to_str
+
 
 class Arena():
     """
