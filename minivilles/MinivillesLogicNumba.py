@@ -22,7 +22,9 @@ spec = [
 	('current_player_index', numba.int8),
 
 	('state'            , numba.int8[:,:]),
-	('round'            , numba.int8[:,:]),
+	('round'            , numba.int8[:]),
+	('last_dice'        , numba.int8[:]),
+	('player_state'     , numba.int8[:]),
 	('market'           , numba.int8[:,:]),
 	('players_money'    , numba.int8[:,:]),
 	('players_cards'    , numba.int8[:,:]),
@@ -37,7 +39,7 @@ class Board():
 		self.init_game()
 
 	def get_score(self, player):
-		return np.dot(self.players_monuments[4*player:4*(player+1), 0], monuments_cost)
+		return np.multiply(self.players_monuments[4*player:4*(player+1), 0], monuments_cost).sum() # np.dot() not supported by numba
 
 	def get_wealth(self, player):
 		return self.get_score(player) + self.players_money[player, 0]
@@ -66,18 +68,13 @@ class Board():
 		return result
 
 	def make_move(self, move, player, deterministic):
-		if self.get_round() >= 126:
-			raise Exception('number of rounds too high ' + str(self.get_round()))
-		if np.any(self.players_money[:,0] >= 126):
-			raise Exception('money is too high ' + str(self.players_money[:,0]))
-
 		# Copy history from row 0 to row 1
 		if move != 19:
 			for data in [self.market, self.players_money, self.players_cards, self.players_monuments]:
 				data[:,1] = data[:,0]
 			self.round[1] = self.round[0]
 			self.last_dice[1] = self.last_dice[0]
-			self.last_played_twice[1] = self.last_played_twice[0]
+			self.player_state[1] = self.player_state[0]
 
 		# Actual move
 		if   move < 15:
@@ -87,16 +84,25 @@ class Board():
 		elif move == 19:
 			self._dice_again(player)
 
-		# Increase number of rounds
-		if move != 19:
+		# Decide next player and increase number of rounds
+		if move == 19: # decide to re-roll dices
+			next_player = player
+		elif self.player_state[0] >= 2: # player had identical dices values
 			self.round[0] += 1
-			next_player, self.last_played_twice[0] = (player+1)%self.num_players, 0
+			next_player = player
 		else:
-			next_player, self.last_played_twice[0] = player                     , 1
+			self.round[0] += 1
+			next_player = (player+1)%self.num_players
+			
 		# Roll dice for next player
-		self.last_dice[0] = self._roll_dice(next_player)
+		self.last_dice[0], identical_dices = self._roll_dice(next_player)
 		self._dice_effect(self.last_dice[0], player_who_rolled=next_player)
-		print(f'  Dé P{next_player} = {self.last_dice[0]}')
+
+		# Note down whether player has re-rolled dices or has played a new turn
+		if move == 19: # decide to re-roll dices
+			self.player_state[0] += 1
+		else:
+			self.player_state[0] = 2 if identical_dices else 0
 
 		return next_player
 
@@ -105,18 +111,18 @@ class Board():
 			return
 		self.state = state.copy() if copy_or_not else state
 		n = self.num_players
-		self.round             = self.state[0              ,:]	# 1
-		self.last_dice         = self.state[1              ,:]	# 1
-		self.last_played_twice = self.state[2              ,:]	# 1
-		self.market            = self.state[3      :18     ,:]	# 15
-		self.players_money     = self.state[18     :18+n   ,:]	# n*1
-		self.players_cards     = self.state[18+n   :18+16*n,:]	# n*15
-		self.players_monuments = self.state[18+16*n:18+20*n,:]	# n*4
+		self.round             = self.state[0              ,:]	# 1      # Round number
+		self.last_dice         = self.state[1              ,:]	# 1      # Value of last dice(s) roll
+		self.player_state      = self.state[2              ,:]	# 1      # Usually 0. Is 2 if current player plays again (amusement park). Add 1 if player rolls dices again (radio tower)
+		self.market            = self.state[3      :18     ,:]	# 15     # Numbers of remaining cards in main deck
+		self.players_money     = self.state[18     :18+n   ,:]	# n*1    # Numbers of money for each player
+		self.players_cards     = self.state[18+n   :18+16*n,:]	# n*15   # Number of cards for each player (P0-card0, P0-card1, ... P1-card0, P1-card1, ...)
+		self.players_monuments = self.state[18+16*n:18+20*n,:]	# n*4    # Number of monuments for each player
 
 	def check_end_game(self):
 		scores = np.array([self.get_score(p) for p in range(self.num_players)], dtype=np.int8)
 		score_max = scores.max()
-		if score_max < monuments_cost.sum():
+		if score_max < monuments_cost.sum() and self.get_round() < 126 and np.all(self.players_money[:,0] < 126):
 			return np.full(self.num_players, 0., dtype=np.float32)
 		single_winner = ((scores == score_max).sum() == 1)
 		winners = [(1. if single_winner else 0.01) if s == score_max else -1. for s in scores]
@@ -165,7 +171,7 @@ class Board():
 
 	def _valid_diceagain(self, player):
 		# player must have 'radio' monument and not have played twice
-		return self.players_monuments[4*player+3,0] and self.last_played_twice[0]==0
+		return self.players_monuments[4*player+3,0] and self.player_state[0]==0
 	
 	def _buy_card(self, player, card):
 		self.players_money[player,0] -= cards_cost[card]
@@ -182,11 +188,17 @@ class Board():
 			data[:,0] = data[:,1]
 		self.round[0] = self.round[1]
 
-	def _roll_dice(self, player):
+	def _roll_dice(self, player_who_rolled):
 		dice = np.random.randint(1, 6)
-		if self.players_monuments[4*player+0,0] > 0: # Has he got the train station allowing 2 dices?
-			dice += np.random.randint(1, 6)
-		return dice
+		identical = False
+		if self.players_monuments[4*player_who_rolled+0,0] > 0: # Has he got the train station allowing 2 dices?
+			dice2 = np.random.randint(1, 6)
+			identical = (dice == dice2)
+			print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice) + ' ' + str(dice2) + ('*' if identical else ''))
+			dice += dice2
+		else:
+			print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice))
+		return dice, identical
 
 	def _dice_effect(self, result, player_who_rolled):
 		def _all_receive_from_bank(card_index, money):
