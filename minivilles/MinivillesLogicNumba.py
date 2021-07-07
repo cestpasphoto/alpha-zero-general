@@ -205,14 +205,16 @@ class Board():
 			for p in range(self.num_players):
 				self.players_money[p,0] += money * self.players_cards[15*p+card_index,0]
 
-		def _current_receive_from_bank(card_index, money):
+		def _current_receive_from_bank(card_index, money, bonus_if_mall=False):
 			p = player_who_rolled
-			self.players_money[p,0] += money * self.players_cards[15*p+card_index,0]
+			bonus = 1 if bonus_if_mall and (self.players_monuments[4*p + CENTRECOM, 0] > 0) else 0
+			self.players_money[p,0] += (money+bonus) * self.players_cards[15*p+card_index,0]
 
-		def _current_give(card_index, money):
+		def _current_give(card_index, money, bonus_if_mall=False):
 			for player in range(player_who_rolled+self.num_players-1, player_who_rolled, -1):
 				p = player % self.num_players
-				amount = min(money * self.players_cards[15*p+card_index,0], self.players_money[player_who_rolled,0])
+				bonus = 1 if bonus_if_mall and (self.players_monuments[4*p + CENTRECOM, 0] > 0) else 0
+				amount = min((money+bonus) * self.players_cards[15*p+card_index,0], self.players_money[player_who_rolled,0])
 				self.players_money[p                ,0] += amount
 				self.players_money[player_who_rolled,0] -= amount
 
@@ -264,12 +266,12 @@ class Board():
 			_all_receive_from_bank(CHAMPS, 1)
 		elif result == 2:
 			_all_receive_from_bank(FERME, 1)
-			_current_receive_from_bank(BOULANGERIE, 1)
+			_current_receive_from_bank(BOULANGERIE, 1, bonus_if_mall=True)
 		elif result == 3:
-			_current_give(CAFE, 1) # give first
-			_current_receive_from_bank(BOULANGERIE, 1)
+			_current_give(CAFE, 1, bonus_if_mall=True) # give first
+			_current_receive_from_bank(BOULANGERIE, 1, bonus_if_mall=True)
 		elif result == 4:
-			_current_receive_from_bank(SUPERETTE, 3)
+			_current_receive_from_bank(SUPERETTE, 3, bonus_if_mall=True)
 		elif result == 5:
 			_all_receive_from_bank(FORET, 1)
 		elif result == 6:
@@ -284,10 +286,10 @@ class Board():
 		elif result == 8:
 			_current_receive_from_bank(MEUBLES, 3 * self._get_current_gear())
 		elif result == 9:
-			_current_give(RESTAURANT, 2) # give first
+			_current_give(RESTAURANT, 2, bonus_if_mall=True) # give first
 			_all_receive_from_bank(MINE, 5)
 		elif result == 10:
-			_current_give(RESTAURANT, 2) # give first
+			_current_give(RESTAURANT, 2, bonus_if_mall=True) # give first
 			_all_receive_from_bank(VERGER, 3)
 		elif result == 11:
 			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat())
