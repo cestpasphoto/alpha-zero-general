@@ -27,6 +27,7 @@ class HumanPlayer():
 		# print_board(self.game.board)
 		valid = self.game.getValidMoves(board, 0)
 		self.show_main_moves(valid)
+		self.show_all_moves(valid)
 		while True:
 			input_move = input()
 			if input_move == '+':

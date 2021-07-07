@@ -2,10 +2,9 @@ import sys
 sys.path.append('..')
 from Game import Game
 from .MinivillesDisplay import print_board
-from .MinivillesLogicNumba import Board, observation_size, action_size
+from .MinivillesLogicNumba import Board, observation_size, action_size, max_score_diff
 import numpy as np
 from numba import jit, njit
-
 
 
 NUMBER_PLAYERS = 4
@@ -55,7 +54,7 @@ class MinivillesGame(Game):
 		return action_size()
 
 	def getMaxScoreDiff(self):
-		return 15
+		return max_score_diff()
 
 	def getNextState(self, board, player, action, deterministic=False):
 		self.board.copy_state(board, True)

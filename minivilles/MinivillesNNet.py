@@ -64,7 +64,7 @@ class MinivillesNNet(nn.Module):
 		self.args = args
 		self.version = args['nn_version']
 
-		super(SplendorNNet, self).__init__()
+		super(MinivillesNNet, self).__init__()
 		def _init(m):
 			if type(m) == nn.Linear:
 				nn.init.kaiming_uniform_(m.weight)
@@ -74,11 +74,11 @@ class MinivillesNNet(nn.Module):
 					_init(module)
 
 		self.dense2d_1 = nn.Sequential(
-			nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(7), nn.ReLU(),
+			nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(2), nn.ReLU(),
 			nn.Linear(128, 128)                            , nn.ReLU(), # no batchnorm before max pooling
 		)
 
-		self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=7)
+		self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=2)
 
 		self.dense2d_2 = nn.Identity()
 		self.partialgpool_2 = nn.Identity()
@@ -86,9 +86,9 @@ class MinivillesNNet(nn.Module):
 		self.dense2d_3 = nn.Sequential(
 			nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
 		)
-		self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
+		self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=1)
 		self.dense1d_4 = nn.Sequential(
-			nn.Linear(64*4+(128-64)*7, 128), nn.ReLU(),
+			nn.Linear(64*3+(128-64)*2, 128), nn.ReLU(),
 		)
 		self.partialgpool_4 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
 		

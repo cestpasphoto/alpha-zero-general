@@ -5,8 +5,8 @@ import os
 import coloredlogs
 
 from Coach import Coach
-from splendor.SplendorGame import SplendorGame as Game
-from splendor.NNet import NNetWrapper as nn
+from minivilles.MinivillesGame import MinivillesGame as Game
+from minivilles.NNet import NNetWrapper as nn
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)
@@ -71,10 +71,6 @@ def profiling(args):
 	# pstats.Stats(profiler).sort_stats('tottime').print_stats(10)
 	print('check dumped stats in execution.prof')
 
-def game_test():
-	from splendor.SplendorGame import test_game
-	test_game(generate_test=False)
-
 def main():
 	import argparse
 	parser = argparse.ArgumentParser(description='tester')
@@ -106,7 +102,6 @@ def main():
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
 	
 	parser.add_argument('--profile'         , '-P' , action='store_true', help='profiler')
-	parser.add_argument('--test'                   , action='store_true', help='test logic')
 	
 	args = parser.parse_args()
 	args.arenaCompare = 30 if args.numEps < 500 else 50
@@ -117,8 +112,6 @@ def main():
 	args.load_model = (args.load_folder_file is not None)
 	if args.profile:
 		profiling(args)
-	elif args.test:
-		game_test()
 	else:
 		print(args)
 		run(args)

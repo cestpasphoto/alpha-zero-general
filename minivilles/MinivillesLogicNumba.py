@@ -13,6 +13,10 @@ def action_size():
 	return 21
 
 @njit(cache=True, fastmath=True, nogil=True)
+def max_score_diff():
+	return 52-0
+
+@njit(cache=True, fastmath=True, nogil=True)
 def my_random_choice(prob):
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
 	return result
@@ -68,14 +72,6 @@ class Board():
 		return result
 
 	def make_move(self, move, player, deterministic):
-		# Copy history from row 0 to row 1
-		if move != 19:
-			for data in [self.market, self.players_money, self.players_cards, self.players_monuments]:
-				data[:,1] = data[:,0]
-			self.round[1] = self.round[0]
-			self.last_dice[1] = self.last_dice[0]
-			self.player_state[1] = self.player_state[0]
-
 		# Actual move
 		if   move < 15:
 			self._buy_card(player, move)
@@ -83,8 +79,11 @@ class Board():
 			self._buy_monument(player, move-15)
 		elif move == 19:
 			self._dice_again(player)
+		elif move == 20:
+			pass
 
 		# Decide next player and increase number of rounds
+		print(f'P={player}, round={self.round[0]}       ', end='')
 		if move == 19: # decide to re-roll dices
 			next_player = player
 		elif self.player_state[0] >= 2: # player had identical dices values
@@ -93,16 +92,26 @@ class Board():
 		else:
 			self.round[0] += 1
 			next_player = (player+1)%self.num_players
+		print(f'next={next_player}, round={self.round[0]}')
+
+		# Copy history from row 0 to row 1
+		if move != 19:
+			for data in [self.market, self.players_money, self.players_cards, self.players_monuments]:
+				data[:,1] = data[:,0]
+			self.round[1] = self.round[0]
+			# self.last_dice[1] = self.last_dice[0]
+			# self.player_state[1] = self.player_state[0]
 			
 		# Roll dice for next player
+		print('  ', self.players_money[:,0], end=' ')
 		self.last_dice[0], identical_dices = self._roll_dice(next_player)
 		self._dice_effect(self.last_dice[0], player_who_rolled=next_player)
+		print('  ', self.players_money[:,0], end=' ')
+		print()
 
 		# Note down whether player has re-rolled dices or has played a new turn
-		if move == 19: # decide to re-roll dices
-			self.player_state[0] += 1
-		else:
-			self.player_state[0] = 2 if identical_dices else 0
+		self.player_state[0]  = 1 if move == 19      else 0
+		self.player_state[0] += 2 if identical_dices else 0
 
 		return next_player
 
@@ -141,24 +150,8 @@ class Board():
 		_roll_in_place_axis0(self.players_monuments, 4 *nb_swaps)
 
 	def get_symmetries(self, policy, valid_actions):
-		# def _swap_cards(cards, permutation):
-		# 	full_permutation = [2*p+i for p in permutation for i in range(2)]
-		# 	cards_copy = cards.copy()
-		# 	for i in range(len(permutation)*2):
-		# 		cards[i, :] = cards_copy[full_permutation[i], :]
-		# def _copy_and_permute(array, permutation, start_index):
-		# 	new_array = array.copy()
-		# 	for i, p in enumerate(permutation):
-		# 		new_array[start_index+i] = array[start_index+p]
-		# 	return new_array
-		# def _copy_and_permute2(array, permutation, start_index, other_start_index):
-		# 	new_array = array.copy()
-		# 	for i, p in enumerate(permutation):
-		# 		new_array[start_index      +i] = array[start_index      +p]
-		# 		new_array[other_start_index+i] = array[other_start_index+p]
-		# 	return new_array
-
-		pass
+		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
+		return symmetries
 
 	def get_round(self):
 		return self.round[0]
@@ -171,7 +164,7 @@ class Board():
 
 	def _valid_diceagain(self, player):
 		# player must have 'radio' monument and not have played twice
-		return self.players_monuments[4*player+3,0] and self.player_state[0]==0
+		return self.players_monuments[4*player+3,0] and self.player_state[0]%2 == 0
 	
 	def _buy_card(self, player, card):
 		self.players_money[player,0] -= cards_cost[card]
@@ -194,10 +187,10 @@ class Board():
 		if self.players_monuments[4*player_who_rolled+0,0] > 0: # Has he got the train station allowing 2 dices?
 			dice2 = np.random.randint(1, 6)
 			identical = (dice == dice2)
-			print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice) + ' ' + str(dice2) + ('*' if identical else ''))
+			# print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice) + ' ' + str(dice2) + ('*' if identical else ''))
 			dice += dice2
-		else:
-			print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice))
+		# else:
+		# 	print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice))
 		return dice, identical
 
 	def _dice_effect(self, result, player_who_rolled):
@@ -232,6 +225,7 @@ class Board():
 			# Let's buy the most expensive one from the richest player
 			# Against one of my low probability card
 			wealths = np.array([self.get_wealth(p) for p in range(self.num_players)], dtype=np.int8)
+			wealths[player_who_rolled] = 0 # Avoid swapping with yourself
 			target_player = my_random_choice(wealths == wealths.max())
 			target_player_cards_cost = np.multiply(np.minimum(self.players_cards[15*target_player:15*(target_player+1), 0], 1), cards_cost)
 			target_player_cards_cost[STADE], target_player_cards_cost[AFFAIRES], target_player_cards_cost[CHAINE] = 0, 0, 0 # Forbid to swap these cards
