@@ -37,10 +37,10 @@ cards_description = [
 ]
 
 monuments_description = [
-	(Back.YELLOW, Fore.BLACK, 4,  '2 dés'               , 'gare'               ), # 0
-	(Back.YELLOW, Fore.BLACK, 10, 'gain bonus'          , 'centre commercial'  ), # 1
-	(Back.YELLOW, Fore.BLACK, 16, 'tour bonus si double', 'tour radio'         ), # 2
-	(Back.YELLOW, Fore.BLACK, 22, 'peut relancer dés'   , 'parc d\'attractions'), # 3
+	(Back.YELLOW, Fore.BLACK, 4,  '2 dés'                      , 'gare'               ), # 0
+	(Back.YELLOW, Fore.BLACK, 10, 'bonus c2-3 & 3 & 4 & 9-10'  , 'centre commercial'  ), # 1
+	(Back.YELLOW, Fore.BLACK, 16, 'tour bonus si double'       , 'tour radio'         ), # 2
+	(Back.YELLOW, Fore.BLACK, 22, 'peut relancer dés'          , 'parc d\'attractions'), # 3
 ]
 
 ############################# PRINT GAME ######################################
@@ -54,7 +54,7 @@ def _print_round_and_scores(board):
 
 def _print_values(array_with_two_values):
 	current_value, past_value = array_with_two_values[0], array_with_two_values[1]
-	if current_value > 0:
+	if current_value > 0 or current_value != past_value:
 		print(f'{Style.BRIGHT}{current_value}', end='')
 		if current_value != past_value:
 			print(f'{Style.DIM}({past_value}){Style.RESET_ALL}  ', end='')
@@ -83,7 +83,7 @@ def _print_money_and_misc(board):
 	for p in range(board.num_players):
 		print(f'{Style.BRIGHT}{board.players_money[p,0]:2}$   ', end='')
 	print(f'       ', end='')
-	print(f'{Style.DIM}dice {Style.RESET_ALL}{board.last_dice[0]}({board.last_dice[1]})  ', end='')
+	print(f'{Style.DIM}dice {Style.RESET_ALL}{board.last_dice[0]}  ', end='')
 	print(f'{Style.DIM}state {Style.RESET_ALL}{board.player_state[0]}', end='')
 	print()
 

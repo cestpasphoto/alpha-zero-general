@@ -26,8 +26,10 @@ class HumanPlayer():
 	def play(self, board):
 		# print_board(self.game.board)
 		valid = self.game.getValidMoves(board, 0)
-		self.show_main_moves(valid)
+		print()
+		print('='*80)
 		self.show_all_moves(valid)
+		print('*'*80)
 		while True:
 			input_move = input()
 			if input_move == '+':

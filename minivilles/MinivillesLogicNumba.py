@@ -58,6 +58,7 @@ class Board():
 		for p in range(self.num_players):
 			self.players_cards[15*p + 0,:] = 1
 			self.players_cards[15*p + 1,:] = 1
+
 		# self.players_monuments[:,:] = 0
 		
 	def get_state(self):
@@ -83,7 +84,7 @@ class Board():
 			pass
 
 		# Decide next player and increase number of rounds
-		print(f'P={player}, round={self.round[0]}       ', end='')
+		# print(f'P={player}, round={self.round[0]}       ', end='')
 		if move == 19: # decide to re-roll dices
 			next_player = player
 		elif self.player_state[0] >= 2: # player had identical dices values
@@ -92,7 +93,7 @@ class Board():
 		else:
 			self.round[0] += 1
 			next_player = (player+1)%self.num_players
-		print(f'next={next_player}, round={self.round[0]}')
+		# print(f'next={next_player}, round={self.round[0]}')
 
 		# Copy history from row 0 to row 1
 		if move != 19:
@@ -103,11 +104,10 @@ class Board():
 			# self.player_state[1] = self.player_state[0]
 			
 		# Roll dice for next player
-		print('  ', self.players_money[:,0], end=' ')
+		# print('  ', self.players_money[:,0], end=' ')
 		self.last_dice[0], identical_dices = self._roll_dice(next_player)
 		self._dice_effect(self.last_dice[0], player_who_rolled=next_player)
-		print('  ', self.players_money[:,0], end=' ')
-		print()
+		# print('  ', self.players_money[:,0], end=' ')
 
 		# Note down whether player has re-rolled dices or has played a new turn
 		self.player_state[0]  = 1 if move == 19      else 0
@@ -187,21 +187,25 @@ class Board():
 		if self.players_monuments[4*player_who_rolled+0,0] > 0: # Has he got the train station allowing 2 dices?
 			dice2 = np.random.randint(1, 6)
 			identical = (dice == dice2)
-			# print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice) + ' ' + str(dice2) + ('*' if identical else ''))
+			# print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice) + ' ' + str(dice2) + ('*' if identical else ''), end='')
 			dice += dice2
 		# else:
-		# 	print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice))
+		# 	print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice), end='')
 		return dice, identical
 
 	def _dice_effect(self, result, player_who_rolled):
 		def _all_receive_from_bank(card_index, money):
 			for p in range(self.num_players):
 				self.players_money[p,0] += money * self.players_cards[15*p+card_index,0]
+				# if self.players_cards[15*p+card_index,0]:
+				# 	print(f'  P{p} +{money}*{self.players_cards[15*p+card_index,0]} from bank', end='')
 
 		def _current_receive_from_bank(card_index, money, bonus_if_mall=False):
 			p = player_who_rolled
 			bonus = 1 if bonus_if_mall and (self.players_monuments[4*p + CENTRECOM, 0] > 0) else 0
 			self.players_money[p,0] += (money+bonus) * self.players_cards[15*p+card_index,0]
+			# if self.players_cards[15*p+card_index,0]:
+			# 	print(f'  P{p} +{money+bonus}*{self.players_cards[15*p+card_index,0]} from bank', end='')
 
 		def _current_give(card_index, money, bonus_if_mall=False):
 			for player in range(player_who_rolled+self.num_players-1, player_who_rolled, -1):
@@ -210,6 +214,8 @@ class Board():
 				amount = min((money+bonus) * self.players_cards[15*p+card_index,0], self.players_money[player_who_rolled,0])
 				self.players_money[p                ,0] += amount
 				self.players_money[player_who_rolled,0] -= amount
+				# if amount:
+				# 	print(f'  P{p} +{amount} from P{player_who_rolled}', end='')
 
 		def _stadium():
 			# Every player give 2$ to current
@@ -219,6 +225,8 @@ class Board():
 				amount = min(self.players_money[p,0], 2)
 				self.players_money[p                ,0] -= amount
 				self.players_money[player_who_rolled,0] += amount
+				# if amount:
+				# 	print(f'  P{player_who_rolled} +{amount} from P{p}', end='')
 
 		def _business_center():
 			# Current can swap a building with someone else
@@ -241,6 +249,7 @@ class Board():
 			self.players_cards[15*player_who_rolled+target_building, 0] += 1
 			self.players_cards[15*player_who_rolled+my_building, 0]     -= 1
 			self.players_cards[15*target_player    +my_building, 0]     += 1
+			# print(f'  P{player_who_rolled} swaps B{my_building} with B{target_building}-P{target_player}', end='')
 
 		def _tv_channel():
 			# Take 5$ from any player
@@ -255,6 +264,8 @@ class Board():
 			amount = min(self.players_money[target_player, 0], 5)
 			self.players_money[target_player    ,0] -= amount
 			self.players_money[player_who_rolled,0] += amount
+			# if amount:
+			# 	print(f'  P{player_who_rolled} +{amount} from P{target_player}', end='')
 
 		if result == 1:
 			_all_receive_from_bank(CHAMPS, 1)
