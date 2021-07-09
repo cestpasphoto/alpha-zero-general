@@ -44,7 +44,7 @@ class Arena():
         elif NUMBER_PLAYERS == 3:
             players = [self.player2, self.player1, self.player1]               if other_way else [self.player1, self.player2, self.player2]
         elif NUMBER_PLAYERS == 4:
-            players = [self.player2, self.player1, self.player2, self.player1] if other_way else [self.player1, self.player2, self.player1, self.player2]
+            players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
         curPlayer = 0
         board = self.game.getInitBoard()
         it = 0
