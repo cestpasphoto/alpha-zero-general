@@ -27,6 +27,11 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 * [x] Explore various architecture
 * [x] Added pretrained models for 2-3-4 players
 
+There are some limitations: implemented logic doesn't allow you to both take gems from the bank and give back some (whereas allowed in real rules), you can either 1-2-3 gems or give back 1-2 gems.
+
+### Machi Koro / Minivilles
+* [x] Quick implementation of [Minivilles](https://en.wikipedia.org/wiki/Machi_Koro), with handful limitations
+
 ### Others changes
 
 * [ ] Include ELO-like ranking
