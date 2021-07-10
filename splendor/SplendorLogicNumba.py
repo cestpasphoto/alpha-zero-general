@@ -1,5 +1,3 @@
-#!/home/best/dev/splendor/venv/bin/python3
-
 from .SplendorLogic import np_all_nobles, np_all_cards_1, np_all_cards_2, np_all_cards_3, len_all_cards, np_different_gems_up_to_2, np_different_gems_up_to_3, np_cards_symmetries, np_reserve_symmetries
 import numpy as np
 from numba import njit

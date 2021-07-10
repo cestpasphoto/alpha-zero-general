@@ -1,5 +1,3 @@
-#!/home/best/dev/splendor/venv/bin/python3
-
 import numpy as np
 from numba import njit
 import numba
