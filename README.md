@@ -20,6 +20,8 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 
 ### Splendor
 
+![Sample game of Splendor](splendor/sample_game.gif)
+
 * [x] Support of [Splendor game](https://en.wikipedia.org/wiki/Splendor_(game)) with 2 players
 * [x] Support of 3-4 players (just change NUMBER_PLAYERS in main.py)
 * [x] Proper MCTS handling of "chance" factor when revealing new deck card
@@ -31,6 +33,8 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 
 ### Machi Koro / Minivilles
 * [x] Quick implementation of [Minivilles](https://en.wikipedia.org/wiki/Machi_Koro), with handful limitations
+
+![Sample game of Minivilles with 4 players](minivilles/sample_game.gif)
 
 ### Others changes
 
@@ -49,7 +53,8 @@ The noopenmp version of onnxruntime is faster for single thread execution. This 
 #### How to play versus saved engine
 `./pit.py -p splendor/pretrained_2players.pt -P human -n 1`
 
-Switch -p and -P options if human wants to be first player
+Switch -p and -P options if human wants to be first player. You can also make 2 networks fight each other.
+![2 networks fighting](splendor/many_games.gif)
 
 #### Recommended settings
 `main.py -m 1600 -v 15 -T 30 -e 500 -i 5 -p 2 -d 0.50 -b 32 -l 0.0003 --updateThreshold 0.55 -C ../results/mytest`:
