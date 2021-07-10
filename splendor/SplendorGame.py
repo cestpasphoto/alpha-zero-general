@@ -8,7 +8,7 @@ from numba import jit, njit
 
 
 
-NUMBER_PLAYERS = 3
+NUMBER_PLAYERS = 2
 
 
 

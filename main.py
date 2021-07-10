@@ -5,8 +5,8 @@ import os
 import coloredlogs
 
 from Coach import Coach
-from minivilles.MinivillesGame import MinivillesGame as Game
-from minivilles.NNet import NNetWrapper as nn
+from splendor.SplendorGame import SplendorGame as Game
+from splendor.NNet import NNetWrapper as nn
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)
