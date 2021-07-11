@@ -14,10 +14,11 @@ import numpy as np
 import base64
 import json
 
+dir_path = os.path.dirname(os.path.realpath(__file__))
 best_NN = {
-	2: 'splendor/pretrained_2players.pt',
-	3: 'splendor/pretrained_3players.pt',
-	4: 'splendor/pretrained_4players.pt',
+	2: os.path.join(dir_path, 'splendor/pretrained_2players.pt'),
+	3: os.path.join(dir_path, 'splendor/pretrained_3players.pt'),
+	4: os.path.join(dir_path, 'splendor/pretrained_4players.pt'),
 }[NUMBER_PLAYERS]
 
 def deserialize(state_str):
