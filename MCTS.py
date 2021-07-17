@@ -117,10 +117,10 @@ class MCTS():
             if Es.any():
                 # terminal node
                 self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
-                return np.roll(Es, 1)
+                return Es
         elif Es.any():
             # terminal node
-            return np.roll(Es, 1)
+            return Es
 
         if Ps is None:
             Vs = getValidMoves(self.game.board, canonicalBoard, 0)
@@ -132,7 +132,7 @@ class MCTS():
 
             Ns, Qsa, Nsa = 0, self.Qsa_default.copy(), self.Nsa_default.copy()
             self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
-            return np.roll(v, 1)
+            return v
 
         if dirichlet_noise:
             self.applyDirNoise(Ps, Vs)
@@ -140,7 +140,7 @@ class MCTS():
 
         # pick the action with the highest upper confidence bound
         # get next state and get canonical version of it
-        a, next_s = get_next_best_action_and_canonical_state(
+        a, next_s, next_player = get_next_best_action_and_canonical_state(
             Es, Vs, Ps, Ns, Qsa, Nsa,
             self.args.cpuct,
             self.game.board,
@@ -150,13 +150,14 @@ class MCTS():
         )
 
         v = self.search(next_s)
+        v = np.roll(v, next_player)
 
         Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
         Nsa[a] += 1
         Ns += 1
 
         self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
-        return np.roll(v, 1)
+        return v
 
 
     def applyDirNoise(self, Ps, Vs):
@@ -198,7 +199,7 @@ def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, ga
     next_s, next_player = getNextState(gameboard, canonicalBoard, 0, a, True)
     next_s = getCanonicalForm(gameboard, next_s, next_player)
 
-    return a, next_s
+    return a, next_s, next_player
 
 @njit(cache=True, fastmath=True, nogil=True)
 def normalise(vector):

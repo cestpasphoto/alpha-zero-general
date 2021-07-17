@@ -6,6 +6,10 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 
 * [x] Added Dirichlet Noise as per original [DeepMind paper](https://www.nature.com/articles/nature24270.epdf), using this [pull request](https://github.com/suragnair/alpha-zero-general/pull/186)
 * [x] Compute policy gradients properly when some actions are invalid based on [A Closer Look at Invalid Action Masking inPolicy Gradient Algorithms](https://arxiv.org/pdf/2006.14171.pdf) and its [repo](https://github.com/vwxyzjn/invalid-action-masking)
+* [x] Speed optimized
+  * [x] Reaching **about 3000 rollouts/sec on 1 CPU core** without batching and without GPU, meaning 1 full game in 30 seconds when using 1600 rollouts for each move
+  * [x] Neural Network inference speed and especially latency improved, thanks to ONNX 
+  * [x] MCTS and logic optimized thanks to Numba, NN inference is now >80% time spent during self-plays based on profilers
 * [x] Improvements based on [Accelerating Self-Play Learning in Go](https://arxiv.org/pdf/1902.10565.pdf)
   * [x] Playout Cap Randomization
   * [x] Forced Playouts and Policy Target Pruning
@@ -13,10 +17,6 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
   * [ ] Auxiliary Policy Targets
   * [x] Score Targets
 * [ ] Set up HyperParameters Optimization, like Hyperband or Population-Based Training
-* [x] Speed optimized
-  * [x] Reaching **about 3000 rollouts/sec on 1 CPU core** without batching and without GPU, meaning 1 full game in 30 seconds when using 1600 rollouts for each move
-  * [x] Neural Network inference speed and especially latency improved, thanks to ONNX 
-  * [x] MCTS and logic optimized thanks to Numba, NN inference is now >80% time spent during self-plays based on profilers
 
 ### Splendor
 
