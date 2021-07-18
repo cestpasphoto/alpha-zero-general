@@ -2,12 +2,12 @@
 
 import Arena
 from MCTS import MCTS
-from splendor.SplendorPlayers import *
-from splendor.SplendorGame import SplendorGame as Game
-from splendor.SplendorGame import NUMBER_PLAYERS
-from splendor.SplendorLogic import print_board
-from splendor.SplendorLogicNumba import Board
-from splendor.NNet import NNetWrapper as NNet
+from thelittleprince.TLPPlayers import *
+from thelittleprince.TLPGame import TLPGame as Game
+from thelittleprince.TLPGame import NUMBER_PLAYERS
+from thelittleprince.TLPDisplay import print_board
+from thelittleprince.TLPLogicNumba import Board
+from thelittleprince.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *

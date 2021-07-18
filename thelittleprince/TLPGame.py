@@ -1,8 +1,7 @@
 import sys
 sys.path.append('..')
 from Game import Game
-from .MinivillesDisplay import print_board
-from .MinivillesLogicNumba import Board, observation_size, action_size, max_score_diff
+from .TLPLogicNumba import Board, observation_size, action_size, max_score_diff
 import numpy as np
 from numba import jit, njit
 
@@ -35,7 +34,7 @@ def getCanonicalForm(splendorgameboard, board, player):
 	splendorgameboard.swap_players(player)
 	return splendorgameboard.get_state()
 
-class MinivillesGame(Game):
+class TLPGame(Game):
 	def __init__(self):
 		self.num_players = NUMBER_PLAYERS
 		self.board = Board(NUMBER_PLAYERS)
@@ -48,7 +47,7 @@ class MinivillesGame(Game):
 		return observation_size(self.num_players)
 
 	def getActionSize(self):
-		return action_size()
+		return action_size(self.num_players)
 
 	def getMaxScoreDiff(self):
 		return max_score_diff()

@@ -5,8 +5,8 @@ import os
 import coloredlogs
 
 from Coach import Coach
-from splendor.SplendorGame import SplendorGame as Game
-from splendor.NNet import NNetWrapper as nn
+from thelittleprince.TLPGame import TLPGame as Game
+from thelittleprince.NNet import NNetWrapper as nn
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)

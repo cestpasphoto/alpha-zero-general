@@ -11,10 +11,6 @@ from numba import jit, njit
 NUMBER_PLAYERS = 4
 
 
-
-# (Game convention) -1 = 1 (SplendorLogic convention)
-# (Game convention)  1 = 0 (SplendorLogic convention)
-
 @njit(fastmath=True, nogil=True) # No cache, because relies jitclass which isn't compatible with cache
 def getGameEnded(splendorgameboard, board):
 	splendorgameboard.copy_state(board, False)

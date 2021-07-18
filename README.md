@@ -36,6 +36,11 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 
 ![Sample game of Minivilles with 4 players](minivilles/sample_game.gif)
 
+
+### The Little Prince - Make me a planet
+* [ ] Quick implementation of [The little prince](https://cdn.1j1ju.com/medias/67/f8/eb-the-little-prince-make-me-a-planet-rulebook.pdf), with limitations
+
+
 ### Others changes
 
 * [ ] Include ELO-like ranking
