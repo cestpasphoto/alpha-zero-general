@@ -30,18 +30,29 @@ def my_packbits(array):
 def my_unpackbits(value):
 	return (np.bitwise_and(value, mask) != 0).astype(np.uint8)
 
+@njit(cache=True, fastmath=True, nogil=True)
+def slots_in_planet(card_type):
+	if   card_type == EMPTY:
+		raise Exception('you cannot take an empty card')
+	elif card_type == CENTER:
+		possible_slots = [5, 6, 9, 10]
+	elif card_type == UPHILL_EDGE:
+		possible_slots = [1, 7, 8, 14]
+	elif card_type == DOWNHILL_EDGE:
+		possible_slots = [2, 4, 11, 13]
+	else: # >= CORNER
+		possible_slots = [0, 3, 12, 15]
+	return possible_slots
+
 spec = [
 	('num_players'         , numba.int8),
 	('current_player_index', numba.int8),
 
 	('state'            , numba.int8[:,:]),
-	('round'            , numba.int8[:]),
-	('last_dice'        , numba.int8[:]),
-	('player_state'     , numba.int8[:]),
+	('round_and_state'  , numba.int8[:]),
 	('market'           , numba.int8[:,:]),
-	('players_money'    , numba.int8[:,:]),
+	('players_score'    , numba.int8[:,:]),
 	('players_cards'    , numba.int8[:,:]),
-	('players_monuments', numba.int8[:,:]),
 ]
 @numba.experimental.jitclass(spec)
 class Board():
@@ -69,7 +80,7 @@ class Board():
 
 	def valid_moves(self, player):
 		result = np.zeros(self.num_players*self.num_players, dtype=np.bool_)
-		who_can_play = my_unpackbits(self.round_and_state[2])
+		who_can_play = my_unpackbits(self.round_and_state[2])[:self.num_players]
 		who_can_play[player] = False
 		if not np.any(who_can_play): # means end of turn, so current play will play again
 			who_can_play[player] = True
@@ -98,10 +109,10 @@ class Board():
 			return
 		self.state = state.copy() if copy_or_not else state
 		n = self.num_players
-		self.round_and_state   = self.state[0            ,:]	# 1      # Round number on row 0, current player in row 1, bitfield of who can play on row 2, and rows 3-12 are bitfield representing remaining cards
-		self.market            = self.state[1    :n+1    ,:]	# n      # Cards ready to be picked by players
-		self.players_score     = self.state[n+1  :2*n+1  ,:]	# n      # Current player score, attribute by attribute
-		self.players_cards     = self.state[2*n+1:18*n+1 ,:]	# n*16   # Players' cards: P0-c0, P0-c1, ..., P0-c15, P1-c0, P1-c1, ..., Pn-C15
+		self.round_and_state = self.state[0           ,:] # 1    # Round number on row 0, current player in row 1, bitfield of who can play on row 2, and rows 3-12 are bitfield representing remaining cards
+		self.market          = self.state[1    :n+1   ,:] # n    # Cards ready to be picked by players
+		self.players_score   = self.state[n+1  :2*n+1 ,:] # n    # Current player score, attribute by attribute
+		self.players_cards   = self.state[2*n+1:18*n+1,:] # n*16 # Players' cards: P0-c0, P0-c1, ..., P0-c15, P1-c0, P1-c1, ..., Pn-C15
 
 	def check_end_game(self):
 		if self.get_round() < 16 * self.num_players:
@@ -130,8 +141,13 @@ class Board():
 		self.round_and_state[2] = my_packbits(np.roll(who_can_play, -nb_swaps))
 
 	def get_symmetries(self, policy, valid_actions):
-		# symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
-		# return symmetries
+		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
+		return symmetries
+
+		# Permute players that have already played (except current player P0) --> <3
+		# Permute players that haven't already played (except current player P0) --> <3
+		# Permute remaining cards in market --> <3
+		# Permute cards in planet --> bcp
 		pass
 
 	def get_round(self):
@@ -204,7 +220,7 @@ class Board():
 					self.players_score[p, SHEEP_BROWN] += 3
 				self.players_score[p, BOX] += sum_attributes[BOX]
 			else:
-				print(f'Unknown character {character}')
+				print('Unknown character ' + str(character))
 
 			# Volcanoes
 			nb_volcanoes = [self.players_cards[16*p_:16*(p_+1), VOLCANO].sum() for p_ in range(self.num_players)]
@@ -223,12 +239,18 @@ class Board():
 	def _fill_market_if_needed(self):
 		if np.any(self.market[:, CARD_TYPE] != EMPTY) or np.all(self.players_cards[:, CARD_TYPE] > 0):
 			return
-		# Market is empty, need to refill it
-		# Chose randomly one of 4 categories of cards
-		type_with_room_player0 = [self.players_cards[location, CARD_TYPE] == EMPTY for location in [10, 14, 13, 15]]
-		card_type = my_random_choice(type_with_room_player0)
-		if self.get_round() > 0:
-			print(type_with_room_player0, 'random chose decided to take cards of type', card_type)
+		# Market is empty, need to refill it. First, chose randomly one of 4 categories of cards
+		type_with_room_player0 = [
+			self.players_cards[10, CARD_TYPE] == EMPTY,
+			self.players_cards[14, CARD_TYPE] == EMPTY,
+			self.players_cards[13, CARD_TYPE] == EMPTY,
+			self.players_cards[15, CARD_TYPE] == EMPTY,
+		]
+		# the simpler code below is not supported by numba
+		#type_with_room_player0 = [self.players_cards[location, CARD_TYPE] == EMPTY for location in [10,14,13,15]]
+		card_type = my_random_choice(np.array(type_with_room_player0))
+		# if self.get_round() > 0:
+		# 	print(type_with_room_player0, 'random chose decided to take cards of type', card_type)
 		available_cards = self._available_cards()
 		# Chose randomly cards among these categories
 		for i in range(self.num_players):
@@ -252,22 +274,9 @@ class Board():
 			self.round_and_state[i+3] = my_packbits(available_cards[8*i:8*(i+1)])
 
 	def _player_cant_play_again_this_turn(self, player):
-		who_can_play = my_unpackbits(self.round_and_state[2])
+		who_can_play = my_unpackbits(self.round_and_state[2])[:self.num_players]
 		who_can_play[player] = False
 		self.round_and_state[2] = my_packbits(who_can_play)
-
-def slots_in_planet(card_type):
-	if   card_type == EMPTY:
-		raise Exception('you cannot take an empty card')
-	elif card_type == CENTER:
-		possible_slots = [5, 6, 9, 10]
-	elif card_type == UPHILL_EDGE:
-		possible_slots = [1, 7, 8, 14]
-	elif card_type == DOWNHILL_EDGE:
-		possible_slots = [2, 4, 11, 13]
-	else: # >= CORNER
-		possible_slots = [0, 3, 12, 15]
-	return possible_slots
 
 
 # List of attributes

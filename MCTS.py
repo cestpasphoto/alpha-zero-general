@@ -3,7 +3,7 @@ import math
 
 import numpy as np
 
-from splendor.SplendorGame import getGameEnded, getNextState, getValidMoves, getCanonicalForm
+from thelittleprince.TLPGame import getGameEnded, getNextState, getValidMoves, getCanonicalForm
 from numba import njit
 
 EPS = 1e-8
