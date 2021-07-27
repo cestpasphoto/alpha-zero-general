@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
 import numba
+import random
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
@@ -15,8 +16,9 @@ def max_score_diff():
 	return 64-0
 
 @njit(cache=True, fastmath=True, nogil=True)
-def my_random_choice(prob):
-	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
+def my_random_choice_and_normalize(prob):
+	normalized_prob = prob / prob.sum()
+	result = np.searchsorted(np.cumsum(normalized_prob), np.random.random(), side="right")
 	return result
 
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
@@ -141,14 +143,97 @@ class Board():
 		self.round_and_state[2] = my_packbits(np.roll(who_can_play, -nb_swaps))
 
 	def get_symmetries(self, policy, valid_actions):
-		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
-		return symmetries
+		n = self.num_players
 
-		# Permute players that have already played (except current player P0) --> <3
-		# Permute players that haven't already played (except current player P0) --> <3
-		# Permute remaining cards in market --> <3
-		# Permute cards in planet --> bcp
-		pass
+		# permute randomly players listed in list 'players'
+		def _permute_players(players, input_state, input_pi, input_v):
+			np_players, shuffled_players = np.array(players), np.array(players)
+			np.random.shuffle(shuffled_players)
+			# use similar code to copy_state()
+			return_state = input_state.copy()
+			input_round_and_state , input_score , input_cards  = input_state [0,:], input_state [n+1:2*n+1,:], input_state [2*n+1:18*n+1,:]
+			return_round_and_state, return_score, return_cards = return_state[0,:], return_state[n+1:2*n+1,:], return_state[2*n+1:18*n+1,:]
+			who_can_play = my_unpackbits(input_round_and_state[2])[:n]
+			return_who_can_play = who_can_play.copy()
+			# Permute input_state (score, cards and round_and_state)
+			for i in range(np_players.size):
+				old_player, new_player = np_players[i], shuffled_players[i]
+				return_score[new_player] = input_score[old_player]
+				return_cards[new_player*16:(new_player+1)*16, :] = input_cards[old_player*16:(old_player+1)*16, :]
+				return_who_can_play[new_player] = who_can_play[old_player]
+			return_round_and_state[2] = my_packbits(return_who_can_play)
+			
+			# Permute policy and valid actions
+			return_pi, return_v = input_pi.copy(), input_v.copy()
+			for i in range(np_players.size):
+				old_player, new_player = np_players[i], shuffled_players[i]
+				for card in range(n):
+					old_index_action, new_index_action = card * n + old_player, card * n + new_player
+					return_pi[new_index_action] = input_pi[old_index_action]
+					return_v[new_index_action]  = input_v[old_index_action]
+
+			return return_state, return_pi, return_v
+
+		# permute randomly market cards listed in list 'market_cards'
+		def _permute_cards_market(market_cards, input_state, input_pi, input_v):
+			np_market_cards, shuffled_market_cards = np.array(market_cards), np.array(market_cards)
+			np.random.shuffle(shuffled_market_cards)
+			return_state, return_pi, return_v = input_state.copy(), input_pi.copy(), input_v.copy()
+			# use similar code to copy_state()
+			input_market  = input_state [1:n+1,:]
+			return_market = return_state[1:n+1,:]
+			for i in range(np_market_cards.size):
+				old_card, new_card = np_market_cards[i], shuffled_market_cards[i]
+				return_market[new_card, :] = input_market[old_card, :]
+				for player in range(n):
+					old_index_action, new_index_action = old_card * n + player, new_card * n + player
+					return_pi[new_index_action] = input_pi[old_index_action]
+					return_v[new_index_action]  = input_v[old_index_action]
+			return return_state, input_pi, input_v
+
+		# permute randomly cards listed in list 'planet_cards' in planet of player 'player'
+		def _permute_cards_planet(planet_cards, player, input_state, input_pi, input_v):
+			np_planet_cards, shuffled_planet_cards = np.array(planet_cards), np.array(planet_cards)
+			np.random.shuffle(shuffled_planet_cards)
+			return_state = input_state.copy()
+			# use similar code to copy_state()
+			input_cards  = input_state [2*n+1:18*n+1,:]
+			return_cards = return_state[2*n+1:18*n+1,:]
+			for i in range(np_planet_cards.size):
+				old_card, new_card = np_planet_cards[i], shuffled_planet_cards[i]
+				return_cards[16*player + new_card, :] = input_cards[16*player + old_card, :]
+			return return_state, input_pi, input_v
+
+		def _add_to_list_no_duplicate(s, p, v, list_):
+			for s_, p_, v_ in list_:
+				if np.array_equal(s_, s): # we should compare p and v too, but if state is same, then policy+valids should be same
+					return False
+			list_.append((s, p, v))
+			return True
+
+		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
+
+		# Permute players (those who played this turn on one hand, those who hasn't played yet on another hand)
+		current_player = self.round_and_state[1]
+		who_can_play = my_unpackbits(self.round_and_state[2])[:self.num_players]
+		players_who_played        = [ i for i in range(self.num_players) if not who_can_play[i] and i != current_player ]
+		players_who_havent_played = [ i for i in range(self.num_players) if     who_can_play[i] and i != current_player ]
+		for i in range(self.num_players): # arbitary number of symmetries
+			new_state, new_policy, new_valids = _permute_players(players_who_played       , self.state, policy, valid_actions)
+			new_state, new_policy, new_valids = _permute_players(players_who_havent_played, new_state, new_policy, new_valids)
+			_add_to_list_no_duplicate(new_state, new_policy, new_valids, symmetries)
+		
+		# Permute remaining cards in market and cards in planet
+		for i in range(self.num_players): # arbitary number of symmetries
+			list_cards_market = [i for i in range(self.num_players) if self.market[i, CARD_TYPE] != EMPTY]
+			new_state, new_policy, new_valids = _permute_cards_market(list_cards_market, self.state, policy, valid_actions)
+			for player in range(self.num_players):
+				for card_type in range(1, 5):
+					list_of_cards_in_planet = [i for i in range(16) if self.players_cards[16*player + i, CARD_TYPE]//25 == card_type]
+					new_state, new_policy, new_valids = _permute_cards_planet(list_of_cards_in_planet, player, new_state, new_policy, new_valids)
+			_add_to_list_no_duplicate(new_state, new_policy, new_valids, symmetries)
+
+		return symmetries
 
 	def get_round(self):
 		return self.round_and_state[0]
@@ -248,13 +333,11 @@ class Board():
 		]
 		# the simpler code below is not supported by numba
 		#type_with_room_player0 = [self.players_cards[location, CARD_TYPE] == EMPTY for location in [10,14,13,15]]
-		card_type = my_random_choice(np.array(type_with_room_player0))
-		# if self.get_round() > 0:
-		# 	print(type_with_room_player0, 'random chose decided to take cards of type', card_type)
+		card_type = my_random_choice_and_normalize(np.array(type_with_room_player0))
 		available_cards = self._available_cards()
 		# Chose randomly cards among these categories
 		for i in range(self.num_players):
-			card_index = my_random_choice(available_cards[20*card_type:20*(card_type+1)])
+			card_index = my_random_choice_and_normalize(available_cards[20*card_type:20*(card_type+1)])
 			self.market[i, :] = np_all_cards[card_type][card_index, :]
 			available_cards[20*card_type + card_index] = False
 		self._set_available_cards(available_cards)

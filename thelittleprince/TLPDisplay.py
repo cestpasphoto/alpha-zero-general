@@ -60,10 +60,12 @@ characters_name = [
 	'Lamplighter',       # 5
 	'Hunter',            # 6
 	'Drunkard',          # 7
-	'Businessman',       # 8
-	'Gardener',          # 9
-	'Turkish Astronomer',# 10
-	'Little Prince',     # 11
+	'W Businessman',     # 8
+	'G Businessman',     # 9
+	'B Businessman',     # 10
+	'Gardener',          # 11
+	'Turkish Astronomer',# 12
+	'Little Prince',     # 13
 ]
 
 ############################# PRINT GAME ######################################
