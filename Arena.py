@@ -3,8 +3,8 @@ log = logging.getLogger(__name__)
 
 import bisect
 from tqdm import tqdm
-from thelittleprince.TLPGame import NUMBER_PLAYERS
-from thelittleprince.TLPDisplay import move_to_str
+from splendor.SplendorGame import NUMBER_PLAYERS
+from splendor.SplendorLogic import move_to_str
 
 
 class Arena():
