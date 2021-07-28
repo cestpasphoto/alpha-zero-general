@@ -15,7 +15,8 @@ def max_score_diff():
 	return 52-0
 
 @njit(cache=True, fastmath=True, nogil=True)
-def my_random_choice(prob):
+def my_random_choice_and_normalize(prob):
+	normalized_prob = prob / prob.sum()
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
 	return result
 
@@ -232,16 +233,16 @@ class Board():
 			# Against one of my low probability card
 			wealths = np.array([self.get_wealth(p) for p in range(self.num_players)], dtype=np.int8)
 			wealths[player_who_rolled] = 0 # Avoid swapping with yourself
-			target_player = my_random_choice(wealths == wealths.max())
+			target_player = my_random_choice_and_normalize(wealths == wealths.max())
 			target_player_cards_cost = np.multiply(np.minimum(self.players_cards[15*target_player:15*(target_player+1), 0], 1), cards_cost)
 			target_player_cards_cost[STADE], target_player_cards_cost[AFFAIRES], target_player_cards_cost[CHAINE] = 0, 0, 0 # Forbid to swap these cards
-			target_building = my_random_choice(target_player_cards_cost == target_player_cards_cost.max())
+			target_building = my_random_choice_and_normalize(target_player_cards_cost == target_player_cards_cost.max())
 			# Choose a very bad card to swap with
 			my_cards_cost = np.multiply(np.minimum(self.players_cards[15*player_who_rolled:15*(player_who_rolled+1), 0], 1), cards_cost)
 			for i in range(my_cards_cost.size):
 				if my_cards_cost[i] == 0:
 					my_cards_cost[i] = 99
-			my_building = my_random_choice(my_cards_cost == my_cards_cost.min())
+			my_building = my_random_choice_and_normalize(my_cards_cost == my_cards_cost.min())
 			# Do the swap now
 			self.players_cards[15*target_player    +target_building, 0] -= 1
 			self.players_cards[15*player_who_rolled+target_building, 0] += 1
@@ -257,7 +258,7 @@ class Board():
 			money_max = min(moneys.max(), 5)
 			who_has_more_money = np.logical_or(moneys == money_max, moneys >= 5)
 			wealths = np.array([self.get_wealth(p) if who_has_more_money[p] else 0 for p in range(self.num_players)], dtype=np.int8)
-			target_player = my_random_choice(wealths == wealths.max())
+			target_player = my_random_choice_and_normalize(wealths == wealths.max())
 			# Now, take from him
 			amount = min(self.players_money[target_player, 0], 5)
 			self.players_money[target_player    ,0] -= amount
