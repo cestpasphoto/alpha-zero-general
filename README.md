@@ -38,7 +38,10 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 
 
 ### The Little Prince - Make me a planet
-* [ ] Quick implementation of [The little prince](https://cdn.1j1ju.com/medias/67/f8/eb-the-little-prince-make-me-a-planet-rulebook.pdf), with limitations
+* [ ] Quick implementation of [The little prince](https://cdn.1j1ju.com/medias/67/f8/eb-the-little-prince-make-me-a-planet-rulebook.pdf), with limitations. Main ones are:
+   * No support of 2 players, only 3-5 players are supported
+   * When market is empty, current player doesn't decide card type, it is randomly chosen.
+   * Grey sheeps are displayed on console using grey wolf emoji, and brown sheeps are displayed using a brown goat.
 
 
 ### Others changes

@@ -161,7 +161,12 @@ def _print_market(board):
 			print(' '*12, end='')
 		else:
 			print(f'card {i}:', end='')
-			_print_attribute(card, 0, use_two_rows=False, print_width=12)
+			if card[14] >= 4*25: 				# Corner
+				character = card[14] - 4*25
+				print(f'{characters_name[character][:6]:>6}', end='')
+				_print_attribute(card, 0, use_two_rows=False, print_width=6)
+			else:
+				_print_attribute(card, 0, use_two_rows=False, print_width=12)
 		print(f'  ', end='')
 
 	# print('  ', end='')
