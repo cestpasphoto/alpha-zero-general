@@ -39,12 +39,15 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
-        if NUMBER_PLAYERS == 2:
-            players = [self.player2, self.player1]                             if other_way else [self.player1, self.player2]
-        elif NUMBER_PLAYERS == 3:
-            players = [self.player2, self.player1, self.player1]               if other_way else [self.player1, self.player2, self.player2]
-        elif NUMBER_PLAYERS == 4:
-            players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
+        # if NUMBER_PLAYERS == 2:
+        #     players = [self.player2, self.player1]                             if other_way else [self.player1, self.player2]
+        # elif NUMBER_PLAYERS == 3:
+        #     players = [self.player2, self.player1, self.player1]               if other_way else [self.player1, self.player2, self.player2]
+        # elif NUMBER_PLAYERS == 4:
+        #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
+        # elif NUMBER_PLAYERS == 5:
+        #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
+        players = ([self.player2]+[self.player1]*(NUMBER_PLAYERS-1)) if other_way else ([self.player1]+[self.player2]*(NUMBER_PLAYERS-1))
         curPlayer = 0
         board = self.game.getInitBoard()
         it = 0

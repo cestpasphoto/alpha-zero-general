@@ -60,7 +60,7 @@ class TLPNNet(nn.Module):
 		self.action_size = game.getActionSize()
 		self.scdiff_size = 2 * game.getMaxScoreDiff() + 1
 		self.num_players = game.num_players
-		self.num_scdiffs = {2: 2, 3: 3, 4: 4}[self.num_players] # Number of combinations of 2 players
+		self.num_scdiffs = self.num_players
 		self.args = args
 		self.version = args['nn_version']
 
