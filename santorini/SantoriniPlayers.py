@@ -1,55 +1,64 @@
 import numpy as np
+import random
 
-# Renamed OthelloPlayers.py Function
+from .SantoriniDisplay import print_board, move_to_str, directions_char
+
 class RandomPlayer():
     def __init__(self, game):
         self.game = game
 
+    def play(self, board, player=0):
+        valids = self.game.getValidMoves(board, player)
+        action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int), k=1)[0]
+        return action
+
+
+class HumanPlayer():
+    def __init__(self, game):
+        self.game = game
+
+    def show_all_moves(self, valid):
+        print('  ', end='')
+        for worker in range(2):
+            print(f'Move w{worker} '  , end='')
+            for d in directions_char:
+                print(f'{d}   ', end='')
+            print('   ', end='')
+        print()
+        
+        for build_i, build_direction in enumerate(directions_char):
+            print(f'Build {build_direction}: ', end='')
+            for worker in range(2):
+                for move_i, move_direction in enumerate(directions_char):
+                    action = build_i + 8*move_i + 8*8*worker
+                    if valid[action]:
+                        print(f'{action:3d} ', end='')
+                    else:
+                        print('    ', end='')
+                print(' '*11, end='')
+            print() 
+
     def play(self, board):
-        a = np.random.randint(self.game.getActionSize())
-        valids = self.game.getValidMoves(board, 1)
-        while valids[a]!=1:
-            a = np.random.randint(self.game.getActionSize())
+        # print_board(self.game.board)
+        valid = self.game.getValidMoves(board, 0)
+        print()
+        print('='*80)
+        self.show_all_moves(valid)
+        print('*'*80)
+        while True:
+            input_move = input()
+            if input_move == '+':
+                self.show_all_moves(valid)
+            else:
+                try:
+                    a = int(input_move)
+                    if not valid[a]:
+                        raise Exception('')
+                    break
+                except:
+                    print('Invalid move:', input_move)
         return a
 
 
-class HumanSantoriniPlayer():
-    def __init__(self, game):
-        self.game = game
-
-    def play(self, board):
-        # display(board)
-        valids, all_moves, all_moves_binary = self.game.getValidMovesHuman(board, 1)
-
-        for i in range(len(all_moves)):
-            if all_moves_binary[i]:
-                print("|{}: {}, {}, {}|".format(i, all_moves[i][0], all_moves[i][1], all_moves[i][2]))
-#                print("[", int(i/self.game.n), int(i%self.game.n), end="] ")
-        valid_move = False
-        while not valid_move:
-            input_move = int(input("\nPlease enter a move number: "))
-            if all_moves_binary[input_move]:
-                valid_move = True
-            else:
-                print("Sorry, that move is not valid. Please enter another.")
-        return input_move
-
-# Renamed OthelloPlayers.py Function
-class GreedySantoriniPlayer():
-    def __init__(self, game):
-        self.game = game
-
-    def play(self, board):
-        valids = self.game.getValidMoves(board, 1)
-        candidates = []
-        for a in range(self.game.getActionSize()):
-            if valids[a]==0:
-                continue
-            nextBoard, _ = self.game.getNextState(board, 1, a)
-            score = self.game.getScore(nextBoard, 1)
-            candidates += [(-score, a)]
-        candidates.sort()
-       
-        return candidates[0][1]
-
-            
+class GreedyPlayer():
+    pass

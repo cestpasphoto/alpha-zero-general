@@ -2,12 +2,12 @@
 
 import Arena
 from MCTS import MCTS
-from splendor.SplendorPlayers import *
-from splendor.SplendorGame import SplendorGame as Game
-from splendor.SplendorGame import NUMBER_PLAYERS
-from splendor.SplendorLogic import print_board
-from splendor.SplendorLogicNumba import Board
-from splendor.NNet import NNetWrapper as NNet
+from santorini.SantoriniPlayers import *
+from santorini.SantoriniGame import SantoriniGame as Game
+from santorini.SantoriniGame import NUMBER_PLAYERS
+from santorini.SantoriniDisplay import print_board
+from santorini.SantoriniLogicNumba import Board
+# from santorini.tensorflow.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *

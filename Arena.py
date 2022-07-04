@@ -3,8 +3,8 @@ log = logging.getLogger(__name__)
 
 import bisect
 from tqdm import tqdm
-from splendor.SplendorGame import NUMBER_PLAYERS
-from splendor.SplendorLogic import move_to_str
+from santorini.SantoriniGame import NUMBER_PLAYERS
+from santorini.SantoriniDisplay import move_to_str
 
 
 class Arena():
@@ -64,7 +64,7 @@ class Arena():
             valids = self.game.getValidMoves(canonical_board, 0)
 
             if verbose:
-                print(f'P{curPlayer} decided to {move_to_str(action)}')
+                print(f'P{curPlayer} decided to {move_to_str(action, curPlayer)}')
 
             if valids[action] == 0:
                 assert valids[action] > 0
