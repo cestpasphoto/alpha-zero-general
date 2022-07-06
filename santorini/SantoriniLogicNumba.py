@@ -2,15 +2,15 @@ import numpy as np
 from numba import njit
 import numba
 
-@njit(cache=True, fastmath=True, nogil=True)
+# @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (5, 5, 2)
+	return (25, 2) # True size is 5,5,2 but other functions expects 2-dim answer
 
-@njit(cache=True, fastmath=True, nogil=True)
+# @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
 	return 2*8*8
 
-@njit(cache=True, fastmath=True, nogil=True)
+# @njit(cache=True, fastmath=True, nogil=True)
 def max_score_diff():
 	return 3-0
 
@@ -36,13 +36,13 @@ def max_score_diff():
 #   3  -  4
 #   5  6  7
 
-spec = [
-	('state'        		, numba.int8[:,:,:]),
-]
-@numba.experimental.jitclass(spec)
+# spec = [
+# 	('state'        		, numba.int8[:,:,:]),
+# ]
+# @numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
-		self.state = np.zeros(observation_size(), dtype=np.int8)
+		self.state = np.zeros((5,5,2), dtype=np.int8)
 		self.init_game()
 
 	def get_score(self, player):
@@ -61,7 +61,7 @@ class Board():
 		return highest_level
 
 	def init_game(self):
-		self.state = np.zeros(observation_size(), dtype=np.int8)
+		self.state = np.zeros((5,5,2), dtype=np.int8)
 		# Place workers
 		self.state[2,1,0], self.state[2,3,0] =  1,  2 # current player
 		self.state[1,2,0], self.state[3,2,0] = -1, -2 # opponent
