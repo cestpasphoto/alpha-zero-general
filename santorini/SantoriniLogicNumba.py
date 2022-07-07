@@ -2,15 +2,15 @@ import numpy as np
 from numba import njit
 import numba
 
-# @njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
 	return (25, 2) # True size is 5,5,2 but other functions expects 2-dim answer
 
-# @njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def action_size():
 	return 2*8*8
 
-# @njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def max_score_diff():
 	return 3-0
 
@@ -36,10 +36,10 @@ def max_score_diff():
 #   3  -  4
 #   5  6  7
 
-# spec = [
-# 	('state'        		, numba.int8[:,:,:]),
-# ]
-# @numba.experimental.jitclass(spec)
+spec = [
+	('state'        		, numba.int8[:,:,:]),
+]
+@numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
 		self.state = np.zeros((5,5,2), dtype=np.int8)
@@ -104,7 +104,7 @@ class Board():
 	def check_end_game(self):
 		if self.get_score(0) == 3 or self.valid_moves(1).sum() == 0:	# P0 wins
 			return np.array([1, 0], dtype=np.float32)
-		if self.get_score(1) == 3:										# P1 wins
+		if self.get_score(1) == 3 or self.valid_moves(0).sum() == 0:	# P1 wins
 			return np.array([0, 1], dtype=np.float32)
 		return np.array([0, 0], dtype=np.float32)						# no winner yet
 

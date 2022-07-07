@@ -9,23 +9,23 @@ from numba import njit
 
 NUMBER_PLAYERS = 2
 
-# @njit(fastmath=True, nogil=True) # No cache, because relies jitclass which isn't compatible with cache
+@njit(fastmath=True, nogil=True) # No cache, because relies jitclass which isn't compatible with cache
 def getGameEnded(splendorgameboard, board):
     splendorgameboard.copy_state(board, False)
     return splendorgameboard.check_end_game()
 
-# @njit(fastmath=True, nogil=True)
+@njit(fastmath=True, nogil=True)
 def getNextState(splendorgameboard, board, player, action, deterministic=False):
     splendorgameboard.copy_state(board, True)
     next_player = splendorgameboard.make_move(action, player, deterministic)
     return (splendorgameboard.get_state(), next_player)
 
-# @njit(fastmath=True, nogil=True)
+@njit(fastmath=True, nogil=True)
 def getValidMoves(splendorgameboard, board, player):
     splendorgameboard.copy_state(board, False)
     return splendorgameboard.valid_moves(player)
 
-# @njit(fastmath=True, nogil=True)
+@njit(fastmath=True, nogil=True)
 def getCanonicalForm(splendorgameboard, board, player):
     if player == 0:
         return board

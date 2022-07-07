@@ -109,9 +109,7 @@ class SantoriniNNet(nn.Module):
 			layer1D.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		print(input_data.shape)
 		x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
-		print(x.shape)
 		
 		x = torch.flatten(x, start_dim=1).unsqueeze(1)
 		x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)

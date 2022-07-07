@@ -7,7 +7,7 @@ from santorini.SantoriniGame import SantoriniGame as Game
 from santorini.SantoriniGame import NUMBER_PLAYERS
 from santorini.SantoriniDisplay import print_board
 from santorini.SantoriniLogicNumba import Board
-# from santorini.tensorflow.NNet import NNetWrapper as NNet
+from santorini.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *
