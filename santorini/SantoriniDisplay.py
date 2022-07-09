@@ -5,7 +5,8 @@ import itertools
 
 my_workers_color    = [Fore.WHITE, Fore.BLUE  , Fore.CYAN]
 other_workers_color = [Fore.WHITE, Fore.YELLOW, Fore.MAGENTA]
-levels_char = ['▁', '▂', '▄', '▆', '█']
+# levels_char = ['▪', '◔', '◑', '◕', 'X']
+levels_char = ['◎', '▂', '▅', '█', 'X']
 directions_char = ['↖', '↑', '↗', '←', '→', '↙', '↓', '↘']
 
 
@@ -27,9 +28,12 @@ def _print_main(board):
 	print(f'-'*11)
 	for y in range(5):
 		for x in range(5):
-			worker, level = board.state[x, y, :]
+			worker, level = board.state[y, x, :]
 			worker_color = my_workers_color[worker] if worker >= 0 else other_workers_color[-worker]
-			print(f'|{worker_color}{levels_char[level]}{Fore.WHITE}', end='')
+			if worker != 0 or level > 0:
+				print(f'|{worker_color}{levels_char[level]}{Fore.WHITE}', end='')
+			else:
+				print(f'| ', end='')
 		print('|')
 		print(f'-'*11)
 
