@@ -91,7 +91,7 @@ def main():
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
-	parser.add_argument('--nn-version'      , '-V' , action='store', default=398  , type=int  , help='Which architecture to choose')
+	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10.  , type=float, help='Weight for value loss')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--save-optim-state', '-S' , action='store_true', help='Save learning optimizer state between iterations')
