@@ -72,6 +72,8 @@ Switch -p and -P options if human wants to be first player. You can also make 2 
 * `-b 32 -l 0.0003 -p 2`: define batch size, learning rate and number of epochs. Larger number of epochs degrades performance, same for larger batch sizes
 * `--updateThreshold 0.55`: result of iteration is kept if winning ratio in self-play is above this threshold. Suraganair value of 60% win seems too high to me
 
+The option `-V` allows you to switch between different NN architectures.
+
 ![Sample training](splendor/sample_training.jpg)
 
 Use of forced rollouts, surprise weight, cyclic learning rate or tuning cpuct value hadn't lead to any significant improvement.

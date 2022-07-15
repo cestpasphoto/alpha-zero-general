@@ -1,4 +1,4 @@
-#!../venv/bin/python3
+#!/usr/bin/env python3
 
 import Arena
 from MCTS import MCTS

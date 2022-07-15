@@ -1,4 +1,4 @@
-#!../venv/bin/python3
+#!/usr/bin/env python3
 
 import logging
 import os
@@ -45,7 +45,7 @@ def run(args):
 		c.loadTrainExamples()
 
 	subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
-	subprocess.run(f'cp *py splendor/*py "{args.checkpoint}/"', shell=True)
+	subprocess.run(f'cp *py santorini/*py "{args.checkpoint}/"', shell=True)
 	subprocess.run(f'echo "{args}" >> "{args.checkpoint}/main.py"', shell=True)
 
 	log.debug('Starting the learning process 🎉')
