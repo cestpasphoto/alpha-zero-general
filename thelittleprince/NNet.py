@@ -198,17 +198,25 @@ class NNetWrapper(NeuralNet):
 						params.copy_(target_params)
 						# print(f'no problem to copy {name}')
 					else:
-						if len(target_params.shape) == 2:
-							min_size_0, min_size_1 = min(target_params.shape[0], params.shape[0]), min(target_params.shape[1], params.shape[1])
-							target_params[:min_size_0, :min_size_1] = params[:min_size_0, :min_size_1]
-						else:
+						if len(target_params.shape) == 1:
 							min_size = min(target_params.shape[0], params.shape[0])
 							target_params[:min_size] = params[:min_size]
-							print(f'load {params.shape}  target {target_params.shape} --> {(min_size_0)}')
+						elif len(target_params.shape) == 2:
+							min_size_0, min_size_1 = min(target_params.shape[0], params.shape[0]), min(target_params.shape[1], params.shape[1])
+							target_params[:min_size_0, :min_size_1] = params[:min_size_0, :min_size_1]
+						elif len(target_params.shape) == 3:
+							min_size_0, min_size_1, min_size_2 = min(target_params.shape[0], params.shape[0]), min(target_params.shape[1], params.shape[1]), min(target_params.shape[2], params.shape[2])
+							target_params[:min_size_0, :min_size_1, :min_size_2] = params[:min_size_0, :min_size_1, :min_size_2]
+						elif len(target_params.shape) == 4:
+							min_size_0, min_size_1, min_size_2, min_size_3 = min(target_params.shape[0], params.shape[0]), min(target_params.shape[1], params.shape[1]), min(target_params.shape[2], params.shape[2]), min(target_params.shape[3], params.shape[3])
+							target_params[:min_size_0, :min_size_1, :min_size_2, :min_size_3] = params[:min_size_0, :min_size_1, :min_size_2, :min_size_3]
+						else:
+							raise Exception('Unsupported number of dimensions')
+						
+						print(f'{name}: load {params.shape}  target {target_params.shape}, used {(min_size_0)}')
 				# else:
 				# 	print(f'hasnt loaded layer {name} because not in target')
-
-
+				
 		try:
 			self.nnet.load_state_dict(checkpoint['state_dict'])
 		except:
