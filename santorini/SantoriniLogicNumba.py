@@ -2,6 +2,11 @@ import numpy as np
 from numba import njit
 import numba
 
+# 0: 2x2 workets set at an arbitrary position before 1st move
+# 1: 2x2 workets set at a random position before 1st move
+# 2: No worker pre-set, each player has to chose their position
+INIT_METHOD = 2
+
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
 	return (25, 2) # True size is 5,5,2 but other functions expects 2-dim answer
@@ -88,6 +93,16 @@ flipUD = np.array(
 	[45, 46, 47, 43, 44, 40, 41, 42, 53, 54, 55, 51, 52, 48, 49, 50, 61, 62, 63, 59, 60, 56, 57, 58, 29, 30, 31, 27, 28, 24, 25, 26, 37, 38, 39, 35, 36, 32, 33, 34, 5, 6, 7, 3, 4, 0, 1, 2, 13, 14, 15, 11, 12, 8, 9, 10, 21, 22, 23, 19, 20, 16, 17, 18, 109, 110, 111, 107, 108, 104, 105, 106, 117, 118, 119, 115, 116, 112, 113, 114, 125, 126, 127, 123, 124, 120, 121, 122, 93, 94, 95, 91, 92, 88, 89, 90, 101, 102, 103, 99, 100, 96, 97, 98, 69, 70, 71, 67, 68, 64, 65, 66, 77, 78, 79, 75, 76, 72, 73, 74, 85, 86, 87, 83, 84, 80, 81, 82]
 	, dtype=np.int8)
 
+# When positioning workers at the beginning, we code grid cells by the directions needed from center.
+# Not usual code but maybe easier for NN to work with (maybe not). For instance, upper left corner = ↖ * ↖ = 0*8 + 0
+# ↖↖  ↖↑  ↑↑  ↗↑  ↗↗      0 0 1 2 2  0 1 1 1 2      0   1   9  17  18
+# ↖←  ↑←  ↖→  ↑→  ↗→      0 1 0 1 2  3 3 4 4 4      3  11   4  12  20
+# ←←  ↙↑  ←→  ↗↓  →→  ->  3 5 3 2 4  3 1 4 6 4  -> 27  41  28  22  36
+# ↙←  ↓←  ↘←  ↓→  ↘→      5 6 7 6 7  3 3 3 4 4     43  51  59  52  60
+# ↙↙  ↙↓  ↓↓  ↘↓  ↘↘      5 5 6 7 7  5 6 6 6 7     45  46  54  62  63
+position_codes = np.array([[0,1,9,17,18], [3,11,4,12,20], [27,41,28,22,36], [43,51,59,52,60], [45,46,54,62,63]], dtype=np.int8)
+position_reverse_codes = np.array([(0, 0), (0, 1), (0, 0), (1, 0), (1, 2), (0, 0), (0, 0), (0, 0), (0, 0), (0, 2), (0, 0), (1, 1), (1, 3), (0, 0), (0, 0), (0, 0), (0, 0), (0, 3), (0, 4), (0, 0), (1, 4), (0, 0), (2, 3), (0, 0), (0, 0), (0, 0), (0, 0), (2, 0), (2, 2), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (2, 4), (0, 0), (0, 0), (0, 0), (0, 0), (2, 1), (0, 0), (3, 0), (0, 0), (4, 0), (4, 1), (0, 0), (0, 0), (0, 0), (0, 0), (3, 1), (3, 3), (0, 0), (4, 2), (0, 0), (0, 0), (0, 0), (0, 0), (3, 2), (3, 4), (0, 0), (4, 3), (4, 4)])
+
 spec = [
 	('state'        		, numba.int8[:,:,:]),
 ]
@@ -115,45 +130,75 @@ class Board():
 	def init_game(self):
 		self.state = np.zeros((5,5,2), dtype=np.int8)
 		# Place workers
-		self.state[2,1,0], self.state[2,3,0] =  1,  2 # current player
-		self.state[1,2,0], self.state[3,2,0] = -1, -2 # opponent
+		if INIT_METHOD == 0:
+			# Predefined places
+			self.state[2,1,0], self.state[2,3,0] =  1,  2 # current player
+			self.state[1,2,0], self.state[3,2,0] = -1, -2 # opponent
+		elif INIT_METHOD == 1:
+			# Random places
+			init_places = np.random.choice(5*5, 4, replace=False)
+			workers = [1, -1, 2, -2]
+			for place, worker in zip(init_places, workers):
+				self.state[place//5, place%5, 0] = worker
+		elif INIT_METHOD == 2:
+			# Players decide
+			pass # Nothing to do
 		
 	def get_state(self):
 		return self.state
 
 	def valid_moves(self, player):
 		actions = np.zeros(2*8*8, dtype=np.bool_)
-		for worker in range(2):
-			worker_id = (worker+1) * (1 if player == 0 else -1)
-			worker_old_position = self._get_worker_position(worker_id)
-			for move_direction in range(8):
-				worker_new_position = self._apply_direction(worker_old_position, move_direction)
-				if not self._able_to_move_worker_to(worker_old_position, worker_new_position):
-					continue
-				for build_direction in range(8):
-					build_position = self._apply_direction(worker_new_position, build_direction)
-					if not self._able_to_build(build_position, ignore=worker_id):
+		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6: 	# Not all workers are set, need to chose their position
+			for index, value in np.ndenumerate(self.state[:,:,0]):
+				actions[ position_codes[index] ] = (value == 0)
+		else:															# All workers on set, ready to play
+			for worker in range(2):
+				worker_id = (worker+1) * (1 if player == 0 else -1)
+				worker_old_position = self._get_worker_position(worker_id)
+				for move_direction in range(8):
+					worker_new_position = self._apply_direction(worker_old_position, move_direction)
+					if not self._able_to_move_worker_to(worker_old_position, worker_new_position):
 						continue
-					actions[build_direction+8*move_direction+8*8*worker] = True
+					for build_direction in range(8):
+						build_position = self._apply_direction(worker_new_position, build_direction)
+						if not self._able_to_build(build_position, ignore=worker_id):
+							continue
+						actions[build_direction+8*move_direction+8*8*worker] = True
 		return actions
 
 	def make_move(self, move, player, deterministic):
-		# Decode move
-		worker, move_ = divmod(move, 8*8)
-		worker_id = (worker+1) * (1 if player == 0 else -1)
-		move_direction, build_direction = divmod(move_, 8)
+		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6:	# Not all workers are set, need to chose their position
+			# Search for missing worker to place
+			sum_workers = np.abs(self.state[:,:,0]).sum()
+			if sum_workers == 0 or sum_workers == 1: 	# 0 -> empty board			, 1 -> -1 already on board
+				worker_to_place = 1 if player == 0 else -1
+			elif sum_workers == 2 or sum_workers == 4: 	# 2 -> 1 and -1 on board	, 4 -> -1,1,-2 on board
+				worker_to_place = 2 if player == 0 else -2
+			else:
+				assert(False)
+			# Put worker at the coded position
+			y, x = position_reverse_codes[move]
+			self.state[y,x,0] = worker_to_place
+		else:															# All workers on set, ready to play
+			# Decode move
+			worker, move_ = divmod(move, 8*8)
+			worker_id = (worker+1) * (1 if player == 0 else -1)
+			move_direction, build_direction = divmod(move_, 8)
 
-		worker_old_position = self._get_worker_position(worker_id)
-		worker_new_position = self._apply_direction(worker_old_position, move_direction)
-		self.state[worker_old_position[0], worker_old_position[1], 0] = 0
-		self.state[worker_new_position[0], worker_new_position[1], 0] = worker_id
+			worker_old_position = self._get_worker_position(worker_id)
+			worker_new_position = self._apply_direction(worker_old_position, move_direction)
+			self.state[worker_old_position[0], worker_old_position[1], 0] = 0
+			self.state[worker_new_position[0], worker_new_position[1], 0] = worker_id
 
-		build_position = self._apply_direction(worker_new_position, build_direction)
-		self.state[build_position[0], build_position[1], 1] += 1
+			build_position = self._apply_direction(worker_new_position, build_direction)
+			self.state[build_position[0], build_position[1], 1] += 1
 
 		return 1-player
 
 	def check_end_game(self):
+		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6:	# workers not all set, no winner yet
+			return np.array([0, 0], dtype=np.float32)					
 		if self.get_score(0) == 3 or self.valid_moves(1).sum() == 0:	# P0 wins
 			return np.array([1, -1], dtype=np.float32)
 		if self.get_score(1) == 3 or self.valid_moves(0).sum() == 0:	# P1 wins
@@ -167,24 +212,6 @@ class Board():
 	def get_symmetries(self, policy, valid_actions):
 		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
 		state_backup = self.state.copy()
-
-		# Permute worker 1 and 2
-		def _swap_halves(array, middle_index):
-			array_copy = array.copy()
-			array_copy[:middle_index], array_copy[middle_index:] = array[middle_index:], array[:middle_index]
-			return array_copy	
-		w1, w2 = self._get_worker_position(1), self._get_worker_position(2)
-		self.state[:,:,0][w1], self.state[:,:,0][w2] = 2, 1
-		swapped_policy = _swap_halves(policy, 8*8)
-		swapped_actions = _swap_halves(valid_actions, 8*8)
-		symmetries.append((self.state.copy(), swapped_policy, swapped_actions))
-		self.state = state_backup.copy()
-
-		# Permute worker -1 and -2
-		wm1, wm2 = self._get_worker_position(-1), self._get_worker_position(-2)
-		self.state[:,:,0][wm1], self.state[:,:,0][wm2] = -2, -1
-		symmetries.append((self.state.copy(), policy.copy(), valid_actions.copy()))
-		self.state = state_backup.copy()
 
 		# Rotate 90°, 180°, 270°
 		def _apply_permutation(permutation, array, array2):
@@ -210,6 +237,27 @@ class Board():
 		flipped_state = np.flipud(self.state).copy()
 		flipped_policy, flipped_actions = _apply_permutation(flipUD, policy, valid_actions)
 		symmetries.append((flipped_state, flipped_policy, flipped_actions))
+		self.state = state_backup.copy()
+
+		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6:
+			return symmetries # workers not all set, stopping here
+
+		# Permute worker 1 and 2
+		def _swap_halves(array, middle_index):
+			array_copy = array.copy()
+			array_copy[:middle_index], array_copy[middle_index:] = array[middle_index:], array[:middle_index]
+			return array_copy	
+		w1, w2 = self._get_worker_position(1), self._get_worker_position(2)
+		self.state[:,:,0][w1], self.state[:,:,0][w2] = 2, 1
+		swapped_policy = _swap_halves(policy, 8*8)
+		swapped_actions = _swap_halves(valid_actions, 8*8)
+		symmetries.append((self.state.copy(), swapped_policy, swapped_actions))
+		self.state = state_backup.copy()
+
+		# Permute worker -1 and -2
+		wm1, wm2 = self._get_worker_position(-1), self._get_worker_position(-2)
+		self.state[:,:,0][wm1], self.state[:,:,0][wm2] = -2, -1
+		symmetries.append((self.state.copy(), policy.copy(), valid_actions.copy()))
 		self.state = state_backup.copy()
 
 		return symmetries

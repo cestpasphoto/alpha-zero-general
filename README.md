@@ -48,7 +48,7 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 
 
 ### Santorini
-* [x] Own implementation of [Santorini](https://www.ultraboardgames.com/santorini/game-rules.php), policy for initial status is user switchable
+* [x] Own implementation of [Santorini](https://www.ultraboardgames.com/santorini/game-rules.php), policy for initial status is user switchable (predefined, random or chosen by players)
 * [x] Optimized implementation, thanks to Numba again
 * [x] Explore various architectures, max pooling in addition to 2d convolutions seems to help
 
