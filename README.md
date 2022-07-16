@@ -6,6 +6,7 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 
 * [x] Added Dirichlet Noise as per original [DeepMind paper](https://www.nature.com/articles/nature24270.epdf), using this [pull request](https://github.com/suragnair/alpha-zero-general/pull/186)
 * [x] Compute policy gradients properly when some actions are invalid based on [A Closer Look at Invalid Action Masking inPolicy Gradient Algorithms](https://arxiv.org/pdf/2006.14171.pdf) and its [repo](https://github.com/vwxyzjn/invalid-action-masking)
+* [x] Support games with **more than 2 players**
 * [x] Speed optimized
   * [x] Reaching **about 3000 rollouts/sec on 1 CPU core** without batching and without GPU, meaning 1 full game in 30 seconds when using 1600 rollouts for each move
   * [x] Neural Network inference speed and especially latency improved, thanks to ONNX 
@@ -16,7 +17,9 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
   * [x] Global Pooling
   * [ ] Auxiliary Policy Targets
   * [x] Score Targets
-* [ ] Set up HyperParameters Optimization, like Hyperband or Population-Based Training
+
+Others changes: improved prints (logging, tqdm, colored bards depending on current Arena results) and parameters can be set in cmdline (added new parameters like time limit). Still todo: set up HyperParameters Optimization (like Hyperband or Population-Based Traininginclude), and ELO-like ranking
+Supported games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (modified)
 
 ### Splendor
 
@@ -26,7 +29,7 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
 * [x] Support of 3-4 players (just change NUMBER_PLAYERS in main.py)
 * [x] Proper MCTS handling of "chance" factor when revealing new deck card
 * [x] Optimized implementation of Splendor, thanks to Numba
-* [x] Explore various architecture
+* [x] Explore various architectures
 * [x] Added pretrained models for 2-3-4 players
 
 There are some limitations: implemented logic doesn't allow you to both take gems from the bank and give back some (whereas allowed in real rules), you can either 1-2-3 gems or give back 1-2 gems.
@@ -44,11 +47,12 @@ There are some limitations: implemented logic doesn't allow you to both take gem
    * Grey sheeps are displayed on console using grey wolf emoji, and brown sheeps are displayed using a brown goat.
 
 
-### Others changes
+### Santorini
+* [x] Own implementation of [Santorini](https://www.ultraboardgames.com/santorini/game-rules.php), policy for initial status is user switchable
+* [x] Optimized implementation, thanks to Numba again
+* [x] Explore various architectures, max pooling in addition to 2d convolutions seems to help
 
-* [ ] Include ELO-like ranking
-* [x] Improved prints (logging, tqdm, colored bards depending on current Arena results)
-* [x] Parameters can be set in cmdline, added new parameters like time limit
+![Sample game of Santorini](minivilles/sample_game.gif)
 
 ### Technical details
 #### Dependencies
@@ -64,7 +68,7 @@ The noopenmp version of onnxruntime is faster for single thread execution. This 
 Switch -p and -P options if human wants to be first player. You can also make 2 networks fight each other.
 ![2 networks fighting](splendor/many_games.gif)
 
-#### Recommended settings
+#### Recommended settings for training
 `main.py -m 1600 -v 15 -T 30 -e 500 -i 5 -p 2 -d 0.50 -b 32 -l 0.0003 --updateThreshold 0.55 -C ../results/mytest`:
 
 * Start by defining proper number of players in SplendorGame.py and disabling card reserve actions in first lines of splendor/SplendorLogicNumba.py
@@ -72,12 +76,11 @@ Switch -p and -P options if human wants to be first player. You can also make 2 
 * `-b 32 -l 0.0003 -p 2`: define batch size, learning rate and number of epochs. Larger number of epochs degrades performance, same for larger batch sizes
 * `--updateThreshold 0.55`: result of iteration is kept if winning ratio in self-play is above this threshold. Suraganair value of 60% win seems too high to me
 
-The option `-V` allows you to switch between different NN architectures.
-
 ![Sample training](splendor/sample_training.jpg)
+
+The option `-V` allows you to switch between different NN architectures. If you specify a previous checkpoint using a different architecture, it will still try loading weights as much as possible. It allows me starting first steps of training with small/fast networks and then I experiment larger networks. I also usually execute several trainings in parallel; you can evaluate the results obtained in the last 24 hours by using this command (execute as many times as threads): `./pit.py -A 24 -T 8`
+
+I usually stop training when the 5 last iterations (or `-i` value) were rejected.
 
 Use of forced rollouts, surprise weight, cyclic learning rate or tuning cpuct value hadn't lead to any significant improvement.
 
-#### How to evaluate training results
-If you executed several training in parallel, you can evaluate the results obtained in the last 24 hours by using this command (execute as many times as threads):
-`./pit.py -A 24 -T 8`
