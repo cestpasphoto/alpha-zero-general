@@ -226,7 +226,7 @@ class NNetWrapper(NeuralNet):
 					print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
 				except:
 					self.nnet = checkpoint['full_model']
-					print('Had to load FULL MODEL, was not able to load state_dict, saved archi-version was', checkpoint['full_model'].version)
+					print('Had to load full model AS IS, saved archi-version was', checkpoint['full_model'].version, 'and wont be updated')
 			else:
 				self.nnet = checkpoint['full_model']
 
