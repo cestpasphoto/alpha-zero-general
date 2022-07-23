@@ -2,10 +2,10 @@ import numpy as np
 from numba import njit
 import numba
 
-# 0: 2x2 workets set at an arbitrary position before 1st move
-# 1: 2x2 workets set at a random position before 1st move
+# 0: 2x2 workers set at an arbitrary position before 1st move
+# 1: 2x2 workers set at a random position before 1st move
 # 2: No worker pre-set, each player has to chose their position
-INIT_METHOD = 2
+INIT_METHOD = 1
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
@@ -93,16 +93,6 @@ flipUD = np.array(
 	[45, 46, 47, 43, 44, 40, 41, 42, 53, 54, 55, 51, 52, 48, 49, 50, 61, 62, 63, 59, 60, 56, 57, 58, 29, 30, 31, 27, 28, 24, 25, 26, 37, 38, 39, 35, 36, 32, 33, 34, 5, 6, 7, 3, 4, 0, 1, 2, 13, 14, 15, 11, 12, 8, 9, 10, 21, 22, 23, 19, 20, 16, 17, 18, 109, 110, 111, 107, 108, 104, 105, 106, 117, 118, 119, 115, 116, 112, 113, 114, 125, 126, 127, 123, 124, 120, 121, 122, 93, 94, 95, 91, 92, 88, 89, 90, 101, 102, 103, 99, 100, 96, 97, 98, 69, 70, 71, 67, 68, 64, 65, 66, 77, 78, 79, 75, 76, 72, 73, 74, 85, 86, 87, 83, 84, 80, 81, 82]
 	, dtype=np.int8)
 
-# When positioning workers at the beginning, we code grid cells by the directions needed from center.
-# Not usual code but maybe easier for NN to work with (maybe not). For instance, upper left corner = ↖ * ↖ = 0*8 + 0
-# ↖↖  ↖↑  ↑↑  ↗↑  ↗↗      0 0 1 2 2  0 1 1 1 2      0   1   9  17  18
-# ↖←  ↑←  ↖→  ↑→  ↗→      0 1 0 1 2  3 3 4 4 4      3  11   4  12  20
-# ←←  ↙↑  ←→  ↗↓  →→  ->  3 5 3 2 4  3 1 4 6 4  -> 27  41  28  22  36
-# ↙←  ↓←  ↘←  ↓→  ↘→      5 6 7 6 7  3 3 3 4 4     43  51  59  52  60
-# ↙↙  ↙↓  ↓↓  ↘↓  ↘↘      5 5 6 7 7  5 6 6 6 7     45  46  54  62  63
-position_codes = np.array([[0,1,9,17,18], [3,11,4,12,20], [27,41,28,22,36], [43,51,59,52,60], [45,46,54,62,63]], dtype=np.int8)
-position_reverse_codes = np.array([(0, 0), (0, 1), (0, 0), (1, 0), (1, 2), (0, 0), (0, 0), (0, 0), (0, 0), (0, 2), (0, 0), (1, 1), (1, 3), (0, 0), (0, 0), (0, 0), (0, 0), (0, 3), (0, 4), (0, 0), (1, 4), (0, 0), (2, 3), (0, 0), (0, 0), (0, 0), (0, 0), (2, 0), (2, 2), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (2, 4), (0, 0), (0, 0), (0, 0), (0, 0), (2, 1), (0, 0), (3, 0), (0, 0), (4, 0), (4, 1), (0, 0), (0, 0), (0, 0), (0, 0), (3, 1), (3, 3), (0, 0), (4, 2), (0, 0), (0, 0), (0, 0), (0, 0), (3, 2), (3, 4), (0, 0), (4, 3), (4, 4)])
-
 spec = [
 	('state'        		, numba.int8[:,:,:]),
 ]
@@ -151,7 +141,7 @@ class Board():
 		actions = np.zeros(2*8*8, dtype=np.bool_)
 		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6: 	# Not all workers are set, need to chose their position
 			for index, value in np.ndenumerate(self.state[:,:,0]):
-				actions[ position_codes[index] ] = (value == 0)
+				actions[ 5*index[0]+index[1] ] = (value == 0)
 		else:															# All workers on set, ready to play
 			for worker in range(2):
 				worker_id = (worker+1) * (1 if player == 0 else -1)
@@ -178,7 +168,7 @@ class Board():
 			else:
 				assert(False)
 			# Put worker at the coded position
-			y, x = position_reverse_codes[move]
+			y, x = divmod(move, 5)
 			self.state[y,x,0] = worker_to_place
 		else:															# All workers on set, ready to play
 			# Decode move

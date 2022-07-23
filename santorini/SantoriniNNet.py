@@ -220,11 +220,11 @@ class SantoriniNNet(nn.Module):
 			)
 			self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=8, kernel_maxplanar=3, nb_groups_maxchannel=8, kernel_maxchannel=5)
 			self.conv2d_3 = nn.Sequential(
-				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
 			)
 
 			self.dense1d_1 = nn.Sequential(
-				nn.Linear(128*5*5, 256), nn.ReLU(),
+				nn.Linear(64*5*5, 256), nn.ReLU(),
 			)
 			self.dense1d_2 = nn.Sequential(
 				nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),

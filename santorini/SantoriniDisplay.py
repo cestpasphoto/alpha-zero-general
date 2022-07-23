@@ -22,7 +22,7 @@ def move_to_str(move, player):
 ############################# PRINT GAME ######################################
 
 def _print_colors():
-	print(f'{my_workers_color[1]}my worker 1  {my_workers_color[2]}my worker 2    {other_workers_color[1]}opponent 1  {other_workers_color[2]}opponent 2{Fore.WHITE}')
+	print(f'Player 0: {my_workers_color[1]}worker 1  {my_workers_color[2]}worker 2    {Fore.WHITE}Player 1: {other_workers_color[1]}worker 1  {other_workers_color[2]}worker 2{Fore.WHITE}')
 
 def _print_main(board):
 	print(f'-'*11)

@@ -20,7 +20,7 @@ class HumanPlayer():
     def show_all_moves(self, valid):
         print('  ', end='')
         for worker in range(2):
-            print(f'Move w{worker} '  , end='')
+            print(f'Move w{worker+1} '  , end='')
             for d in directions_char:
                 print(f'{d}   ', end='')
             print('   ', end='')
@@ -40,18 +40,27 @@ class HumanPlayer():
 
     def play(self, board):
         # print_board(self.game.board)
+        game_started = (np.abs(self.game.board[:,:,0]).sum() == 6) # check if all workers are set
         valid = self.game.getValidMoves(board, 0)
         print()
         print('='*80)
-        self.show_all_moves(valid)
+        if game_started:
+            self.show_all_moves(valid)
+        else:
+            print('Type coordinates for your worker (y then x). For example type "0 0" for upper left corner')
         print('*'*80)
         while True:
             input_move = input()
             if input_move == '+':
-                self.show_all_moves(valid)
+                if game_started:
+                    self.show_all_moves(valid)
             else:
                 try:
-                    a = int(input_move)
+                    if game_started:
+                        a = int(input_move)
+                    else:
+                        coordinates = [int(x) for x in input_move.split()]
+                        a = 5*coordinates[0] + coordinates[1]
                     if not valid[a]:
                         raise Exception('')
                     break

@@ -50,9 +50,11 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 ### Santorini
 * [x] Own implementation of [Santorini](https://www.ultraboardgames.com/santorini/game-rules.php), policy for initial status is user switchable (predefined, random or chosen by players)
 * [x] Optimized implementation, thanks to Numba again
+* [ ] Support of goddess
 * [x] Explore various architectures, max pooling in addition to 2d convolutions seems to help
 
-![Sample game of Santorini](minivilles/sample_game.gif)
+![Sample game of Santorini](santorini/sample_game_with_random_init.gif)
+
 
 ### Technical details
 #### Dependencies
