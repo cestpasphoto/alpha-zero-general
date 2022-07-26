@@ -40,7 +40,7 @@ class HumanPlayer():
 
     def play(self, board):
         # print_board(self.game.board)
-        game_started = (np.abs(self.game.board[:,:,0]).sum() == 6) # check if all workers are set
+        game_started = (np.abs(self.game.board.state[:,:,0]).sum() == 6) # check if all workers are set
         valid = self.game.getValidMoves(board, 0)
         print()
         print('='*80)
