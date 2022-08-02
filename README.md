@@ -18,7 +18,10 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general, with t
   * [ ] Auxiliary Policy Targets
   * [x] Score Targets
 
+All in all, that is a *25x to 100x speed improvement* compared to initial repo, see [details here](splendor/README.md).
+
 Others changes: improved prints (logging, tqdm, colored bards depending on current Arena results) and parameters can be set in cmdline (added new parameters like time limit). Still todo: set up HyperParameters Optimization (like Hyperband or Population-Based Traininginclude), and ELO-like ranking
+
 Supported games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (modified)
 
 ### Splendor
@@ -56,7 +59,9 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 ![Sample game of Santorini](santorini/sample_game_with_random_init.gif)
 
 
-### Technical details
+---
+
+## Technical details
 #### Dependencies
 `pip3 install onnxruntime-noopenmp numba tqdm colorama coloredlogs`
 and
@@ -68,7 +73,7 @@ The noopenmp version of onnxruntime is faster for single thread execution. This 
 `./pit.py -p splendor/pretrained_2players.pt -P human -n 1`
 
 Switch -p and -P options if human wants to be first player. You can also make 2 networks fight each other.
-![2 networks fighting](splendor/many_games.gif)
+![2 networks fighting](splendor/many_games.gif). Contrary to baseline version, pit.py automatically retrieves training settings and load them (numMCTSSims, num_channels, ...) although you can override if you want; you may even select 2 different architecture to compare them!
 
 #### Recommended settings for training
 `main.py -m 1600 -v 15 -T 30 -e 500 -i 5 -p 2 -d 0.50 -b 32 -l 0.0003 --updateThreshold 0.55 -C ../results/mytest`:
