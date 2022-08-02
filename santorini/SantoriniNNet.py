@@ -247,6 +247,37 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
 			)
 
+		elif self.version == 13:
+			self.conv2d_1 = nn.Sequential(
+				nn.Conv2d( 2, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+			)
+			self.conv2d_2 = nn.Sequential(
+				nn.Conv2d(32, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+				nn.Conv2d(32, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+				nn.Conv2d(32, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+			)
+			self.partialgpool_1 = nn.Identity()
+			self.conv2d_3 = nn.Identity()
+
+			self.dense1d_1 = nn.Sequential(
+				nn.Linear(32*5*5, 1024), nn.ReLU(),
+			)
+			self.dense1d_2 = nn.Sequential(
+				nn.Linear(1024, 512), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(512, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(512, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(512, self.num_scdiffs*self.scdiff_size)
+			)
+
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
 
@@ -276,7 +307,7 @@ class SantoriniNNet(nn.Module):
 			v = self.output_layers_V(x).squeeze(1)
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
-		elif self.version in [10, 11, 12]:
+		elif self.version in [10, 11, 12, 13]:
 			x = input_data.transpose(-1, -2).view(-1, 2, 5, 5)
 			
 			x = F.dropout(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
