@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
 import numba
+from .SantoriniLogicPrecomputed import _decode_action, _encode_action, rotation, flipLR, flipUD, DIRECTIONS, NO_MOVE, NO_BUILD
 
 # 0: 2x2 workers set at an arbitrary position before 1st move
 # 1: 2x2 workers set at a random position before 1st move
@@ -13,7 +14,7 @@ def observation_size():
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
-	return 2*8*8
+	return 2*2*9*9
 
 @njit(cache=True, fastmath=True, nogil=True)
 def max_score_diff():
@@ -30,68 +31,17 @@ def max_score_diff():
 #		0  0  0  0  0        0  0  0  0  0
 #
 # ACTION is bitfield
-# 	field W: which worker used (2 - 1b)
-#	field M: to which direction moving such worker (8 - 3b)
-# 	field B: in which direction the worker builds (8 - 3b)
-#	W MMM BBB
-#
+#	field P: using god's power or not (2)
+# 	field W: which worker used (2)
+#	field M: to which direction moving such worker (9)
+# 	field B: in which direction the worker builds (9)
+#	P W MMM BBB
+
 # DIRECTIONS
 #
 #	0  1  2
-#   3  -  4
-#   5  6  7
-
-DIRECTIONS = np.array([
-	(-1,-1),
-	(-1, 0),
-	(-1, 1),
-	( 0,-1),
-	( 0, 1),
-	( 1,-1),
-	( 1, 0),
-	( 1, 1),
-], dtype=np.int8)
-
-# def _generate_permutation(permutation):
-# 	result = []
-# 	for i in range(2*8*8):
-# 		worker, move_ = divmod(i, 8*8)
-# 		move_direction, build_direction = divmod(move_, 8)
-# 		new_move_direction, new_build_direction = permutation[move_direction], permutation[build_direction]
-# 		new_i = new_build_direction + 8*new_move_direction + 8*8*worker
-# 		result.append(new_i)
-# 	print(result)
-#
-## Rotated directions
-##   0  1  2       2  4  7
-##   3  -  4  <--- 1  -  6
-##   5  6  7       0  3  5
-# rotation = np.array([5,3,0,6,1,7,4,2], dtype=np.int8)
-# _generate_permutation(rotation)
-#
-## FlippedLR directions
-##   0  1  2       2  1  0
-##   3  -  4  <--- 4  -  3
-##   5  6  7       7  6  5
-# flipLR   = np.array([2,1,0,4,3,7,6,5], dtype=np.int8)
-# _generate_permutation(flipLR)
-#
-## FlippedUD directions
-##   0  1  2       5  6  7
-##   3  -  4  <--- 3  -  4
-##   5  6  7       0  1  2
-# flipUD   = np.array([5,6,7,3,4,0,1,2], dtype=np.int8)
-# _generate_permutation(flipUD)
-
-rotation = np.array(
-	[45, 43, 40, 46, 41, 47, 44, 42, 29, 27, 24, 30, 25, 31, 28, 26, 5, 3, 0, 6, 1, 7, 4, 2, 53, 51, 48, 54, 49, 55, 52, 50, 13, 11, 8, 14, 9, 15, 12, 10, 61, 59, 56, 62, 57, 63, 60, 58, 37, 35, 32, 38, 33, 39, 36, 34, 21, 19, 16, 22, 17, 23, 20, 18, 109, 107, 104, 110, 105, 111, 108, 106, 93, 91, 88, 94, 89, 95, 92, 90, 69, 67, 64, 70, 65, 71, 68, 66, 117, 115, 112, 118, 113, 119, 116, 114, 77, 75, 72, 78, 73, 79, 76, 74, 125, 123, 120, 126, 121, 127, 124, 122, 101, 99, 96, 102, 97, 103, 100, 98, 85, 83, 80, 86, 81, 87, 84, 82]
-	, dtype=np.int8)
-flipLR = np.array(
-	[18, 17, 16, 20, 19, 23, 22, 21, 10, 9, 8, 12, 11, 15, 14, 13, 2, 1, 0, 4, 3, 7, 6, 5, 34, 33, 32, 36, 35, 39, 38, 37, 26, 25, 24, 28, 27, 31, 30, 29, 58, 57, 56, 60, 59, 63, 62, 61, 50, 49, 48, 52, 51, 55, 54, 53, 42, 41, 40, 44, 43, 47, 46, 45, 82, 81, 80, 84, 83, 87, 86, 85, 74, 73, 72, 76, 75, 79, 78, 77, 66, 65, 64, 68, 67, 71, 70, 69, 98, 97, 96, 100, 99, 103, 102, 101, 90, 89, 88, 92, 91, 95, 94, 93, 122, 121, 120, 124, 123, 127, 126, 125, 114, 113, 112, 116, 115, 119, 118, 117, 106, 105, 104, 108, 107, 111, 110, 109]
-	, dtype=np.int8)
-flipUD = np.array(
-	[45, 46, 47, 43, 44, 40, 41, 42, 53, 54, 55, 51, 52, 48, 49, 50, 61, 62, 63, 59, 60, 56, 57, 58, 29, 30, 31, 27, 28, 24, 25, 26, 37, 38, 39, 35, 36, 32, 33, 34, 5, 6, 7, 3, 4, 0, 1, 2, 13, 14, 15, 11, 12, 8, 9, 10, 21, 22, 23, 19, 20, 16, 17, 18, 109, 110, 111, 107, 108, 104, 105, 106, 117, 118, 119, 115, 116, 112, 113, 114, 125, 126, 127, 123, 124, 120, 121, 122, 93, 94, 95, 91, 92, 88, 89, 90, 101, 102, 103, 99, 100, 96, 97, 98, 69, 70, 71, 67, 68, 64, 65, 66, 77, 78, 79, 75, 76, 72, 73, 74, 85, 86, 87, 83, 84, 80, 81, 82]
-	, dtype=np.int8)
+#   3  4  5
+#   6  7  8
 
 spec = [
 	('state'        		, numba.int8[:,:,:]),
@@ -138,7 +88,7 @@ class Board():
 		return self.state
 
 	def valid_moves(self, player):
-		actions = np.zeros(2*8*8, dtype=np.bool_)
+		actions = np.zeros(2*2*9*9, dtype=np.bool_)
 		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6: 	# Not all workers are set, need to chose their position
 			for index, value in np.ndenumerate(self.state[:,:,0]):
 				actions[ 5*index[0]+index[1] ] = (value == 0)
@@ -146,15 +96,19 @@ class Board():
 			for worker in range(2):
 				worker_id = (worker+1) * (1 if player == 0 else -1)
 				worker_old_position = self._get_worker_position(worker_id)
-				for move_direction in range(8):
+				for move_direction in range(9):
 					worker_new_position = self._apply_direction(worker_old_position, move_direction)
 					if not self._able_to_move_worker_to(worker_old_position, worker_new_position):
 						continue
-					for build_direction in range(8):
+					if move_direction == NO_MOVE:
+						continue
+					for build_direction in range(9):
 						build_position = self._apply_direction(worker_new_position, build_direction)
 						if not self._able_to_build(build_position, ignore=worker_id):
 							continue
-						actions[build_direction+8*move_direction+8*8*worker] = True
+						if build_direction == NO_BUILD:
+							continue
+						actions[_encode_action(0, worker, move_direction, build_direction)] = True
 		return actions
 
 	def make_move(self, move, player, deterministic):
@@ -172,9 +126,8 @@ class Board():
 			self.state[y,x,0] = worker_to_place
 		else:															# All workers on set, ready to play
 			# Decode move
-			worker, move_ = divmod(move, 8*8)
+			_, worker, move_direction, build_direction = _decode_action(move)
 			worker_id = (worker+1) * (1 if player == 0 else -1)
-			move_direction, build_direction = divmod(move_, 8)
 
 			worker_old_position = self._get_worker_position(worker_id)
 			worker_new_position = self._apply_direction(worker_old_position, move_direction)
@@ -206,8 +159,7 @@ class Board():
 		# Rotate 90°, 180°, 270°
 		def _apply_permutation(permutation, array, array2):
 			array_copy, array2_copy = array.copy(), array2.copy()
-			for i in range(2*8*8):
-				new_i = permutation[i]
+			for i, new_i in enumerate(permutation):
 				array_copy[new_i], array2_copy[new_i] = array[i], array2[i]
 			return array_copy, array2_copy
 
@@ -232,15 +184,16 @@ class Board():
 		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6:
 			return symmetries # workers not all set, stopping here
 
-		# Permute worker 1 and 2
-		def _swap_halves(array, middle_index):
+		# Permute worker 1 and 2, n = nb actions per worker
+		def _swap_workers(array, n):
 			array_copy = array.copy()
-			array_copy[:middle_index], array_copy[middle_index:] = array[middle_index:], array[:middle_index]
+			array_copy[   :  n], array_copy[  n:2*n] = array[  n:2*n], array[   :  n]
+			array_copy[2*n:3*n], array_copy[3*n:   ] = array[3*n:   ], array[2*n:3*n]
 			return array_copy	
 		w1, w2 = self._get_worker_position(1), self._get_worker_position(2)
 		self.state[:,:,0][w1], self.state[:,:,0][w2] = 2, 1
-		swapped_policy = _swap_halves(policy, 8*8)
-		swapped_actions = _swap_halves(valid_actions, 8*8)
+		swapped_policy = _swap_workers(policy, 9*9)
+		swapped_actions = _swap_workers(valid_actions, 9*9)
 		symmetries.append((self.state.copy(), swapped_policy, swapped_actions))
 		self.state = state_backup.copy()
 

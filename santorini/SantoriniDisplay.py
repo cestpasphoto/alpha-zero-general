@@ -2,6 +2,7 @@ import numpy as np
 from colorama import Style, Fore, Back
 import random
 import itertools
+from .SantoriniLogicPrecomputed import _decode_action
 
 my_workers_color    = [Fore.WHITE, Fore.BLUE  , Fore.CYAN]
 other_workers_color = [Fore.WHITE, Fore.YELLOW, Fore.MAGENTA]
@@ -11,9 +12,7 @@ directions_char = ['↖', '↑', '↗', '←', '→', '↙', '↓', '↘']
 
 
 def move_to_str(move, player):
-	# Decode move
-	worker, move_ = divmod(move, 8*8)
-	move_direction, build_direction = divmod(move_, 8)
+	power, worker, move_direction, build_direction = _decode_action(move)
 	worker_color = my_workers_color[worker+1] if player == 0 else other_workers_color[worker+1]
 
 	return f'Move {worker_color}worker {worker+1}{Fore.WHITE} to {directions_char[move_direction]} and then build {directions_char[build_direction]}'

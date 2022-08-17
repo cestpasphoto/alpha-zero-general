@@ -2,6 +2,7 @@ import numpy as np
 import random
 
 from .SantoriniDisplay import print_board, move_to_str, directions_char
+from .SantoriniLogicPrecomputed import _encode_action
 
 class RandomPlayer():
     def __init__(self, game):
@@ -30,7 +31,7 @@ class HumanPlayer():
             print(f'Build {build_direction}: ', end='')
             for worker in range(2):
                 for move_i, move_direction in enumerate(directions_char):
-                    action = build_i + 8*move_i + 8*8*worker
+                    action = _encode_action(0, worker, move_i, build_i)
                     if valid[action]:
                         print(f'{action:3d} ', end='')
                     else:
