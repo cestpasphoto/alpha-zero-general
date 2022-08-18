@@ -178,7 +178,7 @@ class SantoriniNNet(nn.Module):
 
 		elif self.version == 11:
 			self.conv2d_1 = nn.Sequential(
-				nn.Conv2d( 2, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+				nn.Conv2d( 3, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
 			)
 			self.conv2d_2 = nn.Sequential(
 				nn.Conv2d(64, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
@@ -308,7 +308,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 		elif self.version in [10, 11, 12, 13]:
-			x = input_data.transpose(-1, -2).view(-1, 2, 5, 5)
+			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			
 			x = F.dropout(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.conv2d_2(x)      , p=self.args['dropout'], training=self.training)

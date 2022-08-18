@@ -2,7 +2,7 @@ import numpy as np
 from colorama import Style, Fore, Back
 import random
 import itertools
-from .SantoriniLogicPrecomputed import _decode_action
+from .SantoriniConstants import _decode_action
 
 my_workers_color    = [Fore.WHITE, Fore.BLUE  , Fore.CYAN]
 other_workers_color = [Fore.WHITE, Fore.YELLOW, Fore.MAGENTA]

@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 import numba
-from .SantoriniLogicPrecomputed import _decode_action, _encode_action, rotation, flipLR, flipUD, DIRECTIONS, NO_MOVE, NO_BUILD
+from .SantoriniConstants import _decode_action, _encode_action, rotation, flipLR, flipUD, DIRECTIONS, NO_MOVE, NO_BUILD
 
 # 0: 2x2 workers set at an arbitrary position before 1st move
 # 1: 2x2 workers set at a random position before 1st move
@@ -10,7 +10,7 @@ INIT_METHOD = 1
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (25, 2) # True size is 5,5,2 but other functions expects 2-dim answer
+	return (25, 3) # True size is 5,5,3 but other functions expects 2-dim answer
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -20,7 +20,7 @@ def action_size():
 def max_score_diff():
 	return 3-0
 
-# STATE is 5x5x2
+# STATE is 5x5x3
 #	First dimension 5x5 locates the workers (1&2 for current, -1&-2 for opponent)
 #	Second dimension 5x5 lists current level
 #	Initial status is
@@ -29,6 +29,10 @@ def max_score_diff():
 #		0 -1  0 -2  0        0  0  0  0  0
 #		0  0  2  0  0        0  0  0  0  0
 #		0  0  0  0  0        0  0  0  0  0
+#   Third dimension 5x5 contains additional info about god for each player and memory of previous action
+#		0,0: god id of player to play (0,1 same with opponent)
+#		0,2: info about player to play (0,3 same with opponent)
+#		0,4: does player to play just played before?
 #
 # ACTION is bitfield
 #	field P: using god's power or not (2)
@@ -49,7 +53,7 @@ spec = [
 @numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
-		self.state = np.zeros((5,5,2), dtype=np.int8)
+		self.state = np.zeros((5,5,3), dtype=np.int8)
 		self.init_game()
 
 	def get_score(self, player):
@@ -57,18 +61,18 @@ class Board():
 		# Highest level of the 2 workers
 		if player == 0:
 			for i in np.ndindex(5,5):
-				worker, level = self.state[i]
+				worker, level, _ = self.state[i]
 				if worker > 0 and level > highest_level:
 						highest_level = level
 		else:
 			for i in np.ndindex(5,5):
-				worker, level = self.state[i]
+				worker, level, _ = self.state[i]
 				if worker < 0 and level > highest_level:
 						highest_level = level
 		return highest_level
 
 	def init_game(self):
-		self.state = np.zeros((5,5,2), dtype=np.int8)
+		self.state = np.zeros((5,5,3), dtype=np.int8)
 		# Place workers
 		if INIT_METHOD == 0:
 			# Predefined places
@@ -149,8 +153,11 @@ class Board():
 		return np.array([0, 0], dtype=np.float32)						# no winner yet
 
 	def swap_players(self, nb_swaps):
-		# Since only 2 players, ignore nb_swaps
+		if nb_swaps != 1:
+			return
 		self.state[:,:,0] = -self.state[:,:,0]
+		self.state[0,0,2], self.state[0,1,2] = self.state[0,1,2], self.state[0,0,2]
+		self.state[0,2,2], self.state[0,3,2] = self.state[0,3,2], self.state[0,2,2]
 
 	def get_symmetries(self, policy, valid_actions):
 		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
@@ -165,20 +172,20 @@ class Board():
 
 		rotated_policy, rotated_actions = policy, valid_actions
 		for i in range(3):
-			self.state = np.rot90(self.state)
+			self.state[:,:,:2] = np.rot90(self.state[:,:,:2])
 			rotated_policy, rotated_actions = _apply_permutation(rotation, rotated_policy, rotated_actions)
 			symmetries.append((self.state.copy(), rotated_policy.copy(), rotated_actions.copy()))
 		self.state = state_backup.copy()
 
 		# Mirror horizontally, vertically
-		flipped_state = np.fliplr(self.state).copy()
+		self.state[:,:,:2] = np.fliplr(self.state[:,:,:2]).copy()
 		flipped_policy, flipped_actions = _apply_permutation(flipLR, policy, valid_actions)
-		symmetries.append((flipped_state, flipped_policy, flipped_actions))
+		symmetries.append((self.state, flipped_policy, flipped_actions))
 		self.state = state_backup.copy()
 
-		flipped_state = np.flipud(self.state).copy()
+		self.state[:,:,:2] = np.flipud(self.state[:,:,:2]).copy()
 		flipped_policy, flipped_actions = _apply_permutation(flipUD, policy, valid_actions)
-		symmetries.append((flipped_state, flipped_policy, flipped_actions))
+		symmetries.append((self.state, flipped_policy, flipped_actions))
 		self.state = state_backup.copy()
 
 		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6:

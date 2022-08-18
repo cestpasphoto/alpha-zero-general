@@ -2,7 +2,7 @@ import numpy as np
 import random
 
 from .SantoriniDisplay import print_board, move_to_str, directions_char
-from .SantoriniLogicPrecomputed import _encode_action
+from .SantoriniConstants import _encode_action
 
 class RandomPlayer():
     def __init__(self, game):
