@@ -31,7 +31,7 @@ class HumanPlayer():
             print(f'Build {build_direction}: ', end='')
             for worker in range(2):
                 for move_i, move_direction in enumerate(directions_char):
-                    action = _encode_action(0, worker, move_i, build_i)
+                    action = _encode_action(worker, 0, move_i, build_i)
                     if valid[action]:
                         print(f'{action:3d} ', end='')
                     else:
@@ -41,7 +41,7 @@ class HumanPlayer():
 
     def play(self, board):
         # print_board(self.game.board)
-        game_started = (np.abs(self.game.board.state[:,:,0]).sum() == 6) # check if all workers are set
+        game_started = (np.abs(self.game.board.workers).sum() == 6) # check if all workers are set
         valid = self.game.getValidMoves(board, 0)
         print()
         print('='*80)
