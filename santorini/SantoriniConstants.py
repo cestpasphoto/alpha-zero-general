@@ -7,7 +7,9 @@ NO_BUILD = 4
 NO_GOD     = 0
 APOLLO     = 1
 MINOTAUR   = 2
-NB_GODS = 3
+ATLAS      = 3
+HEPHAESTUS = 4
+NB_GODS = 5
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _decode_action(action):

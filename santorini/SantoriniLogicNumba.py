@@ -125,28 +125,13 @@ class Board():
 
 	def valid_moves(self, player):
 		actions = np.zeros(action_size(), dtype=np.bool_)
-		if INIT_METHOD == 2 and np.abs(self.workers).sum() != 6: 	# Not all workers are set, need to chose their position
+		if INIT_METHOD == 2 and np.abs(self.workers).sum() != 6: 		# Not all workers are set, need to chose their position
 			for index, value in np.ndenumerate(self.workers):
 				actions[ 5*index[0]+index[1] ] = (value == 0)
 		else:															# All workers on set, ready to play
-			for worker in range(2):
-				worker_id = (worker+1) * (1 if player == 0 else -1)
-				worker_old_position = self._get_worker_position(worker_id)
-				for move_direction in range(9):
-					if move_direction == NO_MOVE:
-						continue
-					worker_new_position = _apply_direction(worker_old_position, move_direction)
-					if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
-						continue
-					for build_direction in range(9):
-						if build_direction == NO_BUILD:
-							continue
-						build_position = _apply_direction(worker_new_position, build_direction)
-						if not self._able_to_build(build_position, ignore=worker_id):
-							continue
-						actions[_encode_action(worker, 0, move_direction, build_direction)] = True
-
-			if self.gods_power.flat[APOLLO+NB_GODS*player] > 0:
+			### For optimization purpose, duplicated code for each god
+			### NO GOD ###
+			if self.gods_power.flat[NO_GOD+NB_GODS*player] > 0:
 				for worker in range(2):
 					worker_id = (worker+1) * (1 if player == 0 else -1)
 					worker_old_position = self._get_worker_position(worker_id)
@@ -154,9 +139,7 @@ class Board():
 						if move_direction == NO_MOVE:
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
-							continue
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, swap_with_opponent=True):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
 							continue
 						for build_direction in range(9):
 							if build_direction == NO_BUILD:
@@ -164,8 +147,33 @@ class Board():
 							build_position = _apply_direction(worker_new_position, build_direction)
 							if not self._able_to_build(build_position, ignore=worker_id):
 								continue
-							actions[_encode_action(worker, APOLLO, move_direction, build_direction)] = True
+							actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
 
+			### APOLLO ###
+			elif self.gods_power.flat[APOLLO+NB_GODS*player] > 0:
+				for worker in range(2):
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							if self._able_to_move_worker_to(worker_old_position, worker_new_position, player, swap_with_opponent=True):
+								use_power = True
+							else:
+								continue
+						else:
+							use_power = False
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if not self._able_to_build(build_position, ignore=worker_id):
+								continue
+							actions[_encode_action(worker, APOLLO if use_power else NO_GOD, move_direction, build_direction)] = True
+
+			### MINOTAUR ###
 			elif self.gods_power.flat[MINOTAUR+NB_GODS*player] > 0:
 				for worker in range(2):
 					worker_id = (worker+1) * (1 if player == 0 else -1)
@@ -174,17 +182,66 @@ class Board():
 						if move_direction == NO_MOVE:
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
-							continue
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, push_opponent=True):
-							continue
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							if self._able_to_move_worker_to(worker_old_position, worker_new_position, player, push_opponent=True):
+								use_power = True
+							else:
+								continue
+						else:
+							use_power = False
 						for build_direction in range(9):
 							if build_direction == NO_BUILD:
 								continue
 							build_position = _apply_direction(worker_new_position, build_direction)
 							if not self._able_to_build(build_position, ignore=worker_id):
 								continue
-							actions[_encode_action(worker, MINOTAUR, move_direction, build_direction)] = True
+							actions[_encode_action(worker, MINOTAUR if use_power else NO_GOD, move_direction, build_direction)] = True
+
+			### ATLAS ###
+			elif self.gods_power.flat[ATLAS+NB_GODS*player] > 0:
+				for worker in range(2):
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if self._able_to_build(build_position, ignore=worker_id):
+								actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
+
+							if self._able_to_build(build_position, ignore=worker_id, dome_with_god=True):
+								actions[_encode_action(worker, ATLAS, move_direction, build_direction)] = True
+
+			### HEPHAESTUS ###
+			elif self.gods_power.flat[HEPHAESTUS+NB_GODS*player] > 0:
+				for worker in range(2):
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if self._able_to_build(build_position, ignore=worker_id):
+								actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
+
+							if self._able_to_build(build_position, ignore=worker_id, two_levels=True):
+								actions[_encode_action(worker, HEPHAESTUS, move_direction, build_direction)] = True
+
+			else:
+				print(f'Should not happen vm , {player}')
+				# breakpoint()
 
 		return actions
 
@@ -229,6 +286,18 @@ class Board():
 				self.workers[worker_old_position], self.workers[worker_new_position], self.workers[new_opponent_position] = 0, self.workers[worker_old_position], self.workers[worker_new_position]
 				build_position = _apply_direction(worker_new_position, build_direction)
 				self.levels[build_position] += 1
+			elif power == ATLAS:
+				worker_old_position = self._get_worker_position(worker_id)
+				worker_new_position = _apply_direction(worker_old_position, move_direction)
+				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
+				build_position = _apply_direction(worker_new_position, build_direction)
+				self.levels[build_position] = 4 # Dome
+			elif power == HEPHAESTUS:
+				worker_old_position = self._get_worker_position(worker_id)
+				worker_new_position = _apply_direction(worker_old_position, move_direction)
+				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
+				build_position = _apply_direction(worker_new_position, build_direction)
+				self.levels[build_position] += 2 # Two levels at once
 			else:
 				print(f'Should not happen mm {power} ({move})')
 
@@ -372,16 +441,16 @@ class Board():
 		# Not tested in this mode
 		return True
 
-
 	# Check whether possible at position, ignoring worker 'ignore' (in case such worker is meant to have moved)
-	def _able_to_build(self, position, ignore=0):
-		if not (0<=position[0]<5 and 0<=position[1]<5):	# Out of grid?
+	def _able_to_build(self, position, ignore=0, two_levels=False, dome_with_god=False):
+		assert not(two_levels and dome_with_god)
+		if not (0<=position[0]<5 and 0<=position[1]<5):									# Out of grid?
 			return False
 
-		if not self.workers[position] in [0, ignore]:	# Cell already used by another worker?
+		if not self.workers[position] in [0, ignore]:									# Cell already used by another worker?
 			return False
 
-		if self.levels[position] > 3:					# Dome in future position?
+		if self.levels[position] > (1 if two_levels else (2 if dome_with_god else 3)):	# Dome in future position?
 			return False
 
 		return True
