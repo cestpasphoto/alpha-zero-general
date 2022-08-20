@@ -1,21 +1,13 @@
 import numpy as np
 from numba import njit
 
-DIRECTIONS = np.array([
-	(-1,-1),
-	(-1, 0),
-	(-1, 1),
-	( 0,-1),
-	( 0, 0),
-	( 0, 1),
-	( 1,-1),
-	( 1, 0),
-	( 1, 1),
-], dtype=np.int8)
 NO_MOVE = 4
 NO_BUILD = 4
-# 2 gods + no god
-NB_GODS = 5
+
+NO_GOD     = 0
+APOLLO     = 1
+MINOTAUR   = 2
+NB_GODS = 3
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _decode_action(action):

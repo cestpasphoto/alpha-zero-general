@@ -1,7 +1,8 @@
 import numpy as np
 from numba import njit
 import numba
-from .SantoriniConstants import _decode_action, _encode_action, rotation, flipLR, flipUD, DIRECTIONS, NO_MOVE, NO_BUILD, NB_GODS
+from .SantoriniConstants import *
+from .SantoriniConstants import _decode_action, _encode_action
 
 # 0: 2x2 workers set at an arbitrary position before 1st move
 # 1: 2x2 workers set at a random position before 1st move
@@ -47,6 +48,26 @@ def max_score_diff():
 #	0  1  2
 #   3  4  5
 #   6  7  8
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _position_if_pushed(old, new):
+	return (2*new[0] - old[0], 2*new[1] - old[1])
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _apply_direction(position, direction):
+	DIRECTIONS = [
+		(-1,-1),
+		(-1, 0),
+		(-1, 1),
+		( 0,-1),
+		( 0, 0),
+		( 0, 1),
+		( 1,-1),
+		( 1, 0),
+		( 1, 1),
+	]
+	delta = DIRECTIONS[direction]
+	return (position[0]+delta[0], position[1]+delta[1])
 
 spec = [
 	('state'      , numba.int8[:,:,:]),
@@ -114,16 +135,57 @@ class Board():
 				for move_direction in range(9):
 					if move_direction == NO_MOVE:
 						continue
-					worker_new_position = self._apply_direction(worker_old_position, move_direction)
-					if not self._able_to_move_worker_to(worker_old_position, worker_new_position):
+					worker_new_position = _apply_direction(worker_old_position, move_direction)
+					if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
 						continue
 					for build_direction in range(9):
 						if build_direction == NO_BUILD:
 							continue
-						build_position = self._apply_direction(worker_new_position, build_direction)
+						build_position = _apply_direction(worker_new_position, build_direction)
 						if not self._able_to_build(build_position, ignore=worker_id):
 							continue
 						actions[_encode_action(worker, 0, move_direction, build_direction)] = True
+
+			if self.gods_power.flat[APOLLO+NB_GODS*player] > 0:
+				for worker in range(2):
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							continue
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, swap_with_opponent=True):
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if not self._able_to_build(build_position, ignore=worker_id):
+								continue
+							actions[_encode_action(worker, APOLLO, move_direction, build_direction)] = True
+
+			elif self.gods_power.flat[MINOTAUR+NB_GODS*player] > 0:
+				for worker in range(2):
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							continue
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, push_opponent=True):
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if not self._able_to_build(build_position, ignore=worker_id):
+								continue
+							actions[_encode_action(worker, MINOTAUR, move_direction, build_direction)] = True
+
 		return actions
 
 	def make_move(self, move, player, deterministic):
@@ -143,16 +205,32 @@ class Board():
 			self.workers[y,x] = worker_to_place
 		else:														# All workers on set, ready to play
 			# Decode move
-			worker, _, move_direction, build_direction = _decode_action(move)
+			worker, power, move_direction, build_direction = _decode_action(move)
 			worker_id = (worker+1) * (1 if player == 0 else -1)
 
-			worker_old_position = self._get_worker_position(worker_id)
-			worker_new_position = self._apply_direction(worker_old_position, move_direction)
-			self.workers[worker_old_position] = 0
-			self.workers[worker_new_position] = worker_id
-
-			build_position = self._apply_direction(worker_new_position, build_direction)
-			self.levels[build_position] += 1
+			if power == NO_GOD:
+				worker_old_position = self._get_worker_position(worker_id)
+				worker_new_position = _apply_direction(worker_old_position, move_direction)
+				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
+				build_position = _apply_direction(worker_new_position, build_direction)
+				self.levels[build_position] += 1
+			elif power == APOLLO:
+				worker_old_position = self._get_worker_position(worker_id)
+				worker_new_position = _apply_direction(worker_old_position, move_direction)
+				# Swap
+				self.workers[worker_old_position], self.workers[worker_new_position] = self.workers[worker_new_position], self.workers[worker_old_position]
+				build_position = _apply_direction(worker_new_position, build_direction)
+				self.levels[build_position] += 1
+			elif power == MINOTAUR:
+				worker_old_position = self._get_worker_position(worker_id)
+				worker_new_position = _apply_direction(worker_old_position, move_direction)
+				# Push
+				new_opponent_position = _position_if_pushed(worker_old_position, worker_new_position)
+				self.workers[worker_old_position], self.workers[worker_new_position], self.workers[new_opponent_position] = 0, self.workers[worker_old_position], self.workers[worker_new_position]
+				build_position = _apply_direction(worker_new_position, build_direction)
+				self.levels[build_position] += 1
+			else:
+				print(f'Should not happen mm {power} ({move})')
 
 		if opponent_to_play_next:
 			return 1-player
@@ -174,10 +252,10 @@ class Board():
 		# Swap workers
 		self.workers[:,:] = -self.workers
 		# Swap gods
-		# self.gods_power.flat[0:12], self.gods_power.flat[12:24] = self.gods_power.flat[12:24], self.gods_power.flat[0:12]
+		# self.gods_power.flat[0:NB_GODS], self.gods_power.flat[NB_GODS:2*NB_GODS] = self.gods_power.flat[NB_GODS:2*NB_GODS], self.gods_power.flat[0:NB_GODS]
 		gods_power_copy = self.gods_power.copy()
-		for i in range(24):
-			self.gods_power.flat[i] = gods_power_copy.flat[(i+12)%24]
+		for i in range(2*NB_GODS):
+			self.gods_power.flat[i] = gods_power_copy.flat[(i+NB_GODS)%(2*NB_GODS)]
 
 	def get_symmetries(self, policy, valid_actions):
 		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
@@ -254,16 +332,19 @@ class Board():
 		print(f'Should not happen gwp {searched_worker}')
 		return (-1, -1)
 
-	def _apply_direction(self, position, direction):
-		delta = DIRECTIONS[direction]
-		return (position[0]+delta[0], position[1]+delta[1])
-
-	def _able_to_move_worker_to(self, old_position, new_position):
+	# Same function as after because @jitclass doesn't support recursive function
+	def _able_to_move_worker_to(self, old_position, new_position, player, swap_with_opponent=False, push_opponent=False):
 		if not (0<=new_position[0]<5 and 0<=new_position[1]<5):		# Out of grid?
 			return False
 
 		if self.workers[new_position] != 0:		# Cell already used by another worker?
-			return False
+			opponents = [-1, -2] if player == 0 else [1, 2]
+			if (swap_with_opponent or push_opponent) and (self.workers[new_position] in opponents):
+				if push_opponent: # Check opponent future position if he's pushed
+					if not self._able_to_push_opponent(_position_if_pushed(old_position, new_position)):
+						return False
+			else:
+				return False
 
 		new_level = self.levels[new_position]
 		if new_level > 3:						# Dome in future position?
@@ -274,6 +355,23 @@ class Board():
 			return False
 
 		return True
+
+	# Same function as before because @jitclass doesn't support recursive function
+	def _able_to_push_opponent(self, new_position):
+		if not (0<=new_position[0]<5 and 0<=new_position[1]<5):		# Out of grid?
+			return False
+
+		if self.workers[new_position] != 0:		# Cell already used by another worker?
+			return False
+
+		new_level = self.levels[new_position]
+		if new_level > 3:						# Dome in future position?
+			return False
+
+		# Future level much higher than current level?
+		# Not tested in this mode
+		return True
+
 
 	# Check whether possible at position, ignoring worker 'ignore' (in case such worker is meant to have moved)
 	def _able_to_build(self, position, ignore=0):

@@ -2,20 +2,21 @@ import numpy as np
 from colorama import Style, Fore, Back
 import random
 import itertools
-from .SantoriniConstants import _decode_action, NB_GODS
+from .SantoriniConstants import _decode_action, NB_GODS, NO_GOD
 
 my_workers_color    = [Fore.WHITE, Fore.BLUE  , Fore.CYAN]
 other_workers_color = [Fore.WHITE, Fore.YELLOW, Fore.MAGENTA]
 # levels_char = ['▪', '◔', '◑', '◕', 'X']
 levels_char = ['◎', '▂', '▅', '█', 'X']
 directions_char = ['↖', '↑', '↗', '←', 'Ø', '→', '↙', '↓', '↘']
-
+gods_name = ['', 'Appolo', 'Minotaur']
 
 def move_to_str(move, player):
 	worker, power, move_direction, build_direction = _decode_action(move)
 	worker_color = my_workers_color[worker+1] if player == 0 else other_workers_color[worker+1]
+	god_power = f' using {gods_name[power]}' if power != NO_GOD else ''
 
-	return f'Move {worker_color}worker {worker+1}{Fore.WHITE} to {directions_char[move_direction]} and then build {directions_char[build_direction]}'
+	return f'Move {worker_color}worker {worker+1}{Fore.WHITE} to {directions_char[move_direction]} and then build {directions_char[build_direction]}' + god_power
 
 
 ############################# PRINT GAME ######################################
@@ -23,7 +24,7 @@ def move_to_str(move, player):
 def _print_colors_and_gods(board):
 	def god_id(player):
 		nonzero = np.flatnonzero(board.gods_power.flat[NB_GODS*player:NB_GODS*(player+1)])
-		return nonzero[0] if nonzero.size else -1
+		return gods_name[nonzero[0]] if nonzero.size else 'unk'
 
 	message  = f'Player 0: '
 	message += f'{my_workers_color[1]}worker 1  {my_workers_color[2]}worker 2{Fore.WHITE} '
