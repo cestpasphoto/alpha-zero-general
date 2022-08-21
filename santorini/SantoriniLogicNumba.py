@@ -25,10 +25,12 @@ def max_score_diff():
 # STATE is 5x5x3
 #	First dimension 5x5 locates the workers (1&2 for current, -1&-2 for opponent)
 #	Second dimension 5x5 lists current level
-#   Third dimension 5x5 contains additional info. Cells 0-11: information about god power used
-#   	by player to play, data is info on previous move, or move to avoid, or ... depending
-#  		on god. This data is stored in cell = god id. Reseted when starting a new round.
-#   	Cells 11-22: same with opponent. Cell 23: general information (nb of rounds)
+#   Third dimension 5x5 contains additional info. Cells 0-10: information about god power by player to play
+#		64: if god power owned
+#       32 : empty
+#		16 : aditional info on previous move, or move to avoid, or ... depending on god.  Reseted when starting a new round.
+#   	This data is stored in cell with god id as index.
+#   	Cells 10-20: same with opponent. Cell 21: general information (nb of rounds)
 #	Initial status in INIT_METHOD=0 is:
 #		0  0  0  0  0        0  0  0  0  0        0  0  0  0  0
 #		0  0  1  0  0        0  0  0  0  0        0  0  0  0  0
@@ -115,9 +117,9 @@ class Board():
 				if NB_GODS > 1:
 					gods = np.random.choice(NB_GODS-1, 2, replace=False)+1
 				else:
-					gods = [0,0]
-				self.gods_power.flat[gods[0]+NB_GODS*0] = 1
-				self.gods_power.flat[gods[1]+NB_GODS*1] = 1
+					gods = [NO_GOD, NO_GOD]
+				self.gods_power.flat[gods[0]+NB_GODS*0] = 64
+				self.gods_power.flat[gods[1]+NB_GODS*1] = 64
 
 		elif INIT_METHOD == 2:
 			# Players decide
@@ -242,7 +244,86 @@ class Board():
 							if self._able_to_build(build_position, ignore=worker_id, two_levels_no_dome=True):
 								actions[_encode_action(worker, HEPHAESTUS, move_direction, build_direction)] = True
 
+			### ARTEMIS ###
+			elif self.gods_power.flat[ARTEMIS+NB_GODS*player] > 0:
+				move_to_avoid = self.gods_power.flat[ARTEMIS+NB_GODS*player] % 64 -1
+				if move_to_avoid < 0: # first turn, allow no build
+					for worker in range(2):
+						worker_id = (worker+1) * (1 if player == 0 else -1)
+						worker_old_position = self._get_worker_position(worker_id)
+						for move_direction in range(9):
+							if move_direction == NO_MOVE:
+								continue
+							worker_new_position = _apply_direction(worker_old_position, move_direction)
+							if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+								continue
+							for build_direction in range(9):
+								if build_direction == NO_BUILD:
+									# Allow no build at 1st turn but play again after
+									actions[_encode_action(worker, ARTEMIS, move_direction, build_direction)] = True
+								else:
+									build_position = _apply_direction(worker_new_position, build_direction)
+									if not self._able_to_build(build_position, ignore=worker_id):
+										continue
+									actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
+				else: # second turn, need to use same worker
+					worker = move_to_avoid // 9
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						if move_direction == move_to_avoid % 9: # Can't move back at same location than before
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if not self._able_to_build(build_position, ignore=worker_id):
+								continue
+							actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
+
+			### DEMETER ###
+			elif self.gods_power.flat[DEMETER+NB_GODS*player] > 0:
+				build_to_avoid = self.gods_power.flat[DEMETER+NB_GODS*player] % 64 -1
+				if build_to_avoid < 0: # first turn, don't decide yet for 2nd turn or not
+					for worker in range(2):
+						worker_id = (worker+1) * (1 if player == 0 else -1)
+						worker_old_position = self._get_worker_position(worker_id)
+						for move_direction in range(9):
+							if move_direction == NO_MOVE:
+								continue
+							worker_new_position = _apply_direction(worker_old_position, move_direction)
+							if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+								continue
+							for build_direction in range(9):
+								if build_direction == NO_BUILD:
+									continue
+								build_position = _apply_direction(worker_new_position, build_direction)
+								if not self._able_to_build(build_position, ignore=worker_id):
+									continue
+								actions[_encode_action(worker, DEMETER, move_direction, build_direction)] = True
+				else: # Second turn = same worker as 1st turn but no move. If we don't want any 2nd turn, we also don't build
+					worker = build_to_avoid // 9
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for build_direction in range(9):
+						if build_direction == NO_BUILD:
+							actions[_encode_action(worker, NO_GOD, NO_MOVE, NO_BUILD)] = True # Allow to cancel 2nd turn
+						else:
+							build_position = _apply_direction(worker_old_position, build_direction)
+							if build_direction == build_to_avoid % 9: # Can't build at same location than before
+								continue
+							if not self._able_to_build(build_position, ignore=worker_id):
+								continue
+							actions[_encode_action(worker, NO_GOD, NO_MOVE, build_direction)] = True
+				# breakpoint()
+
 			else:
+				# print(f'Should not happen vm , {player} {self.gods_power.flat[:]}')
 				print(f'Should not happen vm , {player}')
 				# breakpoint()
 
@@ -274,6 +355,9 @@ class Board():
 				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
 				build_position = _apply_direction(worker_new_position, build_direction)
 				self.levels[build_position] += 1
+				# Reset any previous info
+				for i in range(player*NB_GODS, 2*player*NB_GODS):
+					self.gods_power.flat[i] = min(64, self.gods_power.flat[i])
 			elif power == APOLLO:
 				worker_old_position = self._get_worker_position(worker_id)
 				worker_new_position = _apply_direction(worker_old_position, move_direction)
@@ -301,6 +385,25 @@ class Board():
 				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
 				build_position = _apply_direction(worker_new_position, build_direction)
 				self.levels[build_position] += 2 # Two levels at once
+			elif power == ARTEMIS:
+				worker_old_position = self._get_worker_position(worker_id)
+				worker_new_position = _apply_direction(worker_old_position, move_direction)
+				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
+				# Avoid opposite move in next turn
+				opposite_move_direction = 8 - move_direction
+				self.gods_power.flat[ARTEMIS+NB_GODS*player] = 64 + (worker*9 + opposite_move_direction)
+				# No build and play again
+				opponent_to_play_next = False
+			elif power == DEMETER:
+				worker_old_position = self._get_worker_position(worker_id)
+				worker_new_position = _apply_direction(worker_old_position, move_direction)
+				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
+				build_position = _apply_direction(worker_new_position, build_direction)
+				self.levels[build_position] += 1
+				# Avoid same build in next turn
+				self.gods_power.flat[DEMETER+NB_GODS*player] = 64 + (worker*9 + build_direction)
+				opponent_to_play_next = False
+				# breakpoint()
 			else:
 				print(f'Should not happen mm {power} ({move})')
 

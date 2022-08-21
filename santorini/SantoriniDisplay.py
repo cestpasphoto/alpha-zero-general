@@ -9,7 +9,7 @@ other_workers_color = [Fore.WHITE, Fore.YELLOW, Fore.MAGENTA]
 # levels_char = ['▪', '◔', '◑', '◕', 'X']
 levels_char = ['◎', '▂', '▅', '█', 'X']
 directions_char = ['↖', '↑', '↗', '←', 'Ø', '→', '↙', '↓', '↘']
-gods_name = ['', 'Apollo', 'Minot', 'Atlas', 'Hepha']
+gods_name = ['', 'Apollo', 'Minot', 'Atlas', 'Hepha', 'Artemis', 'Demeter']
 
 def move_to_str(move, player):
 	worker, power, move_direction, build_direction = _decode_action(move)
@@ -28,10 +28,10 @@ def _print_colors_and_gods(board):
 
 	message  = f'Player 0: '
 	message += f'{my_workers_color[1]}worker 1  {my_workers_color[2]}worker 2{Fore.WHITE} '
-	message += f'(god {god_id(0)})    '
+	message += f'(has {god_id(0)} power)    '
 	message += f'Player 1: '
 	message += f'{other_workers_color[1]}worker 1  {other_workers_color[2]}worker 2{Fore.WHITE} '
-	message += f'(god {god_id(1)})'
+	message += f'(has {god_id(1)} power)'
 	print(message)
 
 def _print_main(board):

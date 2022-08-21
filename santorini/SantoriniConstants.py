@@ -9,7 +9,9 @@ APOLLO     = 1
 MINOTAUR   = 2
 ATLAS      = 3
 HEPHAESTUS = 4
-NB_GODS = 5
+ARTEMIS    = 5
+DEMETER    = 6
+NB_GODS = 7
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _decode_action(action):
