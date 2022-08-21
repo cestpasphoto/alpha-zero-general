@@ -114,10 +114,7 @@ class Board():
 				self.workers[place//5, place%5] = worker
 
 			if INIT_METHOD == 3:
-				if NB_GODS > 1:
-					gods = np.random.choice(NB_GODS-1, 2, replace=False)+1
-				else:
-					gods = [NO_GOD, NO_GOD]
+				gods = [NO_GOD, NO_GOD] if NB_GODS <= 1 else (np.random.choice(NB_GODS-1, 2, replace=False)+1)
 				self.gods_power.flat[gods[0]+NB_GODS*0] = 64
 				self.gods_power.flat[gods[1]+NB_GODS*1] = 64
 
@@ -135,6 +132,8 @@ class Board():
 				actions[ 5*index[0]+index[1] ] = (value == 0)
 		else:															# All workers on set, ready to play
 			### For optimization purpose, duplicated code for each god
+			opponent = (player+1)%2
+			opponent_used_Athena = (self.gods_power.flat[NO_GOD+NB_GODS*opponent] > 64)
 			### NO GOD ###
 			if self.gods_power.flat[NO_GOD+NB_GODS*player] > 0:
 				for worker in range(2):
@@ -144,7 +143,7 @@ class Board():
 						if move_direction == NO_MOVE:
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
 							continue
 						for build_direction in range(9):
 							if build_direction == NO_BUILD:
@@ -163,8 +162,8 @@ class Board():
 						if move_direction == NO_MOVE:
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
-							if self._able_to_move_worker_to(worker_old_position, worker_new_position, player, swap_with_opponent=True):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
+							if self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena, swap_with_opponent=True):
 								use_power = True
 							else:
 								continue
@@ -187,8 +186,8 @@ class Board():
 						if move_direction == NO_MOVE:
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
-							if self._able_to_move_worker_to(worker_old_position, worker_new_position, player, push_opponent=True):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
+							if self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena, push_opponent=True):
 								use_power = True
 							else:
 								continue
@@ -211,7 +210,7 @@ class Board():
 						if move_direction == NO_MOVE:
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
 							continue
 						for build_direction in range(9):
 							if build_direction == NO_BUILD:
@@ -232,7 +231,7 @@ class Board():
 						if move_direction == NO_MOVE:
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
 							continue
 						for build_direction in range(9):
 							if build_direction == NO_BUILD:
@@ -255,7 +254,7 @@ class Board():
 							if move_direction == NO_MOVE:
 								continue
 							worker_new_position = _apply_direction(worker_old_position, move_direction)
-							if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
 								continue
 							for build_direction in range(9):
 								if build_direction == NO_BUILD:
@@ -276,7 +275,7 @@ class Board():
 						if move_direction == move_to_avoid % 9: # Can't move back at same location than before
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
 							continue
 						for build_direction in range(9):
 							if build_direction == NO_BUILD:
@@ -297,7 +296,7 @@ class Board():
 							if move_direction == NO_MOVE:
 								continue
 							worker_new_position = _apply_direction(worker_old_position, move_direction)
-							if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
 								continue
 							for build_direction in range(9):
 								if build_direction == NO_BUILD:
@@ -330,10 +329,10 @@ class Board():
 					for move_direction in range(9):
 						# allowed to do no move in final turn
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
 							continue
 						for build_direction in range(9):
-							if build_direction == NO_BUILD and move_direction != NO_MOVE and nb_previous_moves < 10:
+							if build_direction == NO_BUILD and move_direction != NO_MOVE and nb_previous_moves < MAX_ITER_FOR_HERMES:
 								# In first turns, just move (no build)
 								actions[_encode_action(worker, HERMES, move_direction, NO_BUILD)] = True
 							else:
@@ -352,7 +351,27 @@ class Board():
 						if move_direction == NO_MOVE:
 							continue
 						worker_new_position = _apply_direction(worker_old_position, move_direction)
-						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if not self._able_to_build(build_position, ignore=worker_id):
+								continue
+							actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
+
+			### ATHENA ###
+			elif self.gods_power.flat[ATHENA+NB_GODS*player] > 0:
+				# Exactly same code as no god
+				for worker in range(2):
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player): # Opponent can't be Athena
 							continue
 						for build_direction in range(9):
 							if build_direction == NO_BUILD:
@@ -362,8 +381,43 @@ class Board():
 								continue
 							actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
 			
+			### PROMETHEUS ###
+			elif self.gods_power.flat[PROMETHEUS+NB_GODS*player] > 0:
+				previous_worker = self.gods_power.flat[HERMES+NB_GODS*player] % 64 -1
+				if previous_worker < 0: # First turn
+					for worker in range(2):
+						worker_id = (worker+1) * (1 if player == 0 else -1)
+						worker_old_position = self._get_worker_position(worker_id)
+						for move_direction in range(9):
+							use_power = (move_direction == NO_MOVE) # Possible to only build but 2nd turn is mandatory, with same worker
+							worker_new_position = _apply_direction(worker_old_position, move_direction)
+							if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
+								continue
+							for build_direction in range(9):
+								if build_direction == NO_BUILD:
+									continue
+								build_position = _apply_direction(worker_new_position, build_direction)
+								if not self._able_to_build(build_position, ignore=worker_id):
+									continue
+								actions[_encode_action(worker, PROMETHEUS if use_power else NO_GOD, move_direction, build_direction)] = True
+				else: # Second turn, must use same worker as before and no climb a level
+					worker = previous_worker
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=True): # Not allowed to climb in 2nd turn
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if not self._able_to_build(build_position, ignore=worker_id):
+								continue
+							actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
 			else:
-				# print(f'Should not happen vm , {player} {self.gods_power.flat[:]}')
 				print(f'Should not happen vm , {player}')
 
 		return actions
@@ -400,10 +454,17 @@ class Board():
 					new_level = self.levels[worker_new_position]
 					if new_level <= old_level - 2:
 						self.gods_power.flat[PAN+NB_GODS*player] = 64 + 1
+
+				elif self.gods_power.flat[ATHENA+NB_GODS*player] > 0:
+					# Checking if went 1 floor upstairs
+					new_level = self.levels[worker_new_position]
+					self.gods_power.flat[ATHENA+NB_GODS*player] = 64 + (1 if new_level > old_level else 0)
+
 				else:
 					# Reset any previous info
 					for i in range(player*NB_GODS, 2*player*NB_GODS):
 						self.gods_power.flat[i] = min(64, self.gods_power.flat[i])
+
 			elif power == APOLLO:
 				worker_old_position = self._get_worker_position(worker_id)
 				worker_new_position = _apply_direction(worker_old_position, move_direction)
@@ -437,7 +498,7 @@ class Board():
 				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
 				# Avoid opposite move in next turn
 				opposite_move_direction = 8 - move_direction
-				self.gods_power.flat[ARTEMIS+NB_GODS*player] = 64 + (worker*9 + opposite_move_direction)
+				self.gods_power.flat[ARTEMIS+NB_GODS*player] = 64 + (worker*9 + opposite_move_direction + 1)
 				# No build and play again
 				opponent_to_play_next = False
 			elif power == DEMETER:
@@ -447,14 +508,25 @@ class Board():
 				build_position = _apply_direction(worker_new_position, build_direction)
 				self.levels[build_position] += 1
 				# Avoid same build in next turn
-				self.gods_power.flat[DEMETER+NB_GODS*player] = 64 + (worker*9 + build_direction)
+				self.gods_power.flat[DEMETER+NB_GODS*player] = 64 + (worker*9 + build_direction + 1)
 				opponent_to_play_next = False
 			elif power == HERMES:
 				worker_old_position = self._get_worker_position(worker_id)
 				worker_new_position = _apply_direction(worker_old_position, move_direction)
 				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
+				# Store nb of iterations
+				self.gods_power.flat[HERMES+NB_GODS*player] += 1
 				# No build and play again
 				opponent_to_play_next = False
+			elif power == ATHENA:
+				worker_old_position = self._get_worker_position(worker_id)
+				build_position = _apply_direction(worker_old_position, build_direction)
+				self.levels[build_position] += 1
+				# No move and play again
+				opponent_to_play_next = False
+				# Store worked used
+				self.gods_power.flat[ATHENA+NB_GODS*player] = 64 + (worker + 1)
+
 			else:
 				print(f'Should not happen mm {power} ({move})')
 
@@ -468,13 +540,11 @@ class Board():
 			return np.array([0, 0], dtype=np.float32)					
 		if self.get_score(0) == 3 or self.valid_moves(1).sum() == 0:	# P0 wins
 			return np.array([1, -1], dtype=np.float32)
-		if self.gods_power.flat[PAN+NB_GODS*0] % 64 > 0:
-			print('PAN POWER P0')
+		if self.gods_power.flat[PAN+NB_GODS*0] > 64:					# P0 wins with its power of Pan
 			return np.array([1, -1], dtype=np.float32)
-		if self.gods_power.flat[PAN+NB_GODS*1] % 64 > 0:
-			print('PAN POWER P1')
+		if self.get_score(1) == 3 or self.valid_moves(0).sum() == 0:	# P1 wins
 			return np.array([-1, 1], dtype=np.float32)
-		if self.get_score(1) == 3 or self.valid_moves(0).sum() == 0 or self.gods_power.flat[PAN+NB_GODS*1] % 64 > 0:	# P1 wins
+		if self.gods_power.flat[PAN+NB_GODS*1] > 64:					# P1 wins with its power of Pan
 			return np.array([-1, 1], dtype=np.float32)
 		return np.array([0, 0], dtype=np.float32)						# no winner yet
 
@@ -564,11 +634,11 @@ class Board():
 		return (-1, -1)
 
 	# Same function as after because @jitclass doesn't support recursive function
-	def _able_to_move_worker_to(self, old_position, new_position, player, swap_with_opponent=False, push_opponent=False):
+	def _able_to_move_worker_to(self, old_position, new_position, player, no_climb=False, swap_with_opponent=False, push_opponent=False):
 		if not (0<=new_position[0]<5 and 0<=new_position[1]<5):		# Out of grid?
 			return False
 
-		if self.workers[new_position] != 0:		# Cell already used by another worker?
+		if self.workers[new_position] != 0:								# Cell already used by another worker?
 			opponents = [-1, -2] if player == 0 else [1, 2]
 			if (swap_with_opponent or push_opponent) and (self.workers[new_position] in opponents):
 				if push_opponent: # Check opponent future position if he's pushed
@@ -578,11 +648,11 @@ class Board():
 				return False
 
 		new_level = self.levels[new_position]
-		if new_level > 3:						# Dome in future position?
+		if new_level > 3:												# Dome in future position?
 			return False
 
 		old_level = self.levels[old_position]
-		if new_level > old_level + 1:			# Future level much higher than current level?
+		if new_level > old_level + (0 if no_climb else 1):	# Future level much higher than current level?
 			return False
 
 		return True

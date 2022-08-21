@@ -13,7 +13,10 @@ ARTEMIS    = 5
 DEMETER    = 6
 HERMES     = 7
 PAN        = 8
-NB_GODS = 9
+ATHENA     = 9
+PROMETHEUS = 10
+NB_GODS = 11
+MAX_ITER_FOR_HERMES = 10 # We limit nb of moves using Hermes power, otherwise infinite recursion...
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _decode_action(action):
