@@ -126,14 +126,14 @@ class NNetWrapper(NeuralNet):
 			return pi, v
 
 		else:
-			board = torch.FloatTensor(board.astype(np.float32))
-			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
+			board = torch.FloatTensor(board.astype(np.float32)).reshape((-1, self.nb_vect, self.vect_dim))
+			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_)).reshape((-1, self.action_size))
 			if self.current_mode == 'cuda':
 				board, valid_actions = board.contiguous().cuda(), valid_actions.contiguous().cuda()
 			self.nnet.eval()
 			with torch.no_grad():
 				pi, v, _ = self.nnet(board, valid_actions)
-			pi, v = torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0][0]
+			pi, v = torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 			return pi, v
 
 	def loss_pi(self, targets, outputs):

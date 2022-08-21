@@ -112,7 +112,10 @@ class Board():
 				self.workers[place//5, place%5] = worker
 
 			if INIT_METHOD == 3:
-				gods = np.random.choice(NB_GODS-1, 2, replace=False)+1
+				if NB_GODS > 1:
+					gods = np.random.choice(NB_GODS-1, 2, replace=False)+1
+				else:
+					gods = [0,0]
 				self.gods_power.flat[gods[0]+NB_GODS*0] = 1
 				self.gods_power.flat[gods[1]+NB_GODS*1] = 1
 
@@ -236,7 +239,7 @@ class Board():
 							if self._able_to_build(build_position, ignore=worker_id):
 								actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
 
-							if self._able_to_build(build_position, ignore=worker_id, two_levels=True):
+							if self._able_to_build(build_position, ignore=worker_id, two_levels_no_dome=True):
 								actions[_encode_action(worker, HEPHAESTUS, move_direction, build_direction)] = True
 
 			else:
@@ -442,15 +445,15 @@ class Board():
 		return True
 
 	# Check whether possible at position, ignoring worker 'ignore' (in case such worker is meant to have moved)
-	def _able_to_build(self, position, ignore=0, two_levels=False, dome_with_god=False):
-		assert not(two_levels and dome_with_god)
-		if not (0<=position[0]<5 and 0<=position[1]<5):									# Out of grid?
+	def _able_to_build(self, position, ignore=0, two_levels_no_dome=False, dome_with_god=False):
+		assert not(two_levels_no_dome and dome_with_god)
+		if not (0<=position[0]<5 and 0<=position[1]<5):											# Out of grid?
 			return False
 
-		if not self.workers[position] in [0, ignore]:									# Cell already used by another worker?
+		if not self.workers[position] in [0, ignore]:											# Cell already used by another worker?
 			return False
 
-		if self.levels[position] > (1 if two_levels else (2 if dome_with_god else 3)):	# Dome in future position?
+		if self.levels[position] >= (2 if two_levels_no_dome else (3 if dome_with_god else 4)):	# Dome in future position?
 			return False
 
 		return True
