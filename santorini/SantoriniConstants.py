@@ -11,7 +11,9 @@ ATLAS      = 3
 HEPHAESTUS = 4
 ARTEMIS    = 5
 DEMETER    = 6
-NB_GODS = 7
+HERMES     = 7
+PAN        = 8
+NB_GODS = 9
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _decode_action(action):

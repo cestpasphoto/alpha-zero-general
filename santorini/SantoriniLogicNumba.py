@@ -320,12 +320,51 @@ class Board():
 							if not self._able_to_build(build_position, ignore=worker_id):
 								continue
 							actions[_encode_action(worker, NO_GOD, NO_MOVE, build_direction)] = True
-				# breakpoint()
 
+			### HERMES ###
+			elif self.gods_power.flat[HERMES+NB_GODS*player] > 0:
+				nb_previous_moves = self.gods_power.flat[HERMES+NB_GODS*player] % 64
+				for worker in range(2):
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						# allowed to do no move in final turn
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD and move_direction != NO_MOVE and nb_previous_moves < 10:
+								# In first turns, just move (no build)
+								actions[_encode_action(worker, HERMES, move_direction, NO_BUILD)] = True
+							else:
+								build_position = _apply_direction(worker_new_position, build_direction)
+								if not self._able_to_build(build_position, ignore=worker_id):
+									continue
+								actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
+
+			### PAN ###
+			elif self.gods_power.flat[PAN+NB_GODS*player] > 0:
+				# Exactly same code as no god
+				for worker in range(2):
+					worker_id = (worker+1) * (1 if player == 0 else -1)
+					worker_old_position = self._get_worker_position(worker_id)
+					for move_direction in range(9):
+						if move_direction == NO_MOVE:
+							continue
+						worker_new_position = _apply_direction(worker_old_position, move_direction)
+						if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player):
+							continue
+						for build_direction in range(9):
+							if build_direction == NO_BUILD:
+								continue
+							build_position = _apply_direction(worker_new_position, build_direction)
+							if not self._able_to_build(build_position, ignore=worker_id):
+								continue
+							actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
+			
 			else:
 				# print(f'Should not happen vm , {player} {self.gods_power.flat[:]}')
 				print(f'Should not happen vm , {player}')
-				# breakpoint()
 
 		return actions
 
@@ -351,13 +390,20 @@ class Board():
 
 			if power == NO_GOD:
 				worker_old_position = self._get_worker_position(worker_id)
+				old_level = self.levels[worker_old_position]
 				worker_new_position = _apply_direction(worker_old_position, move_direction)
 				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
 				build_position = _apply_direction(worker_new_position, build_direction)
 				self.levels[build_position] += 1
-				# Reset any previous info
-				for i in range(player*NB_GODS, 2*player*NB_GODS):
-					self.gods_power.flat[i] = min(64, self.gods_power.flat[i])
+				if self.gods_power.flat[PAN+NB_GODS*player] > 0:
+					# Checking if went 2+ floors downstairs
+					new_level = self.levels[worker_new_position]
+					if new_level <= old_level - 2:
+						self.gods_power.flat[PAN+NB_GODS*player] = 64 + 1
+				else:
+					# Reset any previous info
+					for i in range(player*NB_GODS, 2*player*NB_GODS):
+						self.gods_power.flat[i] = min(64, self.gods_power.flat[i])
 			elif power == APOLLO:
 				worker_old_position = self._get_worker_position(worker_id)
 				worker_new_position = _apply_direction(worker_old_position, move_direction)
@@ -403,7 +449,12 @@ class Board():
 				# Avoid same build in next turn
 				self.gods_power.flat[DEMETER+NB_GODS*player] = 64 + (worker*9 + build_direction)
 				opponent_to_play_next = False
-				# breakpoint()
+			elif power == HERMES:
+				worker_old_position = self._get_worker_position(worker_id)
+				worker_new_position = _apply_direction(worker_old_position, move_direction)
+				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
+				# No build and play again
+				opponent_to_play_next = False
 			else:
 				print(f'Should not happen mm {power} ({move})')
 
@@ -417,7 +468,13 @@ class Board():
 			return np.array([0, 0], dtype=np.float32)					
 		if self.get_score(0) == 3 or self.valid_moves(1).sum() == 0:	# P0 wins
 			return np.array([1, -1], dtype=np.float32)
-		if self.get_score(1) == 3 or self.valid_moves(0).sum() == 0:	# P1 wins
+		if self.gods_power.flat[PAN+NB_GODS*0] % 64 > 0:
+			print('PAN POWER P0')
+			return np.array([1, -1], dtype=np.float32)
+		if self.gods_power.flat[PAN+NB_GODS*1] % 64 > 0:
+			print('PAN POWER P1')
+			return np.array([-1, 1], dtype=np.float32)
+		if self.get_score(1) == 3 or self.valid_moves(0).sum() == 0 or self.gods_power.flat[PAN+NB_GODS*1] % 64 > 0:	# P1 wins
 			return np.array([-1, 1], dtype=np.float32)
 		return np.array([0, 0], dtype=np.float32)						# no winner yet
 
@@ -503,7 +560,6 @@ class Board():
 		for i in np.ndindex(5, 5):
 			if self.workers[i] == searched_worker:
 				return i
-		# breakpoint()
 		print(f'Should not happen gwp {searched_worker}')
 		return (-1, -1)
 

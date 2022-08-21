@@ -9,7 +9,7 @@ other_workers_color = [Fore.WHITE, Fore.YELLOW, Fore.MAGENTA]
 # levels_char = ['▪', '◔', '◑', '◕', 'X']
 levels_char = ['◎', '▂', '▅', '█', 'X']
 directions_char = ['↖', '↑', '↗', '←', 'Ø', '→', '↙', '↓', '↘']
-gods_name = ['', 'Apollo', 'Minot', 'Atlas', 'Hepha', 'Artemis', 'Demeter']
+gods_name = ['', 'Apollo', 'Minot', 'Atlas', 'Hepha', 'Artemis', 'Demeter', 'Hermes', 'Pan']
 
 def move_to_str(move, player):
 	worker, power, move_direction, build_direction = _decode_action(move)
