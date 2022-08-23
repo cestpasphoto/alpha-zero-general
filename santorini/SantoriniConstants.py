@@ -45,20 +45,20 @@ def _generate_permutation(permutation):
 #   0  1  2       2  5  8
 #   3  4  5  <--- 1  4  7
 #   6  7  8       0  3  6
-rotation_core = np.array([6,3,0,7,4,1,8,5,2], dtype=np.int8)
-rotation = np.array(_generate_permutation(rotation_core), dtype=np.int8)
+rotation_core = np.array([6,3,0,7,4,1,8,5,2], dtype=np.int16)
+rotation = np.array(_generate_permutation(rotation_core), dtype=np.int16)
 
 # FlippedLR directions
 #   0  1  2       2  1  0
 #   3  4  5  <--- 5  4  3
 #   6  7  8       8  7  6
-flipLR_core   = np.array([2,1,0,5,4,3,8,7,6], dtype=np.int8)
-flipLR = np.array(_generate_permutation(flipLR_core), dtype=np.int8)
+flipLR_core   = np.array([2,1,0,5,4,3,8,7,6], dtype=np.int16)
+flipLR = np.array(_generate_permutation(flipLR_core), dtype=np.int16)
 
 
 # FlippedUD directions
 #   0  1  2       6  7  8
 #   3  4  5  <--- 3  4  5
 #   6  7  8       0  1  2
-flipUD_core   = np.array([6,7,8,3,4,5,0,1,2], dtype=np.int8)
-flipUD = np.array(_generate_permutation(flipUD_core), dtype=np.int8)
+flipUD_core   = np.array([6,7,8,3,4,5,0,1,2], dtype=np.int16)
+flipUD = np.array(_generate_permutation(flipUD_core), dtype=np.int16)
