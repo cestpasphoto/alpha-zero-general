@@ -41,12 +41,23 @@ def _generate_permutation(permutation):
 		result.append(new_i)
 	return result
 
+def _generate_permutation_god(permutation):
+	offset = 64+1
+	result = []
+	for i in range(offset, offset+9*3):
+		gods_info = i - offset
+		worker, direction = divmod(gods_info, 9)
+		new_direction = permutation[direction]
+		result.append(offset + 9*worker + new_direction)
+	return result
+
 # Rotated directions
 #   0  1  2       2  5  8
 #   3  4  5  <--- 1  4  7
 #   6  7  8       0  3  6
 rotation_core = np.array([6,3,0,7,4,1,8,5,2], dtype=np.int16)
 rotation = np.array(_generate_permutation(rotation_core), dtype=np.int16)
+rotation_gods = np.array(_generate_permutation_god(rotation_core), dtype=np.int16)
 
 # FlippedLR directions
 #   0  1  2       2  1  0
@@ -54,6 +65,7 @@ rotation = np.array(_generate_permutation(rotation_core), dtype=np.int16)
 #   6  7  8       8  7  6
 flipLR_core   = np.array([2,1,0,5,4,3,8,7,6], dtype=np.int16)
 flipLR = np.array(_generate_permutation(flipLR_core), dtype=np.int16)
+flipLR_gods = np.array(_generate_permutation_god(flipLR_core), dtype=np.int16)
 
 
 # FlippedUD directions
@@ -62,3 +74,5 @@ flipLR = np.array(_generate_permutation(flipLR_core), dtype=np.int16)
 #   6  7  8       0  1  2
 flipUD_core   = np.array([6,7,8,3,4,5,0,1,2], dtype=np.int16)
 flipUD = np.array(_generate_permutation(flipUD_core), dtype=np.int16)
+flipUD_gods = np.array(_generate_permutation_god(flipUD_core), dtype=np.int16)
+

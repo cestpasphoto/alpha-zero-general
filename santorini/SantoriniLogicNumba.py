@@ -383,7 +383,7 @@ class Board():
 			
 			### PROMETHEUS ###
 			elif self.gods_power.flat[PROMETHEUS+NB_GODS*player] > 0:
-				previous_worker = self.gods_power.flat[HERMES+NB_GODS*player] % 64 -1
+				previous_worker = (self.gods_power.flat[PROMETHEUS+NB_GODS*player] % 64 -1) // 9
 				if previous_worker < 0: # First turn
 					for worker in range(2):
 						worker_id = (worker+1) * (1 if player == 0 else -1)
@@ -518,14 +518,14 @@ class Board():
 				self.gods_power.flat[HERMES+NB_GODS*player] += 1
 				# No build and play again
 				opponent_to_play_next = False
-			elif power == ATHENA:
+			elif power == PROMETHEUS:
 				worker_old_position = self._get_worker_position(worker_id)
 				build_position = _apply_direction(worker_old_position, build_direction)
 				self.levels[build_position] += 1
 				# No move and play again
 				opponent_to_play_next = False
 				# Store worked used
-				self.gods_power.flat[ATHENA+NB_GODS*player] = 64 + (worker + 1)
+				self.gods_power.flat[PROMETHEUS+NB_GODS*player] = 64 + (worker*9 + 1)
 
 			else:
 				print(f'Should not happen mm {power} ({move})')
@@ -570,37 +570,58 @@ class Board():
 				array_copy[new_i], array2_copy[new_i] = array[i], array2[i]
 			return array_copy, array2_copy
 
+		def _apply_permutation_gods(permutation_gods, gods_power):
+			offset = 64+1
+			for i in range(2*NB_GODS):
+				if i%NB_GODS == ARTEMIS or i%NB_GODS == DEMETER:
+					if gods_power.flat[i] < offset:
+						continue
+					gods_power.flat[i] = permutation_gods[gods_power.flat[i] - offset]
+
 		rotated_policy, rotated_actions = policy, valid_actions
 		for i in range(3):
 			self.workers[:,:] = np.rot90(self.workers)
 			self.levels[:,:] = np.rot90(self.levels)
 			rotated_policy, rotated_actions = _apply_permutation(rotation, rotated_policy, rotated_actions)
+			_apply_permutation_gods(rotation_gods, self.gods_power)
 			symmetries.append((self.state.copy(), rotated_policy.copy(), rotated_actions.copy()))
 		self.state[:,:,:] = state_backup.copy()
 
 		# Mirror horizontally, vertically
 		self.workers[:,:] = np.fliplr(self.workers)
 		self.levels[:,:] = np.fliplr(self.levels)
+		_apply_permutation_gods(flipLR_gods, self.gods_power)
 		flipped_policy, flipped_actions = _apply_permutation(flipLR, policy, valid_actions)
 		symmetries.append((self.state.copy(), flipped_policy, flipped_actions))
 		self.state[:,:,:] = state_backup.copy()
 
 		self.workers[:,:] = np.flipud(self.workers).copy()
 		self.levels[:,:] = np.flipud(self.levels).copy()
+		_apply_permutation_gods(flipUD_gods, self.gods_power)
 		flipped_policy, flipped_actions = _apply_permutation(flipUD, policy, valid_actions)
 		symmetries.append((self.state.copy(), flipped_policy, flipped_actions))
 		self.state[:,:,:] = state_backup.copy()
 
-		if INIT_METHOD == 2 and np.abs(self.state[:,:,0]).sum() != 6:
+		if INIT_METHOD == 2 and np.abs(self.workers).sum() != 6:
 			return symmetries # workers not all set, stopping here
 
 		# Permute worker 1 and 2
 		def _swap_workers(array, half_size):
 			array_copy = array.copy()
 			array_copy[:half_size], array_copy[half_size:] = array[half_size:], array[:half_size]
-			return array_copy	
+			return array_copy
+
+		def _swap_workers_gods(gods_power, player):
+			offset = 64+1
+			for i in range(NB_GODS*player, NB_GODS*(player+1)):
+				if i%NB_GODS == ARTEMIS or i%NB_GODS == DEMETER or i%NB_GODS == ATHENA:
+					if gods_power.flat[i] < offset:
+						continue
+					gods_power.flat[i] = (gods_power.flat[i]-offset + 9) % 18 + offset
+
 		w1, w2 = self._get_worker_position(1), self._get_worker_position(2)
 		self.workers[w1], self.workers[w2] = 2, 1
+		_swap_workers_gods(self.gods_power, 0)
 		swapped_policy = _swap_workers(policy, action_size()//2)
 		swapped_actions = _swap_workers(valid_actions, action_size()//2)
 		symmetries.append((self.state.copy(), swapped_policy, swapped_actions))
@@ -609,6 +630,7 @@ class Board():
 		# Permute worker -1 and -2
 		wm1, wm2 = self._get_worker_position(-1), self._get_worker_position(-2)
 		self.workers[wm1], self.workers[wm2] = -2, -1
+		_swap_workers_gods(self.gods_power, 1)
 		symmetries.append((self.state.copy(), policy.copy(), valid_actions.copy()))
 		self.state[:,:,:] = state_backup.copy()
 
