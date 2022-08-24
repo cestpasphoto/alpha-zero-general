@@ -133,7 +133,7 @@ class Board():
 		else:															# All workers on set, ready to play
 			### For optimization purpose, duplicated code for each god
 			opponent = (player+1)%2
-			opponent_used_Athena = (self.gods_power.flat[NO_GOD+NB_GODS*opponent] > 64)
+			opponent_used_Athena = (self.gods_power.flat[ATHENA+NB_GODS*opponent] > 64)
 			### NO GOD ###
 			if self.gods_power.flat[NO_GOD+NB_GODS*player] > 0:
 				for worker in range(2):
