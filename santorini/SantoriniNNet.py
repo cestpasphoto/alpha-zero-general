@@ -278,6 +278,45 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(512, self.num_scdiffs*self.scdiff_size)
 			)
 
+		elif self.version == 20:
+			self.conv2d_1 = nn.Sequential(
+				nn.Conv2d( 2, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+			)
+			self.conv2d_2 = nn.Sequential(
+				nn.Conv2d(64, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
+			)
+			self.partialgpool_1 = nn.Identity()
+			self.conv2d_3 = nn.Sequential(
+				nn.Conv2d(64, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
+			)
+			self.dense1d_0 = nn.Sequential(
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+
+			self.dense1d_1 = nn.Sequential(
+				nn.Linear((32+1)*5*5, 256), nn.ReLU(),
+			)
+			self.dense1d_2 = nn.Sequential(
+				nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(256, 256)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(256, 128),
+				nn.Linear(128, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(256, 128),
+				nn.Linear(128, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(256, 128),
+				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
+			)
+
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
 
@@ -307,6 +346,7 @@ class SantoriniNNet(nn.Module):
 			v = self.output_layers_V(x).squeeze(1)
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+
 		elif self.version in [10, 11, 12, 13]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			
@@ -316,6 +356,27 @@ class SantoriniNNet(nn.Module):
 			x = F.dropout(self.conv2d_3(x)      , p=self.args['dropout'], training=self.training)
 
 			x = torch.flatten(x, start_dim=1).unsqueeze(1)
+			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
+			
+			v = self.output_layers_V(x).squeeze(1)
+			sdiff = self.output_layers_SDIFF(x).squeeze(1)
+			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+
+		elif self.version in [20]:
+			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x, data = x.split([2,1], dim=1)
+
+			x = F.dropout(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.conv2d_2(x)      , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.conv2d_3(x)      , p=self.args['dropout'], training=self.training)
+
+			data = torch.flatten(data, start_dim=2)
+			data = F.dropout(self.dense1d_0(data), p=self.args['dropout'], training=self.training)
+
+			x = torch.flatten(x, start_dim=1).unsqueeze(1)
+			x = torch.cat([x, data], dim=-1)
 			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
 			
