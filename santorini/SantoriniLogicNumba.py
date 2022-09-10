@@ -335,7 +335,7 @@ class Board():
 							if build_direction == NO_BUILD and move_direction != NO_MOVE and nb_previous_moves < MAX_ITER_FOR_HERMES:
 								# In first turns, just move (no build)
 								actions[_encode_action(worker, HERMES, move_direction, NO_BUILD)] = True
-							else:
+							elif build_direction != NO_BUILD:
 								build_position = _apply_direction(worker_new_position, build_direction)
 								if not self._able_to_build(build_position, ignore=worker_id):
 									continue
@@ -447,8 +447,9 @@ class Board():
 				old_level = self.levels[worker_old_position]
 				worker_new_position = _apply_direction(worker_old_position, move_direction)
 				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
-				build_position = _apply_direction(worker_new_position, build_direction)
-				self.levels[build_position] += 1
+				if build_direction != NO_BUILD:
+					build_position = _apply_direction(worker_new_position, build_direction)
+					self.levels[build_position] += 1
 				if self.gods_power.flat[PAN+NB_GODS*player] > 0:
 					# Checking if went 2+ floors downstairs
 					new_level = self.levels[worker_new_position]
@@ -462,7 +463,7 @@ class Board():
 
 				else:
 					# Reset any previous info
-					for i in range(player*NB_GODS, 2*player*NB_GODS):
+					for i in range(player*NB_GODS, (player+1)*NB_GODS):
 						self.gods_power.flat[i] = min(64, self.gods_power.flat[i])
 
 			elif power == APOLLO:
@@ -657,6 +658,8 @@ class Board():
 
 	# Same function as after because @jitclass doesn't support recursive function
 	def _able_to_move_worker_to(self, old_position, new_position, player, no_climb=False, swap_with_opponent=False, push_opponent=False):
+		if old_position == new_position:							# Skip tests if no move
+			return True
 		if not (0<=new_position[0]<5 and 0<=new_position[1]<5):		# Out of grid?
 			return False
 
