@@ -115,6 +115,9 @@ class Board():
 
 			if INIT_METHOD == 3:
 				gods = [NO_GOD, NO_GOD] if NB_GODS <= 1 else (np.random.choice(NB_GODS-1, 2, replace=False)+1)
+				# gods = [NO_GOD, NO_GOD]
+				# gods = np.random.choice(np.arange(NO_GOD+1, MINOTAUR+1), 2, replace=False)
+				# gods = np.random.choice(np.arange(1,4), 2, replace=False)
 				self.gods_power.flat[gods[0]+NB_GODS*0] = 64
 				self.gods_power.flat[gods[1]+NB_GODS*1] = 64
 
@@ -660,10 +663,11 @@ class Board():
 	def _able_to_move_worker_to(self, old_position, new_position, player, no_climb=False, swap_with_opponent=False, push_opponent=False):
 		if old_position == new_position:							# Skip tests if no move
 			return True
+
 		if not (0<=new_position[0]<5 and 0<=new_position[1]<5):		# Out of grid?
 			return False
 
-		if self.workers[new_position] != 0:								# Cell already used by another worker?
+		if self.workers[new_position] != 0:							# Cell already used by another worker?
 			opponents = [-1, -2] if player == 0 else [1, 2]
 			if (swap_with_opponent or push_opponent) and (self.workers[new_position] in opponents):
 				if push_opponent: # Check opponent future position if he's pushed
@@ -673,25 +677,25 @@ class Board():
 				return False
 
 		new_level = self.levels[new_position]
-		if new_level > 3:												# Dome in future position?
+		if new_level > 3:											# Dome in future position?
 			return False
 
 		old_level = self.levels[old_position]
-		if new_level > old_level + (0 if no_climb else 1):	# Future level much higher than current level?
+		if new_level > old_level + (0 if no_climb else 1):			# Future level much higher than current level?
 			return False
 
 		return True
 
 	# Same function as before because @jitclass doesn't support recursive function
 	def _able_to_push_opponent(self, new_position):
-		if not (0<=new_position[0]<5 and 0<=new_position[1]<5):		# Out of grid?
+		if not (0<=new_position[0]<5 and 0<=new_position[1]<5):	# Out of grid?
 			return False
 
-		if self.workers[new_position] != 0:		# Cell already used by another worker?
+		if self.workers[new_position] != 0:						# Cell already used by another worker?
 			return False
 
 		new_level = self.levels[new_position]
-		if new_level > 3:						# Dome in future position?
+		if new_level > 3:										# Dome in future position?
 			return False
 
 		# Future level much higher than current level?
