@@ -1,6 +1,8 @@
 import os
 import sys
 import time
+import pickle
+import zlib
 
 os.environ["OMP_NUM_THREADS"] = "1" # PyTorch more efficient this way
 
@@ -68,7 +70,7 @@ class NNetWrapper(NeuralNet):
 	
 			for _ in range(batch_count):
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
-				boards, pis, vs, scdiffs, valid_actions, surprises = list(zip(*[examples[i] for i in sample_ids]))
+				boards, pis, vs, scdiffs, valid_actions, surprises = self.pick_examples(examples, sample_ids)
 				boards = torch.FloatTensor(np.array(boards).reshape(-1,25,3).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
@@ -273,3 +275,10 @@ class NNetWrapper(NeuralNet):
 		opts.intra_op_num_threads, opts.inter_op_num_threads, opts.inter_op_num_threads = 1, 1, ort.ExecutionMode.ORT_SEQUENTIAL
 		self.ort_session = ort.InferenceSession(temporary_file, sess_options=opts)
 		os.remove(temporary_file)
+
+	def pick_examples(self, examples, sample_ids):
+		if self.args['no_compression']:
+			picked_examples = [examples[i] for i in sample_ids]
+		else: 
+			picked_examples = [pickle.loads(zlib.decompress(examples[i])) for i in sample_ids]
+		return list(zip(*picked_examples))

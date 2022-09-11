@@ -2,7 +2,8 @@ import logging
 import os
 import sys
 from collections import deque
-from pickle import Pickler, Unpickler
+import pickle
+import zlib
 from random import shuffle
 import time
 
@@ -68,7 +69,7 @@ class Coach():
             r = self.game.getGameEnded(board)
             if r.any():
                 final_scores = [self.game.getScore(board, p) for p in range(self.game.num_players)]
-                return [(
+                trainExamples = [(
                     x[0],                                # board
                     x[2],                                # policy
                     np.roll(r, -x[1]),                   # winner
@@ -76,6 +77,8 @@ class Coach():
                     x[3],                                # valids
                     x[4],                                # surprise
                 ) for x in trainExamples]
+
+                return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
 
     def learn(self):
         """
@@ -112,8 +115,7 @@ class Coach():
                 self.trainExamplesHistory.pop(0)
             # backup history to a file
             # NB! the examples were collected using the model from the previous iteration, so (i-1)  
-            # if i % 5 == 0:
-            self.saveTrainExamples(i - 1) # HUGE PEAK, MEMORY CONSUMPTION TOO HIGH
+            self.saveTrainExamples(i - 1)
             # shuffle examples before training
             trainExamples = []
             for e in self.trainExamplesHistory:
@@ -155,7 +157,7 @@ class Coach():
             os.makedirs(folder)
         filename = os.path.join(folder, "checkpoint.examples")
         with open(filename, "wb") as f:
-            Pickler(f).dump(self.trainExamplesHistory)
+            pickle.dump(self.trainExamplesHistory, f)
 
     def loadTrainExamples(self):
         modelFile = self.args.load_folder_file
@@ -169,8 +171,20 @@ class Coach():
     
         log.info("File with trainExamples found. Loading it...")
         with open(examplesFile, "rb") as f:
-            self.trainExamplesHistory = Unpickler(f).load()
-        log.info('Loading done!')
+            self.trainExamplesHistory = pickle.load(f)
+        # decompress or compress if file format doesn't match input args
+        if type(self.trainExamplesHistory[0][0]) is bytes and self.args.no_compression:
+            for i in range(len(self.trainExamplesHistory)):
+                for j in range(len(self.trainExamplesHistory[i])):
+                    self.trainExamplesHistory[i][j] = pickle.loads(zlib.decompress(self.trainExamplesHistory[i][j]))
+            log.info('Loading and decompression done!')
+        elif type(self.trainExamplesHistory[0][0]) is tuple and not self.args.no_compression:
+            for i in range(len(self.trainExamplesHistory)):
+                for j in range(len(self.trainExamplesHistory[i])):
+                    self.trainExamplesHistory[i][j] = zlib.compress(pickle.dumps(self.trainExamplesHistory[i][j]), level=1)
+            log.info('Loading and compression done!')
+        else:
+            log.info('Loading done!')
 
         # cleaning
         if len(self.trainExamplesHistory) > self.args.numItersHistory:

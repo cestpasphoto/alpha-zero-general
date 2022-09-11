@@ -27,6 +27,7 @@ def run(args):
 		vl_weight=args.vl_weight,
 		cyclic_lr=args.cyclic_lr,
 		surprise_weight=args.surprise_weight,
+		no_compression=args.no_compression,
 	)
 	nnet = nn(g, nn_args)
 
@@ -96,6 +97,7 @@ def main():
 	parser.add_argument('--cyclic-lr'       , '-Y' , action='store_true', help='Enable cyclic learning rate')
 	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
 
+	parser.add_argument('--no-compression'  , '-z' , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
 	
