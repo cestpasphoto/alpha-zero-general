@@ -55,12 +55,7 @@ class NNetWrapper(NeuralNet):
 			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate']*10, anneal_strategy='cos', total_steps=self.args['epochs']*batch_count)
 			# scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate']*10, anneal_strategy='linear', total_steps=self.args['epochs']*batch_count)
 
-		if self.args['surprise_weight']:
-			examples_surprises = np.array([x[5] for x in examples])
-			examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
-			examples_weights = examples_weights / examples_weights.sum()
-		else:
-			examples_weights = None
+		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 		for epoch in range(self.args['epochs']):
@@ -282,3 +277,14 @@ class NNetWrapper(NeuralNet):
 		else: 
 			picked_examples = [pickle.loads(zlib.decompress(examples[i])) for i in sample_ids]
 		return list(zip(*picked_examples))
+
+	def compute_surprise_weights(self, examples):
+		if self.args['no_compression']:
+			examples_surprises = np.array([x[5] for x in examples])
+		else:
+			examples_surprises = [pickle.loads(zlib.decompress(x))[5] for i in examples]
+		examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
+		examples_weights = examples_weights / examples_weights.sum()
+
+		return examples_weights
+		
