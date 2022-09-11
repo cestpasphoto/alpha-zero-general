@@ -14,7 +14,8 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general but sup
     * [x] Reaching **about 3000 rollouts/sec on 1 CPU core** without batching and without GPU, meaning 1 full game in 30 seconds when using 1600 rollouts for each move. All in all, that is a 25x to 100x speed improvement compared to initial repo, see [details here](santorini/README.md).
     * [x] Neural Network inference speed and especially latency improved, thanks to ONNX 
     * [x] MCTS and logic optimized thanks to Numba, NN inference is now >80% time spent during self-plays based on profilers
-  * [x] Improvements based on [Accelerating Self-Play Learning in Go](https://arxiv.org/pdf/1902.10565.pdf)
+  * [x] Memory optimized through use of in-memory compression with minimal performance impact
+  * [x] Algorithm improvements based on [Accelerating Self-Play Learning in Go](https://arxiv.org/pdf/1902.10565.pdf)
     * [x] Playout Cap Randomization
     * [x] Forced Playouts and Policy Target Pruning
     * [x] Global Pooling
@@ -23,7 +24,7 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general but sup
 
   Others changes: improved prints (logging, tqdm, colored bards depending on current Arena results) and parameters can be set in cmdline (added new parameters like time limit). Still todo: set up HyperParameters Optimization (like Hyperband or Population-Based Traininginclude), and ELO-like ranking
 
-  Supported games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (modified)
+  Supported games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini with basic gods
 </details>
 
 ### Splendor
@@ -55,7 +56,7 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 ### Santorini
 * [x] Own implementation of [Santorini](https://www.ultraboardgames.com/santorini/game-rules.php), policy for initial status is user switchable (predefined, random or chosen by players)
 * [x] Optimized implementation, thanks to Numba again
-* [ ] Support of goddess
+* [x] Support of goddess (basic only)
 * [x] Explore various architectures, max pooling in addition to 2d convolutions seems to help
 
 ![Sample game of Santorini](santorini/sample_game_with_random_init.gif)

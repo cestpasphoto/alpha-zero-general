@@ -3,6 +3,7 @@
 import logging
 import os
 import coloredlogs
+import argparse
 
 from Coach import Coach
 from santorini.SantoriniGame import SantoriniGame as Game
@@ -34,6 +35,7 @@ def run(args):
 	if args.load_model:
 		log.info('Loading checkpoint "%s"...', args.load_folder_file)
 		nnet.load_checkpoint(os.path.dirname(args.load_folder_file), os.path.basename(args.load_folder_file))
+		compare_settings(args)
 	# else:
 	# 	log.warning('Not loading a checkpoint!')
 
@@ -44,12 +46,34 @@ def run(args):
 		log.info("Loading 'trainExamples' from file...")
 		c.loadTrainExamples()
 
+	# Backup code used for this run
 	subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
 	subprocess.run(f'cp *py santorini/*py "{args.checkpoint}/"', shell=True)
-	subprocess.run(f'echo "{args}" >> "{args.checkpoint}/main.py"', shell=True)
+	subprocess.run(f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"', shell=True)
 
 	log.debug('Starting the learning process 🎉')
 	c.learn()
+
+# Compare current settings and settings of checkpoints, display main differences
+def compare_settings(args):
+	settings_file = os.path.join(os.path.dirname(args.load_folder_file), 'settings.txt')
+
+	# Load settings
+	if not os.path.isfile(settings_file):
+		return
+	with open(settings_file,'r') as f:
+		previous_args = f.read()
+    
+	# Compute differences on dict versions
+	previous_args_dict, current_args_dict = vars(eval('argparse.'+previous_args)), vars(args)
+	changed_keys = set([k for k in set(list(previous_args_dict.keys()) + list(current_args_dict.keys())) if previous_args_dict.get(k) != current_args_dict.get(k)])
+	for key in ['load_folder_file', 'checkpoint', 'timeIters', 'numIters', 'arenaCompare', 'maxlenOfQueue', 'load_model']:
+		changed_keys.discard(key)
+
+	if changed_keys:
+		log.info('Some option(s) changed compared to loaded checkpoint:')
+		for k in changed_keys:
+			print(f'{k}: {previous_args_dict.get(k)} --> {current_args_dict.get(k)}')
 
 def profiling(args):
 	import cProfile, pstats
@@ -72,7 +96,6 @@ def profiling(args):
 	print('check dumped stats in execution.prof')
 
 def main():
-	import argparse
 	parser = argparse.ArgumentParser(description='tester')
 
 	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int  , help='')
