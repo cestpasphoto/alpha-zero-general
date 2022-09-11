@@ -34,7 +34,7 @@ def create_player(name, args):
 		return HumanPlayer(game).play
 
 	# set default values but will be overloaded when loading checkpoint
-	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1, save_optim_state=False)
+	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1)
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(name)
 	additional_keys = net.load_checkpoint(cpt_dir, cpt_file)

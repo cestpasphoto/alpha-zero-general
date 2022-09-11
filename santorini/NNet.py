@@ -162,8 +162,6 @@ class NNetWrapper(NeuralNet):
 			'state_dict': self.nnet.state_dict(),
 			'full_model': self.nnet,
 		}
-		if self.optimizer is not None:
-			data['optim_state'] = self.optimizer.state_dict(),
 		data.update(additional_keys)
 		torch.save(data, filepath)
 
@@ -176,12 +174,6 @@ class NNetWrapper(NeuralNet):
 		try:
 			checkpoint = torch.load(filepath, map_location='cpu')
 			self.load_network(checkpoint, strict=False)
-			if self.args['save_optim_state']:
-				if 'optim_state' in checkpoint:
-					self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
-					self.optimizer.load_state_dict(checkpoint['optim_state'][0]) 	# Weird that we have to do that
-				else:
-					print('No dump of optimizer state :-(')
 		except:
 			print("MODEL {} CAN'T BE READ but file exists".format(filepath))
 			return

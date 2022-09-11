@@ -41,7 +41,7 @@ def serialize(game):
 	return state_str;
 
 def next_best_move(game, nn_name, player):
-	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1, save_optim_state=False)
+	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1)
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(nn_name)
 	additional_keys = net.load_checkpoint(cpt_dir, cpt_file)
