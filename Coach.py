@@ -114,8 +114,7 @@ class Coach():
             if len(self.trainExamplesHistory) > self.args.numItersHistory:
                 self.trainExamplesHistory.pop(0)
             # backup history to a file
-            # NB! the examples were collected using the model from the previous iteration, so (i-1)  
-            self.saveTrainExamples(i - 1)
+            self.saveTrainExamples()
             # shuffle examples before training
             trainExamples = []
             for e in self.trainExamplesHistory:
@@ -151,7 +150,7 @@ class Coach():
     def getCheckpointFile(self, iteration):
         return 'checkpoint_' + str(iteration) + '.pt'
 
-    def saveTrainExamples(self, iteration):
+    def saveTrainExamples(self):
         folder = self.args.checkpoint
         if not os.path.exists(folder):
             os.makedirs(folder)
@@ -173,36 +172,15 @@ class Coach():
         with open(examplesFile, "rb") as f:
             self.trainExamplesHistory = pickle.load(f)
         
-        # Harmonize compression use in loaded examples, and same about surprise weights
-        def change_last_value_in_tuple(input_tuple, new_value):
-            res = list(input_tuple)
-            res[-1] = new_value
-            return tuple(res)
-
-        if type(self.trainExamplesHistory[0][0]) is tuple:      # loaded checkpoint is not compressed
+        # Harmonize compression use in loaded examples
+        if type(self.trainExamplesHistory[0][0]) is tuple and not self.args.no_compression:
             for i in range(len(self.trainExamplesHistory)):
-                # Check surprise value in loaded file
-                sample_item = self.trainExamplesHistory[i][0]
-                must_change_surprises = (sample_item[-1] is None) if self.args.surprise_weight else (sample_item[-1] > 0)
+                for j in range(len(self.trainExamplesHistory[i])):                    
+                    self.trainExamplesHistory[i][j] = zlib.compress(pickle.dumps(self.trainExamplesHistory[i][j]), level=1)
+        elif type(self.trainExamplesHistory[0][0]) is not tuple and self.args.no_compression:
+            for i in range(len(self.trainExamplesHistory)): 
                 for j in range(len(self.trainExamplesHistory[i])):
-                    if must_change_surprises:
-                        self.trainExamplesHistory[i][j] = change_last_value_in_tuple(self.trainExamplesHistory[i][j], 1. if self.args.surprise_weight else None)
-                    if not self.args.no_compression:
-                        self.trainExamplesHistory[i][j] = zlib.compress(pickle.dumps(self.trainExamplesHistory[i][j]), level=1)
-        else:                                                   # loaded checkpoint is compressed
-            for i in range(len(self.trainExamplesHistory)):
-                # Check surprise value in loaded file
-                sample_item = pickle.loads(zlib.decompress(self.trainExamplesHistory[i][0]))
-                must_change_surprises = (sample_item[-1] is None) if self.args.surprise_weight else (sample_item[-1] > 0)
-                # Change surprise and/or decompress                
-                for j in range(len(self.trainExamplesHistory[i])):
-                    if must_change_surprises:
-                        self.trainExamplesHistory[i][j] = pickle.loads(zlib.decompress(self.trainExamplesHistory[i][j]))
-                        self.trainExamplesHistory[i][j] = change_last_value_in_tuple(self.trainExamplesHistory[i][j], 1. if self.args.surprise_weight else None)
-                        if not self.args.no_compression:
-                            self.trainExamplesHistory[i][j] = zlib.compress(pickle.dumps(self.trainExamplesHistory[i][j]), level=1)
-                    elif self.args.no_compression:
-                        self.trainExamplesHistory[i][j] = pickle.loads(zlib.decompress(self.trainExamplesHistory[i][j]))
+                    self.trainExamplesHistory[i][j] = pickle.loads(zlib.decompress(self.trainExamplesHistory[i][j]))
         log.info('Loading done!')
 
         # cleaning
