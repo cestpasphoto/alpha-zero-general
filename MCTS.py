@@ -1,6 +1,6 @@
 import logging
 import math
-
+import gc
 import numpy as np
 
 from santorini.SantoriniGame import getGameEnded, getNextState, getValidMoves, getCanonicalForm
@@ -48,10 +48,6 @@ class MCTS():
             probs: a policy vector where the probability of the ith action is
                    proportional to Nsa[(s,a)]**(1./temp)
         """
-        if self.game.getRound(canonicalBoard) == 0:
-            # first move, cleaning tree
-            self.nodes_data = {}
-
         is_full_search = force_full_search or (self.rng.random() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
@@ -168,6 +164,11 @@ class MCTS():
                Ps[idx] = (0.75 * Ps[idx]) + (0.25 * dir_values[dir_idx])
                dir_idx += 1
 
+    @staticmethod
+    def reset_all_search_trees():
+        for obj in [o for o in gc.get_objects() if isinstance(o, MCTS)]:
+            obj.nodes_data = {}
+        
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)

@@ -6,6 +6,7 @@ from tqdm import tqdm
 from santorini.SantoriniGame import NUMBER_PLAYERS
 from santorini.SantoriniDisplay import move_to_str
 
+from MCTS import MCTS
 
 class Arena():
     """
@@ -73,6 +74,8 @@ class Arena():
             if self.display:
                 self.display(board)
             print("Game over: Turn ", str(it), "Result ", self.game.getGameEnded(board))
+
+        MCTS.reset_all_search_trees()
             
         return self.game.getGameEnded(board)[0]
 
