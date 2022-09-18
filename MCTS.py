@@ -3,7 +3,7 @@ import math
 import gc
 import numpy as np
 
-from santorini.SantoriniGame import getGameEnded, getNextState, getValidMoves, getCanonicalForm
+from santorini.SantoriniGame import getGameEnded, getNextState, getValidMoves, getCanonicalForm, getRound
 from numba import njit
 
 EPS = 1e-8
@@ -73,6 +73,12 @@ class MCTS():
         probs = probs / probs.sum()
         surprise = (np.log(probs+EPS) - np.log(self.nodes_data[s][2]+EPS)).dot(probs).item()
 
+        # Clean search tree from previous old moves (less memory footprint and less keys to search into)
+        r = getRound(self.game.board, canonicalBoard)
+        if r % 5 == 0 and r > 5:
+            for node in [n for n in self.nodes_data if self.nodes_data[n][6] < r-5]:
+                del self.nodes_data[node]
+
         if temp == 0:
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
             bestA = np.random.choice(bestAs)
@@ -106,13 +112,15 @@ class MCTS():
         """
 
         s = self.game.stringRepresentation(canonicalBoard)
-        Es, Vs, Ps, Ns, Qsa, Nsa = self.nodes_data.get(s, (None, )*6)
+        Es, Vs, Ps, Ns, Qsa, Nsa, r = self.nodes_data.get(s, (None, )*7)
+        if r is None:
+            r = getRound(self.game.board, canonicalBoard)
 
         if Es is None:
             Es = getGameEnded(self.game.board, canonicalBoard)
             if Es.any():
                 # terminal node
-                self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
+                self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r)
                 return Es
         elif Es.any():
             # terminal node
@@ -127,7 +135,7 @@ class MCTS():
             normalise(Ps)
 
             Ns, Qsa, Nsa = 0, self.Qsa_default.copy(), self.Nsa_default.copy()
-            self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
+            self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r)
             return v
 
         if dirichlet_noise:
@@ -152,7 +160,7 @@ class MCTS():
         Nsa[a] += 1
         Ns += 1
 
-        self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa)
+        self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r)
         return v
 
 
@@ -166,7 +174,7 @@ class MCTS():
 
     @staticmethod
     def reset_all_search_trees():
-        for obj in [o for o in gc.get_objects() if isinstance(o, MCTS)]:
+        for obj in [o for o in gc.get_objects() if type(o) is MCTS]: # dirtier than isinstance, but that would trigger a pytorch warning
             obj.nodes_data = {}
         
 

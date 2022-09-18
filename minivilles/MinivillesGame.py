@@ -35,6 +35,11 @@ def getCanonicalForm(splendorgameboard, board, player):
 	splendorgameboard.swap_players(player)
 	return splendorgameboard.get_state()
 
+@njit(fastmath=True, nogil=True)
+def getRound(splendorgameboard, board):
+    splendorgameboard.copy_state(board, False)
+    return splendorgameboard.get_round()
+
 class MinivillesGame(Game):
 	def __init__(self):
 		self.num_players = NUMBER_PLAYERS
