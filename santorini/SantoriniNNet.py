@@ -401,6 +401,169 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(512, self.num_scdiffs*self.scdiff_size)
 			)
 
+		elif self.version == 23:
+			self.conv2d_1 = nn.Sequential(
+				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.conv2d_2 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.partialgpool_1 = nn.Identity()
+			self.conv2d_3 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.dense1d_0 = nn.Sequential(
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+
+			self.dense1d_1 = nn.Sequential(
+				nn.Linear((128+1)*5*5, 512), nn.ReLU(),
+			)
+			self.dense1d_2 = nn.Sequential(
+				nn.Linear(512, 512), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(512, 256)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
+			)
+
+		elif self.version == 24:
+			self.conv2d_1 = nn.Sequential(
+				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.conv2d_2 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1)                     , nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			self.conv2d_3 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.dense1d_0 = nn.Sequential(
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+
+			self.dense1d_1 = nn.Sequential(
+				nn.Linear((128+1)*5*5, 512), nn.ReLU(),
+			)
+			self.dense1d_2 = nn.Sequential(
+				nn.Linear(512, 512), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(512, 256), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
+			)
+
+		elif self.version == 25:
+			self.conv2d_1 = nn.Sequential(
+				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.conv2d_2 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			self.conv2d_3 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.dense1d_0 = nn.Sequential(
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+
+			self.dense1d_1 = nn.Sequential(
+				nn.Linear((128+1)*5*5, 512), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+			self.dense1d_2 = nn.Sequential(
+				nn.Linear(512, 512), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(512, 256), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(256, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
+			)
+
+		elif self.version == 30:
+			self.conv2d_1 = nn.Sequential(
+				nn.Conv2d(  2, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
+				nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
+				nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
+				nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
+				nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
+				nn.Conv2d(256, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.dense1d_0 = nn.Sequential(
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+			self.dense1d_1 = nn.Sequential(
+				nn.Linear((128+1)*5*5, 256), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(256, 256)        , nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(256, 256)        , nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(256, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(256, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
+			)
+
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
 
@@ -447,7 +610,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [20, 21, 22]:
+		elif self.version in [20, 21, 22, 23, 24, 25]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
@@ -463,6 +626,22 @@ class SantoriniNNet(nn.Module):
 			x = torch.cat([x, data], dim=-1)
 			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
+			
+			v = self.output_layers_V(x).squeeze(1)
+			sdiff = self.output_layers_SDIFF(x).squeeze(1)
+			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+
+		elif self.version in [30]:
+			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x, data = x.split([2,1], dim=1)
+
+			x = F.dropout(self.conv2d_1(x)       , p=self.args['dropout'], training=self.training)
+			data = torch.flatten(data, start_dim=2)
+			data = F.dropout(self.dense1d_0(data), p=self.args['dropout'], training=self.training)
+
+			x = torch.flatten(x, start_dim=1).unsqueeze(1)
+			x = torch.cat([x, data], dim=-1)
+			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x).squeeze(1)
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
