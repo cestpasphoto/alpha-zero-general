@@ -121,6 +121,7 @@ def main():
 	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
 
 	parser.add_argument('--no-compression'  , '-z' , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')
+	parser.add_argument('--no-mem-optim'    , '-Z' , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
 	

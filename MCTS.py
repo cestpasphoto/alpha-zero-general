@@ -38,6 +38,7 @@ class MCTS():
 
         self.rng = np.random.default_rng()
         self.step = 0
+        self.last_cleaning = 0
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -52,8 +53,7 @@ class MCTS():
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
         for self.step in range(nb_MCTS_sims):
-            dir_noise       = (self.step == 0 and is_full_search and self.dirichlet_noise)
-            
+            dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
             self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
 
         s = self.game.stringRepresentation(canonicalBoard)
@@ -73,11 +73,13 @@ class MCTS():
         probs = probs / probs.sum()
         surprise = (np.log(probs+EPS) - np.log(self.nodes_data[s][2]+EPS)).dot(probs).item()
 
-        # Clean search tree from previous old moves (less memory footprint and less keys to search into)
-        r = getRound(self.game.board, canonicalBoard)
-        if r % 5 == 0 and r > 5:
-            for node in [n for n in self.nodes_data if self.nodes_data[n][6] < r-5]:
-                del self.nodes_data[node]
+        # Clean search tree from very old moves = less memory footprint and less keys to search into
+        if not self.args.no_mem_optim:
+            r = getRound(self.game.board, canonicalBoard)
+            if r > self.last_cleaning + 5:
+                for node in [n for n in self.nodes_data.keys() if self.nodes_data[n][6] < r-5]:
+                    del self.nodes_data[node]
+                self.last_cleaning = r
 
         if temp == 0:
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
@@ -176,6 +178,7 @@ class MCTS():
     def reset_all_search_trees():
         for obj in [o for o in gc.get_objects() if type(o) is MCTS]: # dirtier than isinstance, but that would trigger a pytorch warning
             obj.nodes_data = {}
+            obj.last_cleaning = 0
         
 
 # pick the action with the highest upper confidence bound
