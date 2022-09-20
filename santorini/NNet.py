@@ -186,7 +186,7 @@ class NNetWrapper(NeuralNet):
 					if target_params.shape == params.shape:
 						params.copy_(target_params)
 						# print(f'no problem to copy {name}')
-					else:
+					elif target_params.dim() == params.dim():
 						if len(target_params.shape) == 1:
 							min_size = min(target_params.shape[0], params.shape[0])
 							target_params[:min_size] = params[:min_size]
@@ -201,8 +201,11 @@ class NNetWrapper(NeuralNet):
 							target_params[:min_size_0, :min_size_1, :min_size_2, :min_size_3] = params[:min_size_0, :min_size_1, :min_size_2, :min_size_3]
 						else:
 							raise Exception('Unsupported number of dimensions')
-						
+
 						print(f'{name}: load {params.shape}  target {target_params.shape}, used {(min_size_0)}')
+					else:
+						print(f'{name}: couldnt match loaded {params.shape}  and target {target_params.shape}, using standard initialization')
+						
 				# else:
 				# 	print(f'hasnt loaded layer {name} because not in target')
 
@@ -215,7 +218,9 @@ class NNetWrapper(NeuralNet):
 					print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
 				except:
 					self.nnet = checkpoint['full_model']
-					print('Had to load full model AS IS, saved archi-version was', checkpoint['full_model'].version, 'and wont be updated')
+					print('Had to load full model AS IS, saved archi-version was', checkpoint['full_model'].version, 'and WONT BE UPDATED')
+					if input("Continue? [y|n]") != "y":
+						sys.exit()
 			else:
 				self.nnet = checkpoint['full_model']
 
