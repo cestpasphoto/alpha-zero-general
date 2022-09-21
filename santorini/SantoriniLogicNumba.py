@@ -539,18 +539,20 @@ class Board():
 		else:
 			return player
 
-	def check_end_game(self):
+	def check_end_game(self, next_player):
 		if INIT_METHOD == 2 and np.abs(self.workers).sum() != 6:	# workers not all set, no winner yet
 			return np.array([0, 0], dtype=np.float32)					
-		if self.get_score(0) == 3 or self.valid_moves(1).sum() == 0:	# P0 wins
+
+		if self.get_score(0) == 3 or self.gods_power.flat[PAN+NB_GODS*0] > 64:	# P0 wins by being 3rd floor or Pan's power
 			return np.array([1, -1], dtype=np.float32)
-		if self.gods_power.flat[PAN+NB_GODS*0] > 64:					# P0 wins with its power of Pan
-			return np.array([1, -1], dtype=np.float32)
-		if self.get_score(1) == 3 or self.valid_moves(0).sum() == 0:	# P1 wins
+		if self.get_score(1) == 3 or self.gods_power.flat[PAN+NB_GODS*1] > 64:	# P1 wins by being 3rd floor or Pan's power
 			return np.array([-1, 1], dtype=np.float32)
-		if self.gods_power.flat[PAN+NB_GODS*1] > 64:					# P1 wins with its power of Pan
-			return np.array([-1, 1], dtype=np.float32)
-		return np.array([0, 0], dtype=np.float32)						# no winner yet
+		if self.valid_moves(next_player).sum() == 0:							# P0 wins if P1 can't move, and vice versa
+			if next_player == 0:
+				return np.array([-1, 1], dtype=np.float32)
+			else:
+				return np.array([1, -1], dtype=np.float32)
+		return np.array([0, 0], dtype=np.float32)								# no winner yet
 
 	def swap_players(self, nb_swaps):
 		if nb_swaps != 1:

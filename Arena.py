@@ -52,7 +52,7 @@ class Arena():
         curPlayer = 0
         board = self.game.getInitBoard()
         it = 0
-        while not self.game.getGameEnded(board).any():
+        while not self.game.getGameEnded(board, curPlayer).any():
             it += 1
             if verbose:
                 if self.display:
@@ -73,11 +73,11 @@ class Arena():
         if verbose:
             if self.display:
                 self.display(board)
-            print("Game over: Turn ", str(it), "Result ", self.game.getGameEnded(board))
+            print("Game over: Turn ", str(it), "Result ", self.game.getGameEnded(board, curPlayer))
 
         MCTS.reset_all_search_trees()
             
-        return self.game.getGameEnded(board)[0]
+        return self.game.getGameEnded(board, curPlayer)[0]
 
     def playGames(self, num, verbose=False):
         """

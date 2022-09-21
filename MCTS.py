@@ -76,7 +76,7 @@ class MCTS():
         # Clean search tree from very old moves = less memory footprint and less keys to search into
         if not self.args.no_mem_optim:
             r = getRound(self.game.board, canonicalBoard)
-            if r > self.last_cleaning + 5:
+            if r > self.last_cleaning + 10:
                 for node in [n for n in self.nodes_data.keys() if self.nodes_data[n][6] < r-5]:
                     del self.nodes_data[node]
                 self.last_cleaning = r
@@ -119,7 +119,7 @@ class MCTS():
             r = getRound(self.game.board, canonicalBoard)
 
         if Es is None:
-            Es = getGameEnded(self.game.board, canonicalBoard)
+            Es = getGameEnded(self.game.board, canonicalBoard, 0)
             if Es.any():
                 # terminal node
                 self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r)

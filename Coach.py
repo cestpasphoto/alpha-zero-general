@@ -66,7 +66,7 @@ class Coach():
             action = np.random.choice(len(pi), p=pi)
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
-            r = self.game.getGameEnded(board)
+            r = self.game.getGameEnded(board, self.curPlayer)
             if r.any():
                 final_scores = [self.game.getScore(board, p) for p in range(self.game.num_players)]
                 trainExamples = [(

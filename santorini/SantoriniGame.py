@@ -10,9 +10,9 @@ from numba import njit
 NUMBER_PLAYERS = 2
 
 @njit(fastmath=True, nogil=True) # No cache, because relies jitclass which isn't compatible with cache
-def getGameEnded(splendorgameboard, board):
+def getGameEnded(splendorgameboard, board, next_player):
     splendorgameboard.copy_state(board, False)
-    return splendorgameboard.check_end_game()
+    return splendorgameboard.check_end_game(next_player)
 
 @njit(fastmath=True, nogil=True)
 def getNextState(splendorgameboard, board, player, action, deterministic=False):
@@ -67,9 +67,9 @@ class SantoriniGame(Game):
         self.board.copy_state(board, False)
         return self.board.valid_moves(player)
 
-    def getGameEnded(self, board):
+    def getGameEnded(self, board, next_player):
         self.board.copy_state(board, False)
-        return self.board.check_end_game()
+        return self.board.check_end_game(next_player)
 
     def getScore(self, board, player):
         self.board.copy_state(board, False)
