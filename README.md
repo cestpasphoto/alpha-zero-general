@@ -14,7 +14,9 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general but sup
     * [x] Reaching **about 3000 rollouts/sec on 1 CPU core** without batching and without GPU, meaning 1 full game in 30 seconds when using 1600 rollouts for each move. All in all, that is a 25x to 100x speed improvement compared to initial repo, see [details here](santorini/README.md).
     * [x] Neural Network inference speed and especially latency improved, thanks to ONNX 
     * [x] MCTS and logic optimized thanks to Numba, NN inference is now >80% time spent during self-plays based on profilers
-  * [x] Memory optimized through use of in-memory compression with minimal performance impact
+  * [x] Memory optimized with minimal performance impact
+    * [x] use of in-memory compression 
+    * [x] regularly clean old nodes in MCTS tree
   * [x] Algorithm improvements based on [Accelerating Self-Play Learning in Go](https://arxiv.org/pdf/1902.10565.pdf)
     * [x] Playout Cap Randomization
     * [x] Forced Playouts and Policy Target Pruning

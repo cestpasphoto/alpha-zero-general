@@ -115,9 +115,7 @@ class Board():
 
 			if INIT_METHOD == 3:
 				gods = [NO_GOD, NO_GOD] if NB_GODS <= 1 else (np.random.choice(NB_GODS-1, 2, replace=False)+1)
-				# gods = [NO_GOD, NO_GOD]
-				# gods = np.random.choice(np.arange(NO_GOD+1, MINOTAUR+1), 2, replace=False)
-				# gods = np.random.choice(np.arange(1,4), 2, replace=False)
+				# gods = [HERMES, HERMES]
 				self.gods_power.flat[gods[0]+NB_GODS*0] = 64
 				self.gods_power.flat[gods[1]+NB_GODS*1] = 64
 
