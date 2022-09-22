@@ -545,6 +545,9 @@ class Board():
 			else:
 				print(f'Should not happen mm {power} ({move})')
 
+		# Increase counter of moves
+		self.gods_power.flat[2*NB_GODS] += 1
+
 		if opponent_to_play_next:
 			return 1-player
 		else:
@@ -654,7 +657,7 @@ class Board():
 		return symmetries
 
 	def get_round(self):
-		return self.levels.sum()
+		return self.gods_power.flat[2*NB_GODS]
 
 	def copy_state(self, state, copy_or_not):
 		if self.state is state and not copy_or_not:

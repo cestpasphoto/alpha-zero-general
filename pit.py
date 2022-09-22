@@ -43,6 +43,7 @@ def create_player(name, args):
 		'cpuct'           : args.cpuct       if args.cpuct       else additional_keys.get('cpuct'      , 1.0),
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
+		'no_mem_optim'    : False,
 	})
 	mcts = MCTS(game, net, mcts_args)
 	player = lambda x: np.argmax(mcts.getActionProb(x, temp=0, force_full_search=True)[0])
