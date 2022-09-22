@@ -341,7 +341,7 @@ class Board():
 										actions[_encode_action(worker, NO_GOD, move_direction, build_direction)] = True
 						else:
 							# In first turns, just move (no build)
-							if nb_previous_moves < MAX_ITER_FOR_HERMES and self.levels[worker_new_position] < initial_levels[worker]+1:
+							if nb_previous_moves < MAX_ITER_FOR_HERMES and self.levels[worker_new_position] <= initial_levels[worker]+1:
 								actions[_encode_action(worker, HERMES, move_direction, NO_BUILD)] = True
 								
 
@@ -521,11 +521,10 @@ class Board():
 				self.workers[worker_old_position], self.workers[worker_new_position] = 0, worker_id
 				# Store initial level of each worker
 				if self.gods_power.flat[HERMES+NB_GODS*player] % 64 == 0:
-					 # We assume each level is either 0,1,2, because 3 not possible
-					if player == 0:
-						levels = self.levels[self._get_worker_position( 1)] * 3 + self.levels[self._get_worker_position( 2)]
-					else:
-						levels = self.levels[self._get_worker_position(-1)] * 3 + self.levels[self._get_worker_position(-2)]
+					workers = [1, 2] if player == 0 else [-1, -2]
+					# We assume each level is either 0,1,2, because 3 would lead to immediate win and 4 would not be possible
+					levels = [min(self.levels[self._get_worker_position(w)], 2) for w in workers]
+					levels = levels[0] * 3 + levels[1]
 					self.gods_power.flat[HERMES+NB_GODS*player] += levels * (MAX_ITER_FOR_HERMES+1)
 				# Store nb of moves
 				self.gods_power.flat[HERMES+NB_GODS*player] += 1
@@ -544,7 +543,8 @@ class Board():
 				print(f'Should not happen mm {power} ({move})')
 
 		# Increase counter of moves
-		self.gods_power.flat[2*NB_GODS] += 1
+		if self.gods_power.flat[2*NB_GODS] < 127:
+			self.gods_power.flat[2*NB_GODS] += 1
 
 		if opponent_to_play_next:
 			return 1-player
