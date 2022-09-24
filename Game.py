@@ -61,7 +61,7 @@ class Game():
         """
         pass
 
-    def getGameEnded(self, board):
+    def getGameEnded(self, board, next_player):
         """
         Input:
             board: current board
@@ -133,3 +133,9 @@ class Game():
                          Required by MCTS for hashing.
         """
         pass
+
+    def get_number_of_players(self):
+        pass
+
+    def move_to_str(self, move, current_player):
+        pass 

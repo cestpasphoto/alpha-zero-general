@@ -3,16 +3,17 @@ import sys
 sys.path.append('..')
 from Game import Game
 from .SantoriniLogicNumba import Board, observation_size, action_size, max_score_diff
+from .SantoriniDisplay import move_to_str
 import numpy as np
 from numba import njit
 
 
 NUMBER_PLAYERS = 2
 
-@njit(fastmath=True, nogil=True) # No cache, because relies jitclass which isn't compatible with cache
-def getGameEnded(splendorgameboard, board, next_player):
-    splendorgameboard.copy_state(board, False)
-    return splendorgameboard.check_end_game(next_player)
+# @njit(fastmath=True, nogil=True) # No cache, because relies jitclass which isn't compatible with cache
+# def getGameEnded(splendorgameboard, board, next_player):
+#     splendorgameboard.copy_state(board, False)
+#     return splendorgameboard.check_end_game(next_player)
 
 @njit(fastmath=True, nogil=True)
 def getNextState(splendorgameboard, board, player, action, deterministic=False):
@@ -20,10 +21,10 @@ def getNextState(splendorgameboard, board, player, action, deterministic=False):
     next_player = splendorgameboard.make_move(action, player, deterministic)
     return (splendorgameboard.get_state(), next_player)
 
-@njit(fastmath=True, nogil=True)
-def getValidMoves(splendorgameboard, board, player):
-    splendorgameboard.copy_state(board, False)
-    return splendorgameboard.valid_moves(player)
+# @njit(fastmath=True, nogil=True)
+# def getValidMoves(splendorgameboard, board, player):
+#     splendorgameboard.copy_state(board, False)
+#     return splendorgameboard.valid_moves(player)
 
 @njit(fastmath=True, nogil=True)
 def getCanonicalForm(splendorgameboard, board, player):
@@ -34,10 +35,10 @@ def getCanonicalForm(splendorgameboard, board, player):
     splendorgameboard.swap_players(player)
     return splendorgameboard.get_state()
 
-@njit(fastmath=True, nogil=True)
-def getRound(splendorgameboard, board):
-    splendorgameboard.copy_state(board, False)
-    return splendorgameboard.get_round()
+# @njit(fastmath=True, nogil=True)
+# def getRound(splendorgameboard, board):
+#     splendorgameboard.copy_state(board, False)
+#     return splendorgameboard.get_round()
 
 class SantoriniGame(Game):
     def __init__(self):
@@ -93,3 +94,9 @@ class SantoriniGame(Game):
 
     def stringRepresentation(self, board):
         return board.tobytes()
+
+    def get_number_of_players(self):
+        return NUMBER_PLAYERS
+
+    def move_to_str(self, move, current_player):
+        return move_to_str(move, current_player)

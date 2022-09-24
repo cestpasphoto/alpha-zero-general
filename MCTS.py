@@ -3,7 +3,7 @@ import math
 import gc
 import numpy as np
 
-from santorini.SantoriniGame import getGameEnded, getNextState, getValidMoves, getCanonicalForm, getRound
+from santorini.SantoriniGame import getNextState, getCanonicalForm
 from numba import njit
 
 EPS = 1e-8
@@ -75,7 +75,7 @@ class MCTS():
 
         # Clean search tree from very old moves = less memory footprint and less keys to search into
         if not self.args.no_mem_optim:
-            r = getRound(self.game.board, canonicalBoard)
+            r = self.game.getRound(canonicalBoard)
             if r > self.last_cleaning + 10:
                 for node in [n for n in self.nodes_data.keys() if self.nodes_data[n][6] < r-5]:
                     del self.nodes_data[node]
@@ -116,10 +116,10 @@ class MCTS():
         s = self.game.stringRepresentation(canonicalBoard)
         Es, Vs, Ps, Ns, Qsa, Nsa, r = self.nodes_data.get(s, (None, )*7)
         if r is None:
-            r = getRound(self.game.board, canonicalBoard)
+            r = self.game.getRound(canonicalBoard)
 
         if Es is None:
-            Es = getGameEnded(self.game.board, canonicalBoard, 0)
+            Es = self.game.getGameEnded(canonicalBoard, 0)
             if Es.any():
                 # terminal node
                 self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r)
@@ -129,7 +129,7 @@ class MCTS():
             return Es
 
         if Ps is None:
-            Vs = getValidMoves(self.game.board, canonicalBoard, 0)
+            Vs = self.game.getValidMoves(canonicalBoard, 0)
             # leaf node
             Ps, v = self.nnet.predict(canonicalBoard, Vs)
             if dirichlet_noise:

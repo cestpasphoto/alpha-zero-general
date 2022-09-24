@@ -3,8 +3,6 @@ log = logging.getLogger(__name__)
 
 import bisect
 from tqdm import tqdm
-from santorini.SantoriniGame import NUMBER_PLAYERS
-from santorini.SantoriniDisplay import move_to_str
 
 from MCTS import MCTS
 
@@ -48,7 +46,10 @@ class Arena():
         #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
         # elif NUMBER_PLAYERS == 5:
         #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
-        players = ([self.player2]+[self.player1]*(NUMBER_PLAYERS-1)) if other_way else ([self.player1]+[self.player2]*(NUMBER_PLAYERS-1))
+        if not other_way:
+            players = [self.player1]+[self.player2]*(self.game.get_number_of_players()-1)
+        else:
+            players = [self.player2]+[self.player1]*(self.game.get_number_of_players()-1)
         curPlayer = 0
         board = self.game.getInitBoard()
         it = 0
@@ -65,7 +66,7 @@ class Arena():
             valids = self.game.getValidMoves(canonical_board, 0)
 
             if verbose:
-                print(f'P{curPlayer} decided to {move_to_str(action, curPlayer)}')
+                print(f'P{curPlayer} decided to {self.game.move_to_str(action, curPlayer)}')
 
             if valids[action] == 0:
                 assert valids[action] > 0
