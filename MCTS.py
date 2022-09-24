@@ -3,7 +3,6 @@ import math
 import gc
 import numpy as np
 
-from santorini.SantoriniGame import getNextState, getCanonicalForm
 from numba import njit
 
 EPS = 1e-8
@@ -208,8 +207,16 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step):
 def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard, forced_playouts, step):
     a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step)
 
-    next_s, next_player = getNextState(gameboard, canonicalBoard, 0, a, True)
-    next_s = getCanonicalForm(gameboard, next_s, next_player)
+    # Do action 'a'
+    gameboard.copy_state(canonicalBoard, True)
+    next_player = gameboard.make_move(a, 0, deterministic=True)
+    # next_s = gameboard.get_state()
+
+    # Get canonical form
+    if next_player != 0:
+        # gameboard.copy_state(next_s, True)
+        gameboard.swap_players(next_player)
+    next_s = gameboard.get_state()
 
     return a, next_s, next_player
 

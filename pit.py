@@ -4,9 +4,6 @@ import Arena
 from MCTS import MCTS
 from santorini.SantoriniPlayers import *
 from santorini.SantoriniGame import SantoriniGame as Game
-from santorini.SantoriniGame import NUMBER_PLAYERS
-from santorini.SantoriniDisplay import print_board
-from santorini.SantoriniLogicNumba import Board
 from santorini.NNet import NNetWrapper as NNet
 
 import numpy as np
@@ -63,7 +60,7 @@ def play(args):
 	print(args.player1, 'vs', args.player2)
 	player1, player2 = create_player(args.player1, args), create_player(args.player2, args)
 	human = 'human' in [args.player1, args.player2]
-	arena = Arena.Arena(player1, player2, game, display=display)
+	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
 	result = arena.playGames(args.num_games, verbose=args.display or human)
 	return result
 
@@ -101,11 +98,6 @@ def plays(args):
 				exit(0)
 			last_kbd_interrupt = now
 			print('Skipping this pit (hit CRTL-C once more to stop all)')
-
-def display(numpy_board):
-	board = Board(NUMBER_PLAYERS)
-	board.copy_state(numpy_board, False)
-	print_board(board)
 
 def profiling(args):
 	import cProfile, pstats

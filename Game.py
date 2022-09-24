@@ -134,8 +134,29 @@ class Game():
         """
         pass
 
-    def get_number_of_players(self):
+    def getNumberOfPlayers(self):
+        """
+        Returns:
+            number_players: Number of players that current game supports
+        """
         pass
 
-    def move_to_str(self, move, current_player):
+    def moveToString(self, move, current_player):
+        """
+        Input:
+            move: int coding for an aciton
+            current_player: index of current player
+
+        Returns:
+            string: a human representation of such move, as a printable string
+        """
         pass 
+
+    def printBoard(self, numpy_board):
+        """
+        Input:
+            numpy_board: a numpy representation of a board, may be different than self.board
+
+        Print: a human representation of such board on stdout, used during pit involving a human
+        """
+        pass

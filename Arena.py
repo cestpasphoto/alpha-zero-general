@@ -47,9 +47,9 @@ class Arena():
         # elif NUMBER_PLAYERS == 5:
         #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
         if not other_way:
-            players = [self.player1]+[self.player2]*(self.game.get_number_of_players()-1)
+            players = [self.player1]+[self.player2]*(self.game.getNumberOfPlayers()-1)
         else:
-            players = [self.player2]+[self.player1]*(self.game.get_number_of_players()-1)
+            players = [self.player2]+[self.player1]*(self.game.getNumberOfPlayers()-1)
         curPlayer = 0
         board = self.game.getInitBoard()
         it = 0
@@ -66,7 +66,7 @@ class Arena():
             valids = self.game.getValidMoves(canonical_board, 0)
 
             if verbose:
-                print(f'P{curPlayer} decided to {self.game.move_to_str(action, curPlayer)}')
+                print(f'P{curPlayer} decided to {self.game.moveToString(action, curPlayer)}')
 
             if valids[action] == 0:
                 assert valids[action] > 0
