@@ -72,11 +72,11 @@ There are some limitations: implemented logic doesn't allow you to both take gem
   <summary>Click here for details about training, running or playing</summary>
 
   #### Dependencies
-  `pip3 install onnxruntime-noopenmp numba tqdm colorama coloredlogs`
+  `pip3 install onnxruntime numba tqdm colorama coloredlogs`
   and
-  `pip3 install torch==1.8.1+cpu -f https://download.pytorch.org/whl/torch_stable.html`
+  `pip3 install torch --extra-index-url https://download.pytorch.org/whl/cpu`
 
-  The noopenmp version of onnxruntime is faster for single thread execution. This is the recommended way for fast exploration of hyperparameters, using several threads.
+  Contrary to before, latest versions of onnxruntime and pytorch lead to best performance, see GenericNNetWrapper.py line 255
 
   #### How to play versus saved engine
   `./pit.py -p splendor/pretrained_2players.pt -P human -n 1`
