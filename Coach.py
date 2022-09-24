@@ -6,6 +6,7 @@ import pickle
 import zlib
 from random import shuffle
 import time
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 import numpy as np
 from tqdm import tqdm
@@ -96,14 +97,38 @@ class Coach():
             log.info(f'Starting Iter #{i} ...')
             # examples of the iteration
             if not self.skipFirstSelfPlay or i > 1:
-                iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 
-                for _ in tqdm(range(self.args.numEps), desc="Self Play", ncols=120):
-                    iterationTrainExamples += self.executeEpisode()
-                    MCTS.reset_all_search_trees()
-                    if len(iterationTrainExamples) == self.args.maxlenOfQueue:
-                        log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
-                        break
+                if False:
+                    iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
+
+                    for _ in tqdm(range(self.args.numEps), desc="Self Play", ncols=120):
+                        iterationTrainExamples += self.executeEpisode()
+                        MCTS.reset_all_search_trees()
+                        if len(iterationTrainExamples) == self.args.maxlenOfQueue:
+                            log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
+                            break
+                else:
+                    from copy import deepcopy
+                    from santorini.SantoriniGame import SantoriniGame as Game
+                    from threading import current_thread, local
+
+                    t = tqdm(total=self.args.numEps, desc="Self Play", ncols=120)
+                    thread_storage = local()
+                    def task(_):
+                        bla = thread_storage.mycoach.executeEpisode()
+                        thread_storage.mycoach.mcts.nodes_data = {}
+                        # MCTS.reset_all_search_trees()
+                        t.update()
+                        return bla
+
+                    def init():
+                        thread_storage.mycoach = Coach(Game(), self.nnet.copy(), self.args)
+
+                    # Gerer le ctrl+c
+
+                    with ThreadPoolExecutor(max_workers=6, initializer=init) as ex:
+                        iterationTrainExamples = deque(ex.map(task, range(self.args.numEps)), maxlen=self.args.maxlenOfQueue)
+                    del thread_storage
 
                 # save the iteration examples to the history 
                 self.trainExamplesHistory.append(iterationTrainExamples)

@@ -3,6 +3,7 @@ import sys
 import time
 import pickle
 import zlib
+from threading import Lock
 
 os.environ["OMP_NUM_THREADS"] = "1" # PyTorch more efficient this way
 
@@ -23,6 +24,8 @@ torch.set_num_threads(1) # PyTorch more efficient this way
 
 from .SantoriniNNet import SantoriniNNet as mnnet
 
+nnet_conversion_lock = Lock()
+
 class NNetWrapper(NeuralNet):
 	def __init__(self, game, nn_args):
 		self.args = nn_args
@@ -40,6 +43,13 @@ class NNetWrapper(NeuralNet):
 		self.max_diff = game.getMaxScoreDiff()
 		self.num_players = game.num_players
 		self.optimizer = None
+		self.game = game
+
+	def copy(self):
+		from copy import deepcopy
+		result = NNetWrapper(self.game, dict(self.args))
+		result.nnet = deepcopy(self.nnet)
+		return result
 
 	def train(self, examples):
 		"""
@@ -226,8 +236,10 @@ class NNetWrapper(NeuralNet):
 
 
 	def switch_target(self, mode):
+		nnet_conversion_lock.acquire()
 		target_device = self.device[mode]
 		if target_device == self.current_mode:
+			nnet_conversion_lock.release()
 			return
 
 		if target_device == 'cpu':
@@ -244,6 +256,8 @@ class NNetWrapper(NeuralNet):
 			self.ort_session = None # Make ONNX export invalid
 		
 		self.current_mode = target_device
+
+		nnet_conversion_lock.release()
 
 	def export_and_load_onnx(self):
 		dummy_board         = torch.randn(1, self.nb_vect, self.vect_dim, dtype=torch.float32)
@@ -273,6 +287,7 @@ class NNetWrapper(NeuralNet):
 
 		opts = ort.SessionOptions()
 		opts.intra_op_num_threads, opts.inter_op_num_threads, opts.inter_op_num_threads = 1, 1, ort.ExecutionMode.ORT_SEQUENTIAL
+		opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 		self.ort_session = ort.InferenceSession(temporary_file, sess_options=opts)
 		os.remove(temporary_file)
 
