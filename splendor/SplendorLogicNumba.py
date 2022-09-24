@@ -124,6 +124,8 @@ class Board():
 			pass # empty move
 		self.bank[0][idx_points] += 1 # Count number of rounds
 
+		return (player+1)%self.num_players
+
 	def copy_state(self, state, copy_or_not):
 		if self.state is state and not copy_or_not:
 			return

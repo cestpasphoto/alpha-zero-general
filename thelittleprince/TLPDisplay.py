@@ -3,23 +3,22 @@ from colorama import Style, Fore, Back
 import random
 import itertools
 
-from .TLPGame import NUMBER_PLAYERS
 from .TLPLogicNumba import my_unpackbits
 
 
-def move_to_str(move):
-	card_to_take, next_player = divmod(move, NUMBER_PLAYERS)
+def move_to_str(move, nb_players):
+	card_to_take, next_player = divmod(move, nb_players)
 	card_str = f'take card {card_to_take}'
 
 	if   next_player == 0:
 		short_name_next = 'himself'
 	elif next_player == 1:
 		short_name_next = 'the player on his right'
-	elif next_player == NUMBER_PLAYERS-1:
+	elif next_player == nb_players-1:
 		short_name_next = 'the player on his left'
 	elif next_player == 2:
 		short_name_next = '2nd player on his right'
-	elif next_player == NUMBER_PLAYERS-2:
+	elif next_player == nb_players-2:
 		short_name_next = '2nd player on his left'
 	else: # should not happen
 		short_name_next = f'P+{next_player}'

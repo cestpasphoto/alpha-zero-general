@@ -28,15 +28,15 @@ class SplendorGame(Game):
 
 	def getNextState(self, board, player, action, deterministic=False):
 		self.board.copy_state(board, True)
-		self.board.make_move(action, player, deterministic)
-		return (self.board.get_state(), (player+1)%self.num_players)
+		next_player = self.board.make_move(action, player, deterministic)
+		return (self.board.get_state(), next_player)
 
 
 	def getValidMoves(self, board, player):
 		self.board.copy_state(board, False)
 		return self.board.valid_moves(player)
 
-	def getGameEnded(self, board):
+	def getGameEnded(self, board, next_player):
 		self.board.copy_state(board, False)
 		return self.board.check_end_game()
 
@@ -69,7 +69,7 @@ class SplendorGame(Game):
 	def moveToString(self, move, current_player):
 		return move_to_str(move)
 
-    def printBoard(self, numpy_board):
-        board = Board(self.getNumberOfPlayers())
-        board.copy_state(numpy_board, False)
-        print_board(board)
+	def printBoard(self, numpy_board):
+		board = Board(self.getNumberOfPlayers())
+		board.copy_state(numpy_board, False)
+		print_board(board)

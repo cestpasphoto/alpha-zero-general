@@ -36,7 +36,7 @@ class TLPGame(Game):
 		self.board.copy_state(board, False)
 		return self.board.valid_moves(player)
 
-	def getGameEnded(self, board):
+	def getGameEnded(self, board, next_player):
 		self.board.copy_state(board, False)
 		return self.board.check_end_game()
 
@@ -67,9 +67,9 @@ class TLPGame(Game):
 		return NUMBER_PLAYERS
 
 	def moveToString(self, move, current_player):
-		return move_to_str(move)
+		return move_to_str(move, NUMBER_PLAYERS)
 
-    def printBoard(self, numpy_board):
-        board = Board(self.getNumberOfPlayers())
-        board.copy_state(numpy_board, False)
-        print_board(board)
+	def printBoard(self, numpy_board):
+		board = Board(self.getNumberOfPlayers())
+		board.copy_state(numpy_board, False)
+		print_board(board)
