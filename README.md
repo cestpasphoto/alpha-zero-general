@@ -99,4 +99,9 @@ There are some limitations: implemented logic doesn't allow you to both take gem
   I usually stop training when the 5 last iterations (or `-i` value) were rejected.
 
   Use of forced rollouts, surprise weight, cyclic learning rate or tuning cpuct value hadn't lead to any significant improvement.
+
+  #### Multithreading
+  It is possible to use multiple threads by changing `intra_op_num_threads` and `inter_op_num_threads` values in GenericNNetWrapper.py (inference) and `torch.set_num_threads()` (training).
+  Even tentative is parallelizing the code into multiple threads or process were tried, but limited results (6 processes resulted in only 2x speedup): cause could be that computations are limited by memory speed, not by CPU speed.
+
 </details>
