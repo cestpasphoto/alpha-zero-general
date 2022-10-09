@@ -7,8 +7,8 @@ from .SantoriniConstants import _decode_action, _encode_action
 # 0: 2x2 workers set at an arbitrary position before 1st move
 # 1: 2x2 workers set at a random position before 1st move
 # 2: No worker pre-set, each player has to chose their position
-# 3: same as 1 plus randomly chosing god power
-INIT_METHOD = 3
+# Don't forget to update NB_GODS in SantoriniConstants.py
+INIT_METHOD = 1
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
@@ -106,18 +106,17 @@ class Board():
 			# Predefined places
 			self.workers[2,1], self.workers[2,3] =  1,  2 # current player
 			self.workers[1,2], self.workers[3,2] = -1, -2 # opponent
-		elif INIT_METHOD == 1 or INIT_METHOD == 3:
+		elif INIT_METHOD == 1:
 			# Random places
 			init_places = np.random.choice(5*5, 4, replace=False)
 			workers_list = [1, -1, 2, -2]
 			for place, worker in zip(init_places, workers_list):
 				self.workers[place//5, place%5] = worker
 
-			if INIT_METHOD == 3:
-				gods = [NO_GOD, NO_GOD] if NB_GODS <= 1 else (np.random.choice(NB_GODS-1, 2, replace=False)+1)
-				# gods = [HERMES, HERMES]
-				self.gods_power.flat[gods[0]+NB_GODS*0] = 64
-				self.gods_power.flat[gods[1]+NB_GODS*1] = 64
+			gods = [NO_GOD, NO_GOD] if NB_GODS <= 1 else (np.random.choice(NB_GODS-1, 2, replace=False)+1)
+			# gods = [HERMES, HERMES]
+			self.gods_power.flat[gods[0]+NB_GODS*0] = 64
+			self.gods_power.flat[gods[1]+NB_GODS*1] = 64
 
 		elif INIT_METHOD == 2:
 			# Players decide

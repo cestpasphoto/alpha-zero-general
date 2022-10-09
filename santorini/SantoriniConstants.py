@@ -4,6 +4,7 @@ from numba import njit
 NO_MOVE = 4
 NO_BUILD = 4
 
+MAX_ITER_FOR_HERMES = 5 # We limit nb of moves using Hermes power, otherwise infinite recursion... Can't be > 6
 NO_GOD     = 0
 APOLLO     = 1
 MINOTAUR   = 2
@@ -15,8 +16,9 @@ HERMES     = 7
 PAN        = 8
 ATHENA     = 9
 PROMETHEUS = 10
-NB_GODS = 11
-MAX_ITER_FOR_HERMES = 5 # We limit nb of moves using Hermes power, otherwise infinite recursion... Can't be > 6
+NB_GODS = 11 # Modify this to 1 to disable use of any god, or 11 to enable all of them
+# Don't forget to update INIT_METHOD in SantoriniLogicNumba.py
+
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _decode_action(action):
