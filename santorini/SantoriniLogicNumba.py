@@ -25,13 +25,15 @@ def max_score_diff():
 # STATE is 5x5x3
 #	First dimension 5x5 locates the workers (1&2 for current, -1&-2 for opponent)
 #	Second dimension 5x5 lists current level
-#   Third dimension 5x5 contains additional info. Cells 0-10: information about god power by player to play
-#		64: if god power owned
-#       32 : empty
-#		16 : aditional info on previous move, or move to avoid, or ... depending on god.  Reseted when starting a new round.
-#   	This data is stored in cell with god id as index.
+#   Third dimension 5x5 contains additional info.
+#		Cells 0-10: bitfield about god power by player to play. Following data is stored in cell with god id as index.
+#           64 32 16 8 4 2 1
+#            G  ∅  D D D D D
+#		  G: if god power owned
+#		  DDDDD: aditional info on previous move, or move to avoid, or ... depending on god.  Reseted when starting a new round.
 #   	Cells 10-20: same with opponent. Cell 21: general information (nb of rounds)
-#	Initial status in INIT_METHOD=0 is:
+#
+#	Initial status when INIT_METHOD=0 is:
 #		0  0  0  0  0        0  0  0  0  0        0  0  0  0  0
 #		0  0  1  0  0        0  0  0  0  0        0  0  0  0  0
 #		0 -1  0 -2  0        0  0  0  0  0        0  0  0  0  0
@@ -39,14 +41,13 @@ def max_score_diff():
 #		0  0  0  0  0        0  0  0  0  0        0  0  0  0  0
 #
 # ACTION is bitfield
-#	field P: god used or no god (11)
 # 	field W: which worker used (2)
+#	field P: god used or no god (11)
 #	field M: to which direction moving such worker (9)
 # 	field B: in which direction the worker builds (9)
 #	W P MMM BBB
 
-# DIRECTIONS
-#
+# DIRECTIONS:
 #	0  1  2
 #   3  4  5
 #   6  7  8
