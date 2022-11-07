@@ -1,6 +1,6 @@
 # Speed comparison between baseline and my fork
 
-After implementing my fork, I wanted to do a comparison versus baseline repo. I have used the only game supported by both baseline and my fork, Santorini.
+After implementing my fork, I wanted to do a comparison versus baseline repo. I have used the only game supported by both baseline and my fork, Santorini. You can test it in the browser versionon  https://github.com/cestpasphoto/cestpasphoto.github.io.
 
 ### Training params
 
@@ -45,3 +45,8 @@ For reference, glicko score of random player is 843 ± 110 and the pretrained mo
 Using similar settings as baseline, my version achieve **similar results in 25x less time**: level of glicko2=1500 is achieved in 17 hours for baseline, whereas my version achieve it in about 0.7 hour. Furthermore, other settings lead to similar performance in about 10 minutes, meaning 100x faster!
 
 And all of that in python language, no C.
+
+
+Compared to other AI I found (using no god power, other AI always starting first, my AI choose random player position)
+* about 70% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/), set with a timelimit of 10sec/move + 10sec/build
+* 90+% win rate against [BoardSpace AI](https://www.boardspace.net/english/index.shtml), using BestBot
