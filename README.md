@@ -43,12 +43,14 @@ Supported games: Splendor, The Little Prince - Make me a planet, Machi Koro (Min
 There are some limitations: implemented logic doesn't allow you to both take gems from the bank and give back some (whereas allowed in real rules), you can either 1-2-3 gems or give back 1-2 gems.
 
 ### Machi Koro / Minivilles
+
 * [x] Quick implementation of [Minivilles](https://en.wikipedia.org/wiki/Machi_Koro), with handful limitations
 
 ![Sample game of Minivilles with 4 players](minivilles/sample_game.gif)
 
 
 ### The Little Prince - Make me a planet
+
 * [ ] Quick implementation of [The little prince](https://cdn.1j1ju.com/medias/67/f8/eb-the-little-prince-make-me-a-planet-rulebook.pdf), with limitations. Main ones are:
    * No support of 2 players, only 3-5 players are supported
    * When market is empty, current player doesn't decide card type, it is randomly chosen.
@@ -56,6 +58,7 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 
 
 ### Santorini
+
 * [x] Own implementation of [Santorini](https://www.ultraboardgames.com/santorini/game-rules.php), policy for initial status is user switchable (predefined, random or chosen by players)
 * [x] Optimized implementation, thanks to Numba again
 * [x] Support of goddess (basic only)
@@ -73,6 +76,7 @@ About 70% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/) a
   <summary>Click here for details about training, running or playing</summary>
 
 #### Dependencies
+
 `pip3 install onnxruntime numba tqdm colorama coloredlogs`
 and
 `pip3 install torch --extra-index-url https://download.pytorch.org/whl/cpu`
@@ -80,12 +84,14 @@ and
 Contrary to before, latest versions of onnxruntime and pytorch lead to best performance, see GenericNNetWrapper.py line 255
 
 #### How to play versus saved engine
+
 `./pit.py -p splendor/pretrained_2players.pt -P human -n 1`
 
 Switch -p and -P options if human wants to be first player. You can also make 2 networks fight each other.
 ![2 networks fighting](splendor/many_games.gif). Contrary to baseline version, pit.py automatically retrieves training settings and load them (numMCTSSims, num_channels, ...) although you can override if you want; you may even select 2 different architecture to compare them!
 
 #### Recommended settings for training
+
 Compared to initial version, I target a smaller network but more MCTS simulations allowing to see further: this approach is less efficient on GPU, but similar on CPU and allow stronger AI.
 
 `main.py -m 1600 -v 15 -T 30 -e 500 -i 10 -p 2 -d 0.50 -b 32 -l 0.0003 --updateThreshold 0.55 -C ../results/mytest`: 
@@ -104,6 +110,7 @@ I usually stop training when the 5 last iterations (or `-i` value) were rejected
 Use of forced rollouts, surprise weight, cyclic learning rate or tuning cpuct value hadn't lead to any significant improvement.
 
 #### Multithreading
+
 It is possible to use multiple threads by changing `intra_op_num_threads` and `inter_op_num_threads` values in GenericNNetWrapper.py (inference) and `torch.set_num_threads()` (training).
 I tried to parallelize the code into multiple threads or multiple processes by running parallel and independent games, but I always had poor results (6 processes resulted in only 2x speedup at best): the cause could be that computations are limited by memory bandwidth, not by CPU speed.
 

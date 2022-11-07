@@ -7,6 +7,7 @@ After implementing my fork, I wanted to do a comparison versus baseline repo. I 
 All training use same computer (i5-9400, no GPU). Baseline code uses tensorflow on all CPU cores, my version uses pytorch + numba on a single CPU core.
 
 ##### Baseline
+
 First I've used baseline code as is (just changed game to Santorini). But it didn't accepted any model in the first 12 hours. Tried again with num_channels=256 but same result.
 So I've modified more settings, ran it for 24 hours and it did converged:
 * Network
@@ -19,12 +20,14 @@ So I've modified more settings, ran it for 24 hours and it did converged:
   * numMCTSSims = 75
 
 ##### My version
+
 On my version of code, I have used same settings as last training on baseline (committed architecture "-V 13"). Couple of differences though: my network has 3 outputs whereas baseline only has 2.
 
 And since such training uses a single CPU core, I was able to run other trainings simultaneously: both using other architecture (-V 11), lower nb of epochs (2 instead of 5) and 200 & 400 as numMCTSSims. For these I used random initialization.
 
 
 ### How to rate each checkpoint?
+
 As I know of, there is no standard process to rate lots of checkpoints. Running 1000 games for each possible pair of checkpoints would have been to computational intensive.
 Instead, I have organised the following "tournament":
 * rated random player + 3 main checkpoints (1000 games for each pair)
