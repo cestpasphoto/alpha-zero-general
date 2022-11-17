@@ -67,7 +67,7 @@ def compare_settings(args):
 	# Compute differences on dict versions
 	previous_args_dict, current_args_dict = vars(eval('argparse.'+previous_args)), vars(args)
 	changed_keys = set([k for k in set(list(previous_args_dict.keys()) + list(current_args_dict.keys())) if previous_args_dict.get(k) != current_args_dict.get(k)])
-	for key in ['load_folder_file', 'checkpoint', 'timeIters', 'numIters', 'arenaCompare', 'maxlenOfQueue', 'load_model']:
+	for key in ['load_folder_file', 'checkpoint', 'numIters', 'arenaCompare', 'maxlenOfQueue', 'load_model']:
 		changed_keys.discard(key)
 
 	if changed_keys:
@@ -99,7 +99,6 @@ def main():
 	parser = argparse.ArgumentParser(description='tester')
 
 	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int  , help='')
-	parser.add_argument('--timeIters'       , '-t' , action='store', default=0.   , type=float, help='')
 	parser.add_argument('--numEps'          , '-e' , action='store', default=500  , type=int  , help='Number of complete self-play games to simulate during a new iteration')
 	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='')
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
@@ -130,8 +129,6 @@ def main():
 	args = parser.parse_args()
 	args.arenaCompare = 30 if args.numEps < 500 else 50
 	args.maxlenOfQueue = int(2.5e6/(1.2*args.numItersHistory)) # at most 2GB per process, with each example weighing 1.2kB
-	if args.timeIters > 0:
-		args.numIters = 1000
 
 	args.load_model = (args.load_folder_file is not None)
 	if args.profile:

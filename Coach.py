@@ -142,11 +142,6 @@ class Coach():
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
 
-            if self.args.timeIters > 0:
-                if time.time() - start_time > self.args.timeIters*3600:
-                    log.info(f'Above timelimit, stopping here after {i} iterations')
-                    break
-
     def getCheckpointFile(self, iteration):
         return 'checkpoint_' + str(iteration) + '.pt'
 
