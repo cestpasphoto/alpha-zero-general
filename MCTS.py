@@ -128,8 +128,8 @@ class MCTS():
             return Es
 
         if Ps is None:
+            # First time that we explore state s
             Vs = self.game.getValidMoves(canonicalBoard, 0)
-            # leaf node
             Ps, v = self.nnet.predict(canonicalBoard, Vs)
             if dirichlet_noise:
                 self.applyDirNoise(Ps, Vs)
@@ -140,6 +140,7 @@ class MCTS():
             return v
 
         if dirichlet_noise:
+            # We already visited this node, adding dirichlet noise this time
             self.applyDirNoise(Ps, Vs)
             normalise(Ps)
 
