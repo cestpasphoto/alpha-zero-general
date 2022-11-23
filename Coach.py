@@ -11,7 +11,7 @@ import numpy as np
 from tqdm import tqdm
 
 from Arena import Arena
-from MCTS import MCTS
+from MCTS import MCTS, random_pick
 
 log = logging.getLogger(__name__)
 
@@ -54,16 +54,19 @@ class Coach():
         while True:
             episodeStep += 1
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
-            temp = int(episodeStep < self.args.tempThreshold)
 
-            pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp)
+            pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=self.args.temperature)
             if is_full_search:
                 valids = self.game.getValidMoves(canonicalBoard, 0)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
                     trainExamples.append([b, self.curPlayer, p, v, surprise])
 
-            action = np.random.choice(len(pi), p=pi)
+            final_temp = 0.5/self.args.temperature
+            early_temp = 5*final_temp
+            temp = final_temp + (early_temp-final_temp)*(0.5**(episodeStep/self.args.tempThreshold))
+            # print(f'{self.args.temperature=} {episodeStep=} temp={round(temp,2)}')
+            action = random_pick(pi, temp)
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
             r = self.game.getGameEnded(board, self.curPlayer)
@@ -130,8 +133,9 @@ class Coach():
             nmcts = MCTS(self.game, self.nnet, self.args)
 
             # log.info('PITTING AGAINST PREVIOUS VERSION')
-            arena = Arena(lambda x: np.argmax(nmcts.getActionProb(x, temp=0, force_full_search=True)[0]),
-                          lambda x: np.argmax(pmcts.getActionProb(x, temp=0, force_full_search=True)[0]), self.game)
+            arena = Arena(lambda x: random_pick((nmcts.getActionProb(x, force_full_search=True)[0]), temperature=0.2),
+                          lambda x: random_pick((pmcts.getActionProb(x, force_full_search=True)[0]), temperature=0.2),
+                          self.game)
             nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
 
             if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:

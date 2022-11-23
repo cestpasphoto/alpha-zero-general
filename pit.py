@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import Arena
-from MCTS import MCTS
+from MCTS import MCTS, random_pick
 from santorini.SantoriniPlayers import *
 from santorini.SantoriniGame import SantoriniGame as Game
 from santorini.NNet import NNetWrapper as NNet
@@ -43,7 +43,7 @@ def create_player(name, args):
 		'no_mem_optim'    : False,
 	})
 	mcts = MCTS(game, net, mcts_args)
-	player = lambda x: np.argmax(mcts.getActionProb(x, temp=0, force_full_search=True)[0])
+	player = lambda x: random_pick((mcts.getActionProb(x, force_full_search=True)[0]), temperature=0.2)
 	return player
 
 def play(args):

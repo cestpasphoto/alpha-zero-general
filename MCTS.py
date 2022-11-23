@@ -79,18 +79,10 @@ class MCTS():
                 for node in [n for n in self.nodes_data.keys() if self.nodes_data[n][6] < r-5]:
                     del self.nodes_data[node]
                 self.last_cleaning = r
-
-        if temp == 0:
-            bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
-            bestA = np.random.choice(bestAs)
-            probs = [0] * len(counts)
-            probs[bestA] = 1
-            return probs, surprise, is_full_search
-
-        counts = [x ** (1. / temp) for x in counts]
-        counts_sum = float(sum(counts))
-        probs = [x / counts_sum for x in counts]
+    
+        probs = applyTemperatureAndNormalize(counts, temp)
         return probs, surprise, is_full_search
+
 
     def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False):
         """
@@ -225,3 +217,19 @@ def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, ga
 def normalise(vector):
     sum_vector = np.sum(vector)
     vector /= sum_vector
+
+def applyTemperatureAndNormalize(probs, temperature):
+    if temperature == 0:
+        bests = np.array(np.argwhere(probs == np.max(probs))).flatten()
+        result = [0] * len(probs)
+        result[np.random.choice(bests)] = 1
+    else:
+        result = [x ** (1. / temperature) for x in probs]
+        result_sum = float(sum(result))
+        result = [x / result_sum for x in result]
+    return result
+
+def random_pick(probs, temperature=1.):
+    probs_with_temp = applyTemperatureAndNormalize(probs, temperature)
+    pick = np.random.choice(len(probs_with_temp), p=probs_with_temp)
+    return pick
