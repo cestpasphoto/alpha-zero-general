@@ -27,6 +27,7 @@ class SantoriniNNet(nn.Module):
 				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
 				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
 				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
 			)
 
 			self.output_layers_PI = nn.Sequential(
@@ -35,13 +36,13 @@ class SantoriniNNet(nn.Module):
 			)
 
 			self.output_layers_V = nn.Sequential(
-				nn.Linear(n_filters*5*5, 128),
-				nn.Linear(128, self.num_players)
+				nn.Linear(n_filters*5*5, 32),
+				nn.Linear(32, self.num_players)
 			)
 
 			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(n_filters*5*5, 128),
-				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
+				nn.Linear(n_filters*5*5, 32),
+				nn.Linear(32, self.num_scdiffs*self.scdiff_size)
 			)
 
 		else:
