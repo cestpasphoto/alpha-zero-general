@@ -18,6 +18,7 @@ import torch.optim as optim
 import torch.onnx
 import onnxruntime as ort
 torch.set_num_threads(1) # PyTorch more efficient this way
+import intel_extension_for_pytorch as ipex
 
 class GenericNNetWrapper(NeuralNet):
 	def __init__(self, game, nn_args):
@@ -50,10 +51,6 @@ class GenericNNetWrapper(NeuralNet):
 			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])		
 		batch_count = int(len(examples) / self.args['batch_size'])
 
-		if self.args['cyclic_lr']:
-			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate']*10, anneal_strategy='cos', total_steps=self.args['epochs']*batch_count)
-			# scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate']*10, anneal_strategy='linear', total_steps=self.args['epochs']*batch_count)
-
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
@@ -61,6 +58,9 @@ class GenericNNetWrapper(NeuralNet):
 			t.set_description(f'Train ep{epoch + 1}')
 			self.nnet.train()
 			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
+
+			# nnet, optimizer = ipex.optimize(self.nnet, optimizer=self.optimizer)
+			nnet, optimizer = self.nnet, self.optimizer
 	
 			for _ in range(batch_count):
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
@@ -80,7 +80,7 @@ class GenericNNetWrapper(NeuralNet):
 					boards, target_pis, target_vs, valid_actions, target_scdiffs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda(), target_scdiffs.contiguous().cuda()
 
 				# compute output
-				out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
+				out_pi, out_v, out_scdiff = nnet(boards, valid_actions)
 				l_pi = self.loss_pi(target_pis, out_pi)
 				l_v = self.loss_v(target_vs, out_v)
 				l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
@@ -94,11 +94,9 @@ class GenericNNetWrapper(NeuralNet):
 				t.set_postfix(PI=pi_losses, V=v_losses, SD=scdiff_losses, refresh=False)
 
 				# compute gradient and do SGD step
-				self.optimizer.zero_grad(set_to_none=True)
+				optimizer.zero_grad(set_to_none=True)
 				total_loss.backward()
-				self.optimizer.step()
-				if self.args['cyclic_lr']:
-					scheduler.step()
+				optimizer.step()
 
 				t.update()
 		t.close()
