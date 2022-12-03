@@ -22,13 +22,11 @@ class SantoriniNNet(nn.Module):
 			n_filters = 64
 
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
-			self.trunk = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-			)
+			self.trunk_l0 = nn.Sequential(nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU())
+			self.trunk_l1 = nn.Sequential(nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU())
+			self.trunk_l2 = nn.Sequential(nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU())
+			self.trunk_l3 = nn.Sequential(nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU())
+			self.trunk_l4 = nn.Sequential(nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU())
 
 			self.output_layers_PI = nn.Sequential(
 				nn.Linear(n_filters*5*5, 128),
@@ -61,26 +59,21 @@ class SantoriniNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		if self.version == 1:
-			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
-		
-			x = torch.flatten(x, start_dim=1).unsqueeze(1)
-			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.partialgpool_2(x), p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.dense1d_3(x)     , p=self.args['dropout'], training=self.training)
-			
-			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
-			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
-
-		elif self.version in [50]:
+		if self.version in [50]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
 			x = self.first_layer(x)
-			x = self.trunk(x)
+			# x = F.dropout2d(self.trunk_l0(x), p=self.args['dropout'], training=self.training)
+			# x = F.dropout2d(self.trunk_l1(x), p=self.args['dropout'], training=self.training)
+			# x = F.dropout2d(self.trunk_l2(x), p=self.args['dropout'], training=self.training)
+			# x = F.dropout2d(self.trunk_l3(x), p=self.args['dropout'], training=self.training)
+			# x = F.dropout2d(self.trunk_l4(x), p=self.args['dropout'], training=self.training)
+			x = self.trunk_l0(x)
+			x = self.trunk_l1(x)
+			x = self.trunk_l2(x)
+			x = self.trunk_l3(x)
+			x = self.trunk_l4(x)
 			x = torch.flatten(x, start_dim=1).unsqueeze(1)
 			
 			v = self.output_layers_V(x).squeeze(1)
