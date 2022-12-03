@@ -53,53 +53,61 @@ class GenericNNetWrapper(NeuralNet):
 
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
-		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
-		for epoch in range(self.args['epochs']):
-			t.set_description(f'Train ep{epoch + 1}')
-			self.nnet.train()
-			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
+		lr = self.args['learn_rate']
+		for epoch_group in range(10):
+			lr = max(lr/0.4, 1e-7)
+			for param_group in self.optimizer.param_groups:
+				param_group['lr'] = lr
+			print(f'{lr=}')
 
-			# nnet, optimizer = ipex.optimize(self.nnet, optimizer=self.optimizer)
-			nnet, optimizer = self.nnet, self.optimizer
-	
-			for _ in range(batch_count):
-				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
-				boards, pis, vs, scdiffs, valid_actions, surprises = self.pick_examples(examples, sample_ids)
-				boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
-				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
-				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
-				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
-				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
-				for i in range(len(scdiffs)):
-					score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
-					for player in range(self.num_players):
-						target_scdiffs[i, score_diff[player], player] = 1
+			t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
+			for epoch in range(self.args['epochs']):
+				t.set_description(f'Train ep{epoch + 1}')
+				self.nnet.train()
+				pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
 
-				# predict
-				if self.device['training'] == 'cuda':
-					boards, target_pis, target_vs, valid_actions, target_scdiffs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda(), target_scdiffs.contiguous().cuda()
+				# nnet, optimizer = ipex.optimize(self.nnet, optimizer=self.optimizer)
+				nnet, optimizer = self.nnet, self.optimizer
+		
+				for _ in range(batch_count):
+					sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
+					boards, pis, vs, scdiffs, valid_actions, surprises = self.pick_examples(examples, sample_ids)
+					boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
+					valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
+					target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
+					target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
+					target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
+					for i in range(len(scdiffs)):
+						score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
+						for player in range(self.num_players):
+							target_scdiffs[i, score_diff[player], player] = 1
 
-				# compute output
-				out_pi, out_v, out_scdiff = nnet(boards, valid_actions)
-				l_pi = self.loss_pi(target_pis, out_pi)
-				l_v = self.loss_v(target_vs, out_v)
-				l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
-				l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
-				total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
+					# predict
+					if self.device['training'] == 'cuda':
+						boards, target_pis, target_vs, valid_actions, target_scdiffs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda(), target_scdiffs.contiguous().cuda()
 
-				# record loss
-				pi_losses.update(l_pi.item(), boards.size(0))
-				v_losses.update(l_v.item(), boards.size(0))
-				scdiff_losses.update(l_scdiff_c.item() + l_scdiff_p.item(), boards.size(0))
-				t.set_postfix(PI=pi_losses, V=v_losses, SD=scdiff_losses, refresh=False)
+					# compute output
+					out_pi, out_v, out_scdiff = nnet(boards, valid_actions)
+					l_pi = self.loss_pi(target_pis, out_pi)
+					l_v = self.loss_v(target_vs, out_v)
+					l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
+					l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
+					total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
 
-				# compute gradient and do SGD step
-				optimizer.zero_grad(set_to_none=True)
-				total_loss.backward()
-				optimizer.step()
+					# record loss
+					pi_losses.update(l_pi.item(), boards.size(0))
+					v_losses.update(l_v.item(), boards.size(0))
+					scdiff_losses.update(l_scdiff_c.item() + l_scdiff_p.item(), boards.size(0))
+					t.set_postfix(PI=pi_losses, V=v_losses, SD=scdiff_losses, refresh=False)
 
-				t.update()
-		t.close()
+					# compute gradient and do SGD step
+					optimizer.zero_grad(set_to_none=True)
+					total_loss.backward()
+					optimizer.step()
+
+					t.update()
+			t.close()
+			print(total_loss)
 		
 
 	def predict(self, board, valid_actions):

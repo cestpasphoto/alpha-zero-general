@@ -24,11 +24,12 @@ class Coach():
     def __init__(self, game, nnet, args):
         self.game = game
         self.nnet = nnet
+        print(f'Nb of coef: {sum(p.numel() for p in self.nnet.nnet.parameters())}')
         self.pnet = self.nnet.__class__(self.game, self.nnet.args)  # the competitor network
         self.args = args
         self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0))
         self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
-        self.skipFirstSelfPlay = False  # can be overriden in loadTrainExamples()
+        self.skipFirstSelfPlay = True  # can be overriden in loadTrainExamples()
 
     def executeEpisode(self):
         """
