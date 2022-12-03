@@ -48,8 +48,7 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('training')
 
 		if self.optimizer is None:
-			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])		
-			# self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9)
+			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
 		batch_count = int(len(examples) / self.args['batch_size'])
 
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
@@ -104,7 +103,7 @@ class GenericNNetWrapper(NeuralNet):
 
 					t.update()
 			t.close()
-			print(f'end of pass {epoch_group}: loss={pi_losses+self.args["vl_weight"]*v_losses:.2e}, lr={lr:.1e}', end='   ')
+			print(f'end of pass {epoch_group}: loss={pi_losses.avg+self.args["vl_weight"]*v_losses.avg:.2e}, lr={lr:.1e}', end='   ')
 			lr = max(lr/10, 1e-7)
 			for param_group in self.optimizer.param_groups:
 				param_group['lr'] = lr
