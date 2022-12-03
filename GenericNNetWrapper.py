@@ -49,17 +49,14 @@ class GenericNNetWrapper(NeuralNet):
 
 		if self.optimizer is None:
 			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])		
+			# self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9)
 		batch_count = int(len(examples) / self.args['batch_size'])
 
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
 		lr = self.args['learn_rate']
-		for epoch_group in range(10):
-			lr = max(lr/0.4, 1e-7)
-			for param_group in self.optimizer.param_groups:
-				param_group['lr'] = lr
-			print(f'{lr=}')
-
+		print(f'now lr={lr:.1e}')
+		for epoch_group in range(5):
 			t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 			for epoch in range(self.args['epochs']):
 				t.set_description(f'Train ep{epoch + 1}')
@@ -107,7 +104,11 @@ class GenericNNetWrapper(NeuralNet):
 
 					t.update()
 			t.close()
-			print(total_loss)
+			print(f'end of pass {epoch_group}: loss={pi_losses+self.args["vl_weight"]*v_losses:.2e}, lr={lr:.1e}', end='   ')
+			lr = max(lr/10, 1e-7)
+			for param_group in self.optimizer.param_groups:
+				param_group['lr'] = lr
+			print(f'now lr={lr:.1e}')
 		
 
 	def predict(self, board, valid_actions):
