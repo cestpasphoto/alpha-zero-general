@@ -64,11 +64,6 @@ class SantoriniNNet(nn.Module):
 			x, data = x.split([2,1], dim=1)
 
 			x = self.first_layer(x)
-			# x = F.dropout2d(self.trunk_l0(x), p=self.args['dropout'], training=self.training)
-			# x = F.dropout2d(self.trunk_l1(x), p=self.args['dropout'], training=self.training)
-			# x = F.dropout2d(self.trunk_l2(x), p=self.args['dropout'], training=self.training)
-			# x = F.dropout2d(self.trunk_l3(x), p=self.args['dropout'], training=self.training)
-			# x = F.dropout2d(self.trunk_l4(x), p=self.args['dropout'], training=self.training)
 			x = self.trunk_l0(x)
 			x = self.trunk_l1(x)
 			x = self.trunk_l2(x)
