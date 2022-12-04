@@ -37,6 +37,7 @@ class GenericNNetWrapper(NeuralNet):
 		self.max_diff = game.getMaxScoreDiff()
 		self.num_players = game.num_players
 		self.optimizer = None
+		self.force_long_training = False
 
 	def init_nnet(self, game, nn_args):
 		pass
@@ -53,9 +54,10 @@ class GenericNNetWrapper(NeuralNet):
 
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
-		lr = self.args['learn_rate']
-		print(f'now lr={lr:.1e}')
-		for epoch_group in range(5):
+		if self.force_long_training:
+			lr = self.args['learn_rate'] * 100
+			print(f'now lr={lr:.1e}')
+		for epoch_group in range(5 if self.force_long_training else 1):
 			t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 			for epoch in range(self.args['epochs']):
 				t.set_description(f'Train ep{epoch + 1}')
@@ -103,11 +105,14 @@ class GenericNNetWrapper(NeuralNet):
 
 					t.update()
 			t.close()
-			print(f'end of pass {epoch_group}: loss={pi_losses.avg+self.args["vl_weight"]*v_losses.avg:.2e}, lr={lr:.1e}', end='   ')
-			lr = max(lr/10, 1e-7)
-			for param_group in self.optimizer.param_groups:
-				param_group['lr'] = lr
-			print(f'now lr={lr:.1e}')
+			if self.force_long_training:
+				print(f'end of pass {epoch_group}: loss={pi_losses.avg+self.args["vl_weight"]*v_losses.avg:.2e}, lr={lr:.1e}', end='   ')
+				lr = max(lr/10, 1e-7)
+				for param_group in self.optimizer.param_groups:
+					param_group['lr'] = lr
+				print(f'now lr={lr:.1e}')
+
+		self.force_long_training = False
 		
 
 	def predict(self, board, valid_actions):

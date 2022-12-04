@@ -21,6 +21,7 @@ def run(args):
 	nn_args = dict(
 		lr=args.learn_rate,
 		epochs=args.epochs,
+		dropout=0.2,
 		batch_size=args.batch_size,
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
@@ -31,7 +32,7 @@ def run(args):
 	)
 	nnet = nn(g, nn_args)
 
-	if args.load_model:
+	if args.load_model and not args.forget:
 		log.info('Loading checkpoint "%s"...', args.load_folder_file)
 		nnet.load_checkpoint(os.path.dirname(args.load_folder_file), os.path.basename(args.load_folder_file))
 		compare_settings(args)
@@ -42,7 +43,7 @@ def run(args):
 	c = Coach(g, nnet, args)
 
 	if args.load_model:
-		if args.forget:
+		if False:
 			log.warning("Not warning trainExamples...")
 		else:
 			log.info("Loading 'trainExamples' from file...")

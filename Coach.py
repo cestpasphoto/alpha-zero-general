@@ -29,7 +29,8 @@ class Coach():
         self.args = args
         self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0))
         self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
-        self.skipFirstSelfPlay = True  # can be overriden in loadTrainExamples()
+        self.skipFirstSelfPlay = (args.load_model and args.forget)  # can be overriden in loadTrainExamples()
+        self.nnet.force_long_training = (args.load_model and args.forget)
 
     def executeEpisode(self):
         """
@@ -63,7 +64,7 @@ class Coach():
                 for b, p, v in sym:
                     trainExamples.append([b, self.curPlayer, p, v, surprise])
 
-            final_temp = 0.5/self.args.temperature
+            final_temp = 0.2/self.args.temperature
             early_temp = 5*final_temp
             temp = final_temp + (early_temp-final_temp)*(0.5**(episodeStep/self.args.tempThreshold))
             # print(f'{self.args.temperature=} {episodeStep=} temp={round(temp,2)}')
