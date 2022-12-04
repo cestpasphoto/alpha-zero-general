@@ -388,7 +388,7 @@ class SantoriniNNet(nn.Module):
 			)
 
 		elif self.version == 59:
-			n_filters = 80
+			n_filters = 64
 
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
 			self.trunk = nn.Sequential(
@@ -421,6 +421,97 @@ class SantoriniNNet(nn.Module):
 				nn.Flatten(1),
 				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
 			)
+
+		elif self.version == 60:
+			n_filters = 128
+
+			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
+			self.trunk = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(n_filters*5*5, 256),
+				nn.Linear(256, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(n_filters*5*5, 32),
+				nn.Linear(32, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(n_filters*5*5, 32),
+				nn.Linear(32, self.num_scdiffs*self.scdiff_size)
+			)
+
+		elif self.version == 61:
+			n_filters = 128
+
+			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
+			self.trunk = nn.Sequential(
+				Residualv2(n_filters),
+				Residualv2(n_filters),
+				Residualv2(n_filters),
+				Residualv2(n_filters),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(n_filters*5*5, 256),
+				nn.Linear(256, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(n_filters*5*5, 32),
+				nn.Linear(32, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(n_filters*5*5, 32),
+				nn.Linear(32, self.num_scdiffs*self.scdiff_size)
+			)
+
+		elif self.version == 62:
+			n_filters = 128
+
+			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
+			self.trunk = nn.Sequential(
+				Residualv2(n_filters),
+				Residualv2(n_filters),
+				Residualv2(n_filters),
+				Residualv2(n_filters),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
+				nn.BatchNorm2d(n_filters),
+				nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
+				nn.BatchNorm2d(n_filters),
+				nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters//2, 1, padding=0, bias=True),
+				nn.Flatten(1),
+				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
+			)
+
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
 
@@ -437,7 +528,7 @@ class SantoriniNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		if self.version in [50, 51, 52, 53, 54, 55, 60]:
+		if self.version in [50, 51, 52, 53, 54, 55, 60, 61]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
@@ -449,7 +540,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [56, 57, 58, 59]:
+		elif self.version in [56, 57, 58, 59, 62]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
