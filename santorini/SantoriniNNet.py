@@ -118,6 +118,46 @@ class InceptionA(nn.Module):
 		outputs = self._forward(x)
 		return torch.cat(outputs, 1)
 
+# Assume 4-dim tensor input N,C,H,W
+#
+# Input            Output
+#  C1    --↘  ↗--> Conv2D(C1 .. C3)
+#  C2    ---==---> Conv2D(C1 .. C3)			Regular Conv2D
+#  C3    --↗  ↘--> Conv2D(C1 .. C3)
+#  C4    --------> MaxPool2D(C4) 			2 maxplanar, using kernel 3 on each plan
+#  C5    --------> MaxPool2D(C5)
+#  C6    -↘
+#  C7    --------> Max(C6,C7,C8)
+#  C8    -↗                                 2 groups of maxchannels, with 3 channels each
+#  C9    -↘
+#  C10   --------> Max(C9,C10,C11)
+#  C11   -↗
+class Conv2dAndPartialMaxPool(nn.Module):
+	def __init__(self, input_length, output_length, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=4, kernel_maxchannel=4, batchnorm=True):
+		super().__init__()
+		self.params_maxpool_planar  = (nb_channel_maxplanar, kernel_maxplanar)
+		self.params_maxpool_channel = (nb_groups_maxchannel, kernel_maxchannel)
+
+		self.conv_input = input_length - nb_channel_maxplanar - nb_groups_maxchannel*kernel_maxchannel
+		self.conv_output = output_length - nb_channel_maxplanar - nb_groups_maxchannel
+		self.conv_part = nn.Sequential(
+			nn.Conv2d(self.conv_input, self.conv_output, kernel_conv, padding=kernel_conv//2),
+			nn.BatchNorm2d(self.conv_output) if batchnorm else nn.Identity()
+		)
+		self.maxplanar  = nn.MaxPool2d(kernel_maxplanar, stride=1, padding=kernel_maxplanar//2)
+		self.maxchannel = nn.MaxPool2d((kernel_maxchannel,1))
+
+	def forward(self, x):
+		groups_for_gpool = x.split([1] * self.params_maxpool_planar[0] + [self.params_maxpool_channel[1]] * self.params_maxpool_channel[0] + [self.conv_input], 1)
+		# Max over plan, can use MaxPool2d directly
+		maxplanar_results  = [ self.maxplanar(y) for y in groups_for_gpool[:self.params_maxpool_planar[0]] ]
+		# Max over channels, need to permute dimensions before using MaxPool2d
+		maxchannel_results = [ self.maxchannel(y.permute(0, 2, 1, 3)).permute(0, 2, 1, 3) for y in groups_for_gpool[self.params_maxpool_planar[0]:-1] ]
+		conv_result = F.relu(self.conv_part(groups_for_gpool[-1]))
+
+		x = torch.cat(maxplanar_results + maxchannel_results + [conv_result], 1)
+		return x
+
 class SantoriniNNet(nn.Module):
 	def __init__(self, game, args):
 		# game params
@@ -133,6 +173,49 @@ class SantoriniNNet(nn.Module):
 
 		if self.version == -1:
 			pass # Special case when loading empty NN from pit.py
+		
+		elif self.version == 24:
+			self.conv2d_1 = nn.Sequential(
+				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.conv2d_2 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1)                     , nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			self.conv2d_3 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.dense1d_0 = nn.Sequential(
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+
+			self.dense1d_1 = nn.Sequential(
+				nn.Linear(128*5*5, 512), nn.ReLU(),
+			)
+			self.dense1d_2 = nn.Sequential(
+				nn.Linear(512, 512), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(512, 256), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
+			)
 
 		elif self.version == 50:
 			n_filters = 64
@@ -551,5 +634,21 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
+		elif self.version in [24, 25]:
+			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x, data = x.split([2,1], dim=1)
+
+			x = F.dropout(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.conv2d_2(x)      , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.conv2d_3(x)      , p=self.args['dropout'], training=self.training)
+
+			x = torch.flatten(x, start_dim=1).unsqueeze(1)
+			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
+			
+			v = self.output_layers_V(x).squeeze(1)
+			sdiff = self.output_layers_SDIFF(x).squeeze(1)
+			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
