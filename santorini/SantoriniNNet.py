@@ -190,7 +190,7 @@ class GARB(nn.Module):
 
 	def forward(self, x):
 		split_input = x.split([self.n_filters//3, self.n_filters - self.n_filters//3], dim=1)
-		
+
 		attention = self.global_path(split_input[0])
 		attention_max, attention_avg = self.global_max(attention), self.global_avg(attention)
 		attention = self.global_dense(torch.cat([attention_max, attention_avg], 1).flatten(1))
@@ -218,7 +218,7 @@ class SantoriniNNet(nn.Module):
 		if self.version == -1:
 			pass # Special case when loading empty NN from pit.py
 		
-		elif self.version == 24:
+		elif self.version in [24, 25, 26, 27, 30, 31, 32]:
 			self.conv2d_1 = nn.Sequential(
 				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
 				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
@@ -227,11 +227,59 @@ class SantoriniNNet(nn.Module):
 				nn.Conv2d(128, 128, 3, padding=1)                     , nn.ReLU(),
 				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
 			)
-			self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			if self.version < 30:
+				self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			elif self.version == 30:
+				self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=0, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			elif self.version == 31:
+				self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=0, kernel_maxchannel=4)
+			elif self.version == 32:
+				self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=0, kernel_maxplanar=3, nb_groups_maxchannel=0, kernel_maxchannel=4)
+
 			self.conv2d_3 = nn.Sequential(
 				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
 				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
 			)
+			self.dense1d_0 = nn.Sequential(
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+			if self.version == 24:
+				self.dense1d_1 = nn.Sequential(
+					nn.Linear((128+1)*5*5, 512), nn.ReLU(),
+				)
+			else:
+				self.dense1d_1 = nn.Sequential(
+					nn.Linear(128*5*5, 512), nn.ReLU(),
+				)
+			self.dense1d_2 = nn.Sequential(
+				nn.Linear(512, 512), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(512, 256), nn.BatchNorm1d(1), nn.ReLU(),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(256, 256),
+				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
+			)
+
+		elif self.version in [28]:
+			self.conv2d_1 = nn.Conv2d(  2, 128, 3, padding=1)
+
+			self.conv2d_2 = Residualv2(128)
+			self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			self.conv2d_3 = nn.Sequential(Residualv2(128), Residualv2(128))
+
 			self.dense1d_0 = nn.Sequential(
 				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
 				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
@@ -647,6 +695,7 @@ class SantoriniNNet(nn.Module):
 				Residualv2(n_filters),
 				GARB(n_filters),
 				Residualv2(n_filters),
+				GARB(n_filters),
 			)
 
 			self.output_layers_PI = nn.Sequential(
@@ -703,19 +752,48 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
-		elif self.version in [24, 25]:
+		elif self.version in [24, 25, 26, 27, 28, 30, 31, 32]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
-			x = F.dropout(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.conv2d_2(x)      , p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.conv2d_3(x)      , p=self.args['dropout'], training=self.training)
-
-			x = torch.flatten(x, start_dim=1).unsqueeze(1)
-			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
-			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
-			
+			if self.version == 24:
+				x = F.dropout(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.conv2d_2(x)      , p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.conv2d_3(x)      , p=self.args['dropout'], training=self.training)
+				data = torch.flatten(data, start_dim=2)
+				data = F.dropout(self.dense1d_0(data), p=self.args['dropout'], training=self.training)
+				x = torch.flatten(x, start_dim=1).unsqueeze(1)
+				x = torch.cat([x, data], dim=-1)
+				x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
+			elif self.version in [25, 28, 30, 31, 32]:
+				x = self.conv2d_1(x)
+				x = self.conv2d_2(x)
+				x = self.partialgpool_1(x)
+				x = self.conv2d_3(x)
+				x = torch.flatten(x, start_dim=1).unsqueeze(1)
+				x = self.dense1d_1(x)
+				x = self.dense1d_2(x)
+			elif self.version == 26:
+				x = F.dropout2d(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
+				x = F.dropout2d(self.conv2d_2(x)      , p=self.args['dropout'], training=self.training)
+				x = F.dropout2d(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
+				x = F.dropout2d(self.conv2d_3(x)      , p=self.args['dropout'], training=self.training)
+				x = torch.flatten(x, start_dim=1).unsqueeze(1)
+				x = F.dropout2d(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
+				x = F.dropout2d(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
+			elif self.version == 27:
+				x = self.conv2d_1(x)
+				x = self.conv2d_2(x)
+				x = self.partialgpool_1(x)
+				x = self.conv2d_3(x)
+				x = torch.flatten(x, start_dim=1).unsqueeze(1)
+				x = self.dense1d_1(x)
+				x = F.dropout2d(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
+			else:
+				raise Exception(f'Warning, unknown NN version {self.version}')
+				
 			v = self.output_layers_V(x).squeeze(1)
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
