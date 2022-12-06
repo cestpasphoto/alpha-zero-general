@@ -57,18 +57,24 @@ class Coach():
             episodeStep += 1
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
 
-            pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=self.args.temperature)
+            if self.args.temperature == -1:
+                pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=int(episodeStep < self.args.tempThreshold))
+            else:
+                pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=self.args.temperature)
             if is_full_search:
                 valids = self.game.getValidMoves(canonicalBoard, 0)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
                     trainExamples.append([b, self.curPlayer, p, v, surprise])
 
-            final_temp = 0.2/self.args.temperature
-            early_temp = 5*final_temp
-            temp = final_temp + (early_temp-final_temp)*(0.5**(episodeStep/self.args.tempThreshold))
-            # print(f'{self.args.temperature=} {episodeStep=} temp={round(temp,2)}')
-            action = random_pick(pi, temp)
+            if self.args.temperature == -1:
+                action = np.random.choice(len(pi), p=pi)
+            else:
+                final_temp = 0.2/self.args.temperature
+                early_temp = 5*final_temp
+                temp = final_temp + (early_temp-final_temp)*(0.5**(episodeStep/self.args.tempThreshold))
+                # print(f'{self.args.temperature=} {episodeStep=} temp={round(temp,2)}')
+                action = random_pick(pi, temp)
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
             r = self.game.getGameEnded(board, self.curPlayer)
