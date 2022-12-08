@@ -17,7 +17,7 @@ import torch
 import torch.optim as optim
 import torch.onnx
 import onnxruntime as ort
-torch.set_num_threads(1) # PyTorch more efficient this way
+torch.set_num_threads(2) # PyTorch more efficient this way
 import intel_extension_for_pytorch as ipex
 
 class GenericNNetWrapper(NeuralNet):
@@ -49,7 +49,10 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('training')
 
 		if self.optimizer is None:
-			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
+			# self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
+			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'], weight_decay=1e-4)
+			# self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9)
+			# self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9, weight_decay=1e-4)
 		batch_count = int(len(examples) / self.args['batch_size'])
 
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
@@ -57,7 +60,7 @@ class GenericNNetWrapper(NeuralNet):
 		if self.force_long_training:
 			lr = self.args['learn_rate'] * 100
 			print(f'now lr={lr:.1e}')
-		for epoch_group in range(5 if self.force_long_training else 1):
+		for epoch_group in range(3 if self.force_long_training else 1):
 			t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 			for epoch in range(self.args['epochs']):
 				t.set_description(f'Train ep{epoch + 1}')

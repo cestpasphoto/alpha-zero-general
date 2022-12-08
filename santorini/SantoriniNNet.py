@@ -67,6 +67,63 @@ class SE_Residualv2(nn.Module):
 
 		return x
 
+class Global_Residual(nn.Module):
+	def __init__(self, n_filters, pool_factor=3):
+		super().__init__()
+		self.n_filters = n_filters
+		self.global_filters = n_filters // pool_factor
+		remaining_filters = n_filters - self.global_filters
+
+		self.conv_path = nn.Sequential(
+			nn.BatchNorm2d(n_filters),
+			nn.ReLU(),
+			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=True),
+		)
+
+		self.global_path = nn.Sequential(
+			nn.BatchNorm2d(self.global_filters),
+			nn.ReLU(),
+		)
+		self.global_max = nn.MaxPool2d(5)
+		self.global_avg = nn.AvgPool2d(5)
+		self.global_dense = nn.Linear(2*self.global_filters, remaining_filters)
+
+		self.final_path = nn.Sequential(
+			nn.BatchNorm2d(remaining_filters),
+			nn.ReLU(),
+			nn.Conv2d(remaining_filters, n_filters, 3, padding=1, bias=True),
+		)
+
+	def forward(self, x):
+		y = self.conv_path(x)
+
+		split_y = y.split([self.global_filters, self.n_filters - self.global_filters], dim=1)
+		attention = self.global_path(split_y[0])
+		attention_max, attention_avg = self.global_max(attention), self.global_avg(attention)
+		attention = self.global_dense(torch.cat([attention_max, attention_avg], 1).flatten(1))
+		y = split_y[1] + attention.unsqueeze(-1).unsqueeze(-1)
+		y = self.final_path(y)
+
+		x = x + y
+		return x
+
+class Global_Head(nn.Module):
+	def __init__(self, n_filters, p_filters, d_filters, out_filters, pool_factor=3):
+		super().__init__()
+		self.path_2d = nn.Sequential(
+			Global_Residual(n_filters, pool_factor),
+			nn.Conv2d(n_filters, p_filters, 1, padding=0, bias=True),
+		)
+		self.path_1d = nn.Sequential(
+			nn.Linear(p_filters*5*5, d_filters  ), nn.BatchNorm1d(d_filters), nn.ReLU(),
+			nn.Linear(d_filters    , d_filters  ), nn.BatchNorm1d(d_filters), nn.ReLU(),
+			nn.Linear(d_filters    , out_filters),
+		)
+
+	def forward(self, x):
+		x = self.path_2d(x)
+		x = self.path_1d(x.flatten(1))
+		return x
 
 class InceptionA(nn.Module):
 	def __init__(self, n_filters, pool='max'):
@@ -218,7 +275,7 @@ class SantoriniNNet(nn.Module):
 		if self.version == -1:
 			pass # Special case when loading empty NN from pit.py
 		
-		elif self.version in [24, 25, 26, 27, 30, 31, 32]:
+		elif self.version in [23, 24, 25, 26, 27, 30, 31, 32]:
 			self.conv2d_1 = nn.Sequential(
 				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
 				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
@@ -273,12 +330,26 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version in [28]:
-			self.conv2d_1 = nn.Conv2d(  2, 128, 3, padding=1)
+		elif self.version in [28, 29, 33, 34, 35]:
+			if self.version == 28:
+				conv = Residualv2 
+				self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			elif self.version == 29:
+				conv = Residualv2 
+				self.partialgpool_1 = GARB(128)
+			elif self.version == 33:
+				conv = SE_Residualv2
+				self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+			elif self.version == 34:
+				conv = Residualv2 
+				self.partialgpool_1 = Global_Residual(128)
+			elif self.version == 35:
+				conv = Residualv2 
+				self.partialgpool_1 = Global_Residual(128, pool_factor=4)
 
-			self.conv2d_2 = Residualv2(128)
-			self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
-			self.conv2d_3 = nn.Sequential(Residualv2(128), Residualv2(128))
+			self.conv2d_1 = nn.Conv2d(  2, 128, 3, padding=1)
+			self.conv2d_2 = conv(128)
+			self.conv2d_3 = nn.Sequential(conv(128), conv(128))
 
 			self.dense1d_0 = nn.Sequential(
 				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
@@ -308,6 +379,28 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, 256),
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
+
+		elif self.version in [36]:
+			self.conv2d_1 = nn.Sequential(
+				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			self.conv2d_2 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1)                     , nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+			
+			self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
+
+			self.conv2d_3 = nn.Sequential(
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
+			)
+
+			self.output_layers_PI = Global_Head(128, 128, 256, self.action_size)
+			self.output_layers_V = Global_Head(128, 128, 128, self.num_players)
+			self.output_layers_SDIFF = Global_Head(128, 64, 64, self.num_scdiffs*self.scdiff_size)
+
 
 		elif self.version == 50:
 			n_filters = 64
@@ -597,121 +690,105 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version == 60:
-			n_filters = 128
+		elif self.version in [60, 61, 62, 63, 64, 65]:
+			if self.version in [60, 61, 62, 64, 65]:
+				n_filters = 128
+			elif self.version in [63]:
+				n_filters = 64
 
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
-			self.trunk = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
-			)
+			if self.version == 60:
+				self.trunk = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False), nn.BatchNorm2d(n_filters), nn.ReLU(),
+				)
+			elif self.version in [61, 62]:
+				self.trunk = nn.Sequential(
+					Residualv2(n_filters),
+					Residualv2(n_filters),
+					Residualv2(n_filters),
+					Residualv2(n_filters),
+				)
+			elif self.version in [63]:
+				self.trunk = nn.Sequential(
+					Residualv2(n_filters),
+					GARB(n_filters),
+					Residualv2(n_filters),
+					GARB(n_filters),
+				)
+			elif self.version in [64, 65]:
+				self.trunk = nn.Sequential(
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+				)
 
-			self.output_layers_PI = nn.Sequential(
-				nn.Linear(n_filters*5*5, 256),
-				nn.Linear(256, self.action_size)
-			)
+			if self.version in [60, 61]:
+				self.output_layers_PI = nn.Sequential(
+					nn.Linear(n_filters*5*5, 256),
+					nn.Linear(256, self.action_size)
+				)
+				self.output_layers_V = nn.Sequential(
+					nn.Linear(n_filters*5*5, 32),
+					nn.Linear(32, self.num_players)
+				)
+				self.output_layers_SDIFF = nn.Sequential(
+					nn.Linear(n_filters*5*5, 32),
+					nn.Linear(32, self.num_scdiffs*self.scdiff_size)
+				)
+			elif self.version in [63]:
+				self.output_layers_PI = nn.Sequential(
+					nn.Linear(n_filters*5*5, 128),
+					nn.Linear(128, self.action_size)
+				)
+				self.output_layers_V = nn.Sequential(
+					nn.Linear(n_filters*5*5, 32),
+					nn.Linear(32, self.num_players)
+				)
+				self.output_layers_SDIFF = nn.Sequential(
+					nn.Linear(n_filters*5*5, 32),
+					nn.Linear(32, self.num_scdiffs*self.scdiff_size)
+				)			
+			elif self.version in [62, 64]:
+				self.output_layers_PI = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
+					nn.BatchNorm2d(n_filters),
+					nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.action_size)
+				)
 
-			self.output_layers_V = nn.Sequential(
-				nn.Linear(n_filters*5*5, 32),
-				nn.Linear(32, self.num_players)
-			)
+				self.output_layers_V = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
+					nn.BatchNorm2d(n_filters),
+					nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.num_players)
+				)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(n_filters*5*5, 32),
-				nn.Linear(32, self.num_scdiffs*self.scdiff_size)
-			)
-
-		elif self.version == 61:
-			n_filters = 128
-
-			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
-			self.trunk = nn.Sequential(
-				Residualv2(n_filters),
-				Residualv2(n_filters),
-				Residualv2(n_filters),
-				Residualv2(n_filters),
-			)
-
-			self.output_layers_PI = nn.Sequential(
-				nn.Linear(n_filters*5*5, 256),
-				nn.Linear(256, self.action_size)
-			)
-
-			self.output_layers_V = nn.Sequential(
-				nn.Linear(n_filters*5*5, 32),
-				nn.Linear(32, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(n_filters*5*5, 32),
-				nn.Linear(32, self.num_scdiffs*self.scdiff_size)
-			)
-
-		elif self.version == 62:
-			n_filters = 128
-
-			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
-			self.trunk = nn.Sequential(
-				Residualv2(n_filters),
-				Residualv2(n_filters),
-				Residualv2(n_filters),
-				Residualv2(n_filters),
-			)
-
-			self.output_layers_PI = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
-				nn.BatchNorm2d(n_filters),
-				nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.action_size)
-			)
-
-			self.output_layers_V = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
-				nn.BatchNorm2d(n_filters),
-				nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters//2, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
-			)
-
-		elif self.version == 63:
-			n_filters = 64
-
-			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
-			self.trunk = nn.Sequential(
-				Residualv2(n_filters),
-				GARB(n_filters),
-				Residualv2(n_filters),
-				GARB(n_filters),
-			)
-
-			self.output_layers_PI = nn.Sequential(
-				nn.Linear(n_filters*5*5, 128),
-				nn.Linear(128, self.action_size)
-			)
-
-			self.output_layers_V = nn.Sequential(
-				nn.Linear(n_filters*5*5, 32),
-				nn.Linear(32, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(n_filters*5*5, 32),
-				nn.Linear(32, self.num_scdiffs*self.scdiff_size)
-			)
+				self.output_layers_SDIFF = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters//2, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
+				)
+			elif self.version in [65]:
+				self.output_layers_PI = Global_Head(128, 128, 256, self.action_size)
+				self.output_layers_V = Global_Head(128, 128, 128, self.num_players)
+				self.output_layers_SDIFF = Global_Head(128, 64, 64, self.num_scdiffs*self.scdiff_size)
 
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
@@ -741,7 +818,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [56, 57, 58, 59, 62]:
+		elif self.version in [56, 57, 58, 59, 62, 64, 65]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
@@ -752,11 +829,19 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
-		elif self.version in [24, 25, 26, 27, 28, 30, 31, 32]:
+		elif self.version in [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
-			if self.version == 24:
+			if self.version == 23:
+				x = F.dropout(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.conv2d_2(x)      , p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.conv2d_3(x)      , p=self.args['dropout'], training=self.training)
+				x = torch.flatten(x, start_dim=1).unsqueeze(1)
+				x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
+				x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
+			elif self.version == 24:
 				x = F.dropout(self.conv2d_1(x)      , p=self.args['dropout'], training=self.training)
 				x = F.dropout(self.conv2d_2(x)      , p=self.args['dropout'], training=self.training)
 				x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
@@ -767,7 +852,7 @@ class SantoriniNNet(nn.Module):
 				x = torch.cat([x, data], dim=-1)
 				x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
 				x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
-			elif self.version in [25, 28, 30, 31, 32]:
+			elif self.version in [25, 28, 29, 30, 31, 32, 33, 34, 35]:
 				x = self.conv2d_1(x)
 				x = self.conv2d_2(x)
 				x = self.partialgpool_1(x)
@@ -793,7 +878,20 @@ class SantoriniNNet(nn.Module):
 				x = F.dropout2d(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
 			else:
 				raise Exception(f'Warning, unknown NN version {self.version}')
-				
+
+			v = self.output_layers_V(x).squeeze(1)
+			sdiff = self.output_layers_SDIFF(x).squeeze(1)
+			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+
+		elif self.version in [36]:
+			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x, data = x.split([2,1], dim=1)
+
+			x = self.conv2d_1(x)
+			x = self.conv2d_2(x)
+			x = self.partialgpool_1(x)
+			x = self.conv2d_3(x)
+
 			v = self.output_layers_V(x).squeeze(1)
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
