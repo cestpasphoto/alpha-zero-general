@@ -29,6 +29,7 @@ def run(args):
 		cyclic_lr=args.cyclic_lr,
 		surprise_weight=args.surprise_weight,
 		no_compression=args.no_compression,
+		optim=args.optim,
 	)
 	nnet = nn(g, nn_args)
 
@@ -119,6 +120,7 @@ def main():
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10.  , type=float, help='Weight for value loss')
+	parser.add_argument('--optim'           , '-o' , action='store', default=''   , help='Optimizer')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--cyclic-lr'       , '-Y' , action='store_true', help='Enable cyclic learning rate')
 	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
@@ -132,7 +134,7 @@ def main():
 	parser.add_argument('--forget'                 , action='store_true', help='do not load examples')
 	
 	args = parser.parse_args()
-	args.arenaCompare = 30 if args.numEps < 500 else 50
+	args.arenaCompare = 4
 	args.maxlenOfQueue = int(2.5e6/(1.2*args.numItersHistory)) # at most 2GB per process, with each example weighing 1.2kB
 
 	args.load_model = (args.load_folder_file is not None)

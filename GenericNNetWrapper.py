@@ -49,26 +49,64 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('training')
 
 		if self.optimizer is None:
-			# self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
-			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'], weight_decay=1e-4)
-			# self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9)
-			# self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9, weight_decay=1e-4)
-		batch_count = int(len(examples) / self.args['batch_size'])
+			if self.args['optim'] == 'Adam':
+				self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
+			elif self.args['optim'] == 'AdamL2':
+				self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'], weight_decay=1e-4)
+			elif self.args['optim'] == 'SGD':
+				self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9)
+			elif self.args['optim'] == 'SGDhome':
+				# weight_p, bias_p = [],[]
+				# for name, p in model.named_parameters():
+				# 	if 'bias' in name:
+				# 		bias_p += [p]
+				# 	else:
+				# 		weight_p += [p]
+				# self.optimizer = optim.SGD([{'params': weight_p, 'weight_decay':1e-4}, {'params': bias_p, 'weight_decay':0}], lr=self.args['learn_rate'], momentum=0.9)
+				self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9)
+			elif self.args['optim'] == 'SGDL2':
+				self.optimizer = optim.SGD(self.nnet.parameters(), lr=self.args['learn_rate'], momentum=0.9, weight_decay=1e-4)
+			else:
+				print('**** UNKNOWN OPTIM ', args.optim, ' ****')
+				self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
+
+
+		# decomp = [pickle.loads(zlib.decompress(x)) for x in examples]
+		# decomp_boards = [x[0][:,:,:1].tobytes() for x in decomp if x[0][:,:,1].sum() > 5]
+		# seen = set()
+		# dupes = [x for x in decomp_boards if x in seen or seen.add(x)]   
+		# print(f'seen = {len(seen)}')
+
+		# dico = {}
+		# for x in decomp_boards:
+		# 	dico[x] = dico.get(x, 0) + 1
+		# print('2 occ:', len([v for k,v in dico.items() if v == 1]))
+		# print('3 occ:', len([v for k,v in dico.items() if v == 2]))
+		# print('4 occ:', len([v for k,v in dico.items() if v == 3]))
+		# print('5+ occ:', len([v for k,v in dico.items() if v >= 4]))
+
+		# breakpoint()
+
+
+		# Switch between training and validation
+		validation = examples[-len(examples)//5:]
+		examples = examples[:-len(examples)//5]
+		batch_count = len(examples) // self.args['batch_size']
 
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
 		if self.force_long_training:
-			lr = self.args['learn_rate'] * 100
+			lr = self.args['learn_rate']
 			print(f'now lr={lr:.1e}')
-		for epoch_group in range(3 if self.force_long_training else 1):
+		nnet, optimizer = ipex.optimize(self.nnet, optimizer=self.optimizer)
+		# nnet, optimizer = self.nnet, self.optimizer
+
+		for epoch_group in range(1 if self.force_long_training else 1):
 			t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 			for epoch in range(self.args['epochs']):
 				t.set_description(f'Train ep{epoch + 1}')
 				self.nnet.train()
 				pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
-
-				# nnet, optimizer = ipex.optimize(self.nnet, optimizer=self.optimizer)
-				nnet, optimizer = self.nnet, self.optimizer
 		
 				for _ in range(batch_count):
 					sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
@@ -94,6 +132,11 @@ class GenericNNetWrapper(NeuralNet):
 					l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
 					l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
 					total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
+					if self.args['optim'] == 'SGDhome':
+						l2regul_loss = 0
+						for param in [p for n, p in nnet.named_parameters() if 'bias' not in n]:
+							l2regul_loss += torch.sum(torch.square(param))
+						total_loss += 1e-4 * l2regul_loss
 
 					# record loss
 					pi_losses.update(l_pi.item(), boards.size(0))
@@ -107,13 +150,46 @@ class GenericNNetWrapper(NeuralNet):
 					optimizer.step()
 
 					t.update()
+
+				if self.force_long_training:
+					print('training loss:', round(total_loss.item(), 2))
+					# Evaluation
+					validation_batch_count = len(validation) // self.args['batch_size']
+					self.nnet.eval()
+					test_loss = 0
+					with torch.no_grad():
+						for i_batch in range(validation_batch_count):
+							sample_ids = list(range(i_batch*self.args['batch_size'], (i_batch+1)*self.args['batch_size']))
+							boards, pis, vs, scdiffs, valid_actions, surprises = self.pick_examples(validation, sample_ids)
+							boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
+							valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
+							target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
+							target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
+							target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
+							for i in range(len(scdiffs)):
+								score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
+								for player in range(self.num_players):
+									target_scdiffs[i, score_diff[player], player] = 1
+
+							# compute output
+							out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
+							l_pi = self.loss_pi(target_pis, out_pi)
+							l_v = self.loss_v(target_vs, out_v)
+							l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
+							l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
+							total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
+							test_loss += total_loss.item()
+
+					test_loss /= validation_batch_count
+					print('validation loss:', round(test_loss, 2))
+
 			t.close()
-			if self.force_long_training:
-				print(f'end of pass {epoch_group}: loss={pi_losses.avg+self.args["vl_weight"]*v_losses.avg:.2e}, lr={lr:.1e}', end='   ')
-				lr = max(lr/10, 1e-7)
-				for param_group in self.optimizer.param_groups:
-					param_group['lr'] = lr
-				print(f'now lr={lr:.1e}')
+			# if self.force_long_training:
+				# print(f'end of pass {epoch_group}: loss={pi_losses.avg+self.args["vl_weight"]*v_losses.avg:.2e}, lr={lr:.1e}', end='   ')
+				# lr = max(lr/10, 1e-7)
+				# for param_group in self.optimizer.param_groups:
+					# param_group['lr'] = lr
+				# print(f'now lr={lr:.1e}')
 
 		self.force_long_training = False
 		
