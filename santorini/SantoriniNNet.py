@@ -37,6 +37,21 @@ class Residualv2(nn.Module):
 		x = y + x
 		return x
 
+class Residualv2_NoBatchNorm(nn.Module):
+	def __init__(self, n_filters):
+		super().__init__()
+		self.residual = nn.Sequential(
+			nn.ReLU(),
+			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False),
+			nn.ReLU(),
+			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False),
+		)
+
+	def forward(self, x):
+		y = self.residual(x)
+		x = y + x
+		return x
+
 class SE_Residualv2(nn.Module):
 	def __init__(self, n_filters, reduction=16, pool='max'):
 		super().__init__()
@@ -45,6 +60,34 @@ class SE_Residualv2(nn.Module):
 			nn.ReLU(),
 			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False),
 			nn.BatchNorm2d(n_filters),
+			nn.ReLU(),
+			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False),
+		)
+		self.pool = nn.MaxPool2d(5) if pool == 'max' else nn.AvgPool2d(5)
+		self.fc = nn.Sequential(
+			nn.Linear(n_filters, n_filters // reduction, bias=False),
+			nn.ReLU(),
+			nn.Linear(n_filters // reduction, n_filters, bias=False),
+			nn.Sigmoid(),
+		)
+
+	def forward(self, x):
+		y = self.residual(x)
+
+		b, c, _, _ = y.size()
+		z = self.pool(y).view(b, c)
+		z = self.fc(z).view(b, c, 1, 1)
+		y = y * z.expand_as(y)
+		x = x + y
+
+		return x
+
+class SE_Residualv2_NoBatchNorm(nn.Module):
+	def __init__(self, n_filters, reduction=16, pool='max'):
+		super().__init__()
+		self.residual = nn.Sequential(
+			nn.ReLU(),
+			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False),
 			nn.ReLU(),
 			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False),
 		)
@@ -330,7 +373,7 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version in [28, 29, 33, 34, 35]:
+		elif self.version in [28, 29, 33, 34, 35, 66]:
 			if self.version == 28:
 				conv = Residualv2 
 				self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4)
@@ -346,6 +389,9 @@ class SantoriniNNet(nn.Module):
 			elif self.version == 35:
 				conv = Residualv2 
 				self.partialgpool_1 = Global_Residual(128, pool_factor=4)
+			elif self.version == 66:
+				conv = SE_Residualv2_NoBatchNorm
+				self.partialgpool_1 = Conv2dAndPartialMaxPool(128, 128, kernel_conv=3, nb_channel_maxplanar=4, kernel_maxplanar=3, nb_groups_maxchannel=2, kernel_maxchannel=4, batchnorm=True)
 
 			self.conv2d_1 = nn.Conv2d(  2, 128, 3, padding=1)
 			self.conv2d_2 = conv(128)
@@ -829,7 +875,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
-		elif self.version in [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]:
+		elif self.version in [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 66]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
@@ -852,7 +898,7 @@ class SantoriniNNet(nn.Module):
 				x = torch.cat([x, data], dim=-1)
 				x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
 				x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
-			elif self.version in [25, 28, 29, 30, 31, 32, 33, 34, 35]:
+			elif self.version in [25, 28, 29, 30, 31, 32, 33, 34, 35, 66]:
 				x = self.conv2d_1(x)
 				x = self.conv2d_2(x)
 				x = self.partialgpool_1(x)
