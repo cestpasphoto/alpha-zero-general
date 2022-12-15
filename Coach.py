@@ -15,6 +15,23 @@ from MCTS import MCTS
 
 log = logging.getLogger(__name__)
 
+
+def applyTemperatureAndNormalize(probs, temperature):
+    if temperature == 0:
+        bests = np.array(np.argwhere(probs == np.max(probs))).flatten()
+        result = [0] * len(probs)
+        result[np.random.choice(bests)] = 1
+    else:
+        result = [x ** (1. / temperature) for x in probs]
+        result_sum = float(sum(result))
+        result = [x / result_sum for x in result]
+    return result
+
+def random_pick(probs, temperature=1.):
+    probs_with_temp = applyTemperatureAndNormalize(probs, temperature)
+    pick = np.random.choice(len(probs_with_temp), p=probs_with_temp)
+    return pick
+
 class Coach():
     """
     This class executes the self-play + learning. It uses the functions defined
@@ -54,16 +71,18 @@ class Coach():
         while True:
             episodeStep += 1
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
-            temp = int(episodeStep < self.args.tempThreshold)
-
-            pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp)
+            temp_mcts = 1 if self.args.tempThreshold > 0 else int(episodeStep < -self.args.tempThreshold)
+            pi, surprise, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=1)
             if is_full_search:
                 valids = self.game.getValidMoves(canonicalBoard, 0)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
                     trainExamples.append([b, self.curPlayer, p, v, surprise])
 
-            action = np.random.choice(len(pi), p=pi)
+            if self.args.tempThreshold > 0:
+                action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else 0.2)
+            else:
+                action = np.random.choice(len(pi), p=pi)
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
             r = self.game.getGameEnded(board, self.curPlayer)

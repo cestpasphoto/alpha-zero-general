@@ -99,7 +99,7 @@ def main():
 
 	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int  , help='')
 	parser.add_argument('--numEps'          , '-e' , action='store', default=500  , type=int  , help='Number of complete self-play games to simulate during a new iteration')
-	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='')
+	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves after which changing temperature (5->0.2). Add negative sign for other temps (1->0)')
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	# parser.add_argument('--maxlenOfQueue'   , '-q' , action='store', default=400000, type=int , help='Number of game examples to train the neural networks')
 	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=1600 , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')
