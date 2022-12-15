@@ -26,7 +26,6 @@ def run(args):
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
 		vl_weight=args.vl_weight,
-		cyclic_lr=args.cyclic_lr,
 		surprise_weight=args.surprise_weight,
 		no_compression=args.no_compression,
 	)
@@ -116,7 +115,6 @@ def main():
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10.  , type=float, help='Weight for value loss')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
-	parser.add_argument('--cyclic-lr'       , '-Y' , action='store_true', help='Enable cyclic learning rate')
 	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
 
 	parser.add_argument('--no-compression'  , '-z' , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')

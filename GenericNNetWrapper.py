@@ -50,10 +50,6 @@ class GenericNNetWrapper(NeuralNet):
 			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])		
 		batch_count = int(len(examples) / self.args['batch_size'])
 
-		if self.args['cyclic_lr']:
-			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate']*10, anneal_strategy='cos', total_steps=self.args['epochs']*batch_count)
-			# scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate']*10, anneal_strategy='linear', total_steps=self.args['epochs']*batch_count)
-
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
@@ -97,8 +93,6 @@ class GenericNNetWrapper(NeuralNet):
 				self.optimizer.zero_grad(set_to_none=True)
 				total_loss.backward()
 				self.optimizer.step()
-				if self.args['cyclic_lr']:
-					scheduler.step()
 
 				t.update()
 		t.close()
