@@ -444,7 +444,7 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version == 24:
+		elif self.version == 24 or self.version == 44:
 			self.conv2d_1 = nn.Sequential(
 				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
 				nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
@@ -625,6 +625,27 @@ class SantoriniNNet(nn.Module):
 			x = torch.flatten(x, start_dim=1).unsqueeze(1)
 			x = torch.cat([x, data], dim=-1)
 			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
+			
+			v = self.output_layers_V(x).squeeze(1)
+			sdiff = self.output_layers_SDIFF(x).squeeze(1)
+			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+
+		elif self.version in [44]:
+			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x, data = x.split([2,1], dim=1)
+
+			x = self.conv2d_1(x)      
+			x = self.conv2d_2(x)      
+			x = self.partialgpool_1(x)
+			x = self.conv2d_3(x)      
+
+			data = torch.flatten(data, start_dim=2)
+			data = self.dense1d_0(data)
+
+			x = torch.flatten(x, start_dim=1).unsqueeze(1)
+			x = torch.cat([x, data], dim=-1)
+			x = self.dense1d_1(x)     
 			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x).squeeze(1)
