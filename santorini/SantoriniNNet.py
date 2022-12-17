@@ -92,6 +92,35 @@ class FlattenAndPartialGPool(nn.Module):
 		], 1)
 		return x.unsqueeze(1)
 
+class SE_Residualv2(nn.Module):
+	def __init__(self, n_filters, reduction=16, pool='max'):
+		super().__init__()
+		self.residual = nn.Sequential(
+			nn.BatchNorm2d(n_filters),
+			nn.ReLU(),
+			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False),
+			nn.BatchNorm2d(n_filters),
+			nn.ReLU(),
+			nn.Conv2d(n_filters, n_filters, 3, padding=1, bias=False),
+		)
+		self.pool = nn.MaxPool2d(5) if pool == 'max' else nn.AvgPool2d(5)
+		self.fc = nn.Sequential(
+			nn.Linear(n_filters, n_filters // reduction, bias=False),
+			nn.ReLU(),
+			nn.Linear(n_filters // reduction, n_filters, bias=False),
+			nn.Sigmoid(),
+		)
+
+	def forward(self, x):
+		y = self.residual(x)
+
+		b, c, _, _ = y.size()
+		z = self.pool(y).view(b, c)
+		z = self.fc(z).view(b, c, 1, 1)
+		y = y * z.expand_as(y)
+		x = x + y
+
+		return x
 
 class SantoriniNNet(nn.Module):
 	def __init__(self, game, args):
@@ -564,6 +593,48 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
+		elif self.version in [64]:
+			n_filters = 128
+
+			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
+			self.trunk = nn.Sequential(
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+				SE_Residualv2(n_filters),
+			)
+
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
+				nn.BatchNorm2d(n_filters),
+				nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
+				nn.BatchNorm2d(n_filters),
+				nn.ReLU(),
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters//2, 1, padding=0, bias=True),
+				nn.Flatten(1),
+				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
+			)
+
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
 
@@ -667,5 +738,16 @@ class SantoriniNNet(nn.Module):
 			v = self.output_layers_V(x).squeeze(1)
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+
+		elif self.version in [64]:
+			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x, data = x.split([2,1], dim=1)
+
+			x = self.first_layer(x)
+			x = self.trunk(x)
+			
+			v = self.output_layers_V(x)
+			sdiff = self.output_layers_SDIFF(x)
+			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
 		return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
