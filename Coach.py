@@ -214,6 +214,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Examples loader')
     parser.add_argument('input', metavar='example filename', nargs='*'                 , help='list of examples to load (.examples files)')
     parser.add_argument('--output'    , '-o', action='store', default='../results/new' , help='Prefix for output files')
+    parser.add_argument('--binarize'  , '-b', action='store_true', help='Transform policy into binary one')
     args = parser.parse_args()
 
     training, testing = [], []
@@ -226,6 +227,17 @@ if __name__ == "__main__":
             testing += [list(x)[::8] for x in new_input[-1:]] # Remove symmetries
     
     #pickle.loads(zlib.decompress(testing[0][0]))[0]
+    if args.binarize:
+        for i in range(len(training)):
+            for j in range(len(training[i])):
+                data = pickle.loads(zlib.decompress(testing[i][j]))
+                policy = data[0]
+                bestA = np.argmax(policy)[0]
+                new_policy = np.zeros_like(policy)
+                new_policy[bestA] = 1
+                data[0] = new_policy
+                testing[i][j] = zlib.compress(pickle.dumps(data), level=1)
+
 
     for t, name in [(training, 'training'), (testing, 'testing')]:
         filename = args.output + '_' + name + '.examples'
