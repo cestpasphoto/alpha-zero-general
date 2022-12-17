@@ -40,7 +40,7 @@ class GenericNNetWrapper(NeuralNet):
 	def init_nnet(self, game, nn_args):
 		pass
 
-	def train(self, examples):
+	def train(self, examples, validation_set=None, save_folder=None, every=0):
 		"""
 		examples: list of examples, each example is of form (board, pi, v)
 		"""
@@ -58,7 +58,7 @@ class GenericNNetWrapper(NeuralNet):
 			self.nnet.train()
 			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
 	
-			for _ in range(batch_count):
+			for i_batch in range(batch_count):
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
 				boards, pis, vs, scdiffs, valid_actions, surprises = self.pick_examples(examples, sample_ids)
 				boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
@@ -76,6 +76,7 @@ class GenericNNetWrapper(NeuralNet):
 					boards, target_pis, target_vs, valid_actions, target_scdiffs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda(), target_scdiffs.contiguous().cuda()
 
 				# compute output
+				self.optimizer.zero_grad(set_to_none=True)
 				out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
 				l_pi = self.loss_pi(target_pis, out_pi)
 				l_v = self.loss_v(target_vs, out_v)
@@ -90,14 +91,42 @@ class GenericNNetWrapper(NeuralNet):
 				t.set_postfix(PI=pi_losses, V=v_losses, SD=scdiff_losses, refresh=False)
 
 				# compute gradient and do SGD step
-				self.optimizer.zero_grad(set_to_none=True)
 				total_loss.backward()
 				self.optimizer.step()
 
 				t.update()
+
+				if validation_set and (i_batch % every == 0):
+					# Evaluation
+					self.nnet.eval()
+					with torch.no_grad():
+						picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
+						boards, pis, vs, scdiffs, valid_actions, surprises = list(zip(*picked_examples))
+						boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
+						valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
+						target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
+						target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
+						target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
+						for i in range(len(scdiffs)):
+							score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
+							for player in range(self.num_players):
+								target_scdiffs[i, score_diff[player], player] = 1
+
+						# compute output
+						out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
+						l_pi = self.loss_pi(target_pis, out_pi)
+						l_v = self.loss_v(target_vs, out_v)
+						l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
+						l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
+						total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
+						test_loss = total_loss.item()
+						print(test_loss)
+					self.nnet.train()
+					if (i_batch > 0) and save_folder:
+						self.save_checkpoint(save_folder, filename=f'intermediary_{i_batch}.pt')
+
 		t.close()
 		
-
 	def predict(self, board, valid_actions):
 		"""
 		board: np array with board
@@ -301,3 +330,79 @@ class GenericNNetWrapper(NeuralNet):
 	def reshape_boards(self, numpy_boards):
 		# Some game needs to reshape boards before being an input of NNet
 		return numpy_boards
+
+if __name__ == "__main__":
+	import argparse
+	from santorini.SantoriniGame import SantoriniGame as Game
+	from santorini.NNet import NNetWrapper as nn
+
+	torch.set_num_threads(3) # PyTorch more efficient this way
+
+	parser = argparse.ArgumentParser(description='NNet loader')
+	parser.add_argument('--input'      , '-i', action='store', default='./' , help='Input NN to load')
+	parser.add_argument('--output'     , '-o', action='store', default=None , help='Prefix for output NN')
+	parser.add_argument('--training'   , '-T', action='store', default='../results/new_training.examples' , help='')
+	parser.add_argument('--test'       , '-t', action='store', default='../results/new_testing.examples'  , help='')
+
+	parser.add_argument('--learn-rate' , '-l' , action='store', default=0.0003, type=float, help='')
+	parser.add_argument('--dropout'    , '-d' , action='store', default=0.2   , type=float, help='')
+	parser.add_argument('--epochs'     , '-p' , action='store', default=1    , type=int  , help='')
+	parser.add_argument('--batch-size' , '-b' , action='store', default=32   , type=int  , help='')
+	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
+	parser.add_argument('--vl-weight'  , '-v' , action='store', default=4.   , type=float, help='Weight for value loss')
+
+
+	args = parser.parse_args()
+	
+	import time
+	output = (args.output if args.output else 'output_') + str(int(time.time()))[:-6]
+
+	g = Game()
+	nn_args = dict(
+		lr=args.learn_rate,
+		dropout=args.dropout,
+		epochs=args.epochs,
+		batch_size=args.batch_size,
+		nn_version=args.nn_version,
+		learn_rate=args.learn_rate,
+		vl_weight=args.vl_weight,
+		# lr=3e-4,
+		# dropout=0,
+		# epochs=1,
+		# batch_size=256,
+		# nn_version=24,
+		# learn_rate=3e-4,
+		# vl_weight=4,
+		surprise_weight=False,
+		no_compression=False,
+	)
+	nnet = nn(g, nn_args)
+	if args.input != './':
+		nnet.load_checkpoint(args.input, filename='temp.pt')
+
+	with open(args.training, "rb") as f:
+		examples = pickle.load(f)
+	trainExamples = []
+	for e in examples:
+		trainExamples.extend(e)
+	with open(args.test, "rb") as f:
+		examples = pickle.load(f)
+	testExamples = []
+	for e in examples:
+		testExamples.extend(e)
+
+	# breakpoint()
+	
+	# trainExamples_small = trainExamples[::30]
+	# testExamples_small = testExamples[::30]
+	# nnet.args['learn_rate'], nnet.args['lr'], nnet.args['batch_size'] = 3e-2, 3e-2, 32
+	# nnet.optimizer = None
+	# save_every = 1e5 // nnet.args['batch_size']
+	# nnet.train(trainExamples_small, testExamples_small, '', save_every)
+
+	# nnet.args['learn_rate'], nnet.args['lr'], nnet.args['batch_size'] = 3e-4, 3e-4, 512
+	# nnet.optimizer = None
+	save_every = 1e5 // nnet.args['batch_size']
+	nnet.train(trainExamples, testExamples, output, save_every)
+
+	nnet.save_checkpoint(output, filename='last.pt')

@@ -206,3 +206,33 @@ class Coach():
                 for _ in range(len(history), self.args.maxlenOfQueue, -1):
                     history.pop()
                 log.info('Reduced nb of items in one history of loaded examples')
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Examples loader')
+    parser.add_argument('input', metavar='example filename', nargs='*'                 , help='list of examples to load (.examples files)')
+    parser.add_argument('--output'    , '-o', action='store', default='../results/new' , help='Prefix for output files')
+    args = parser.parse_args()
+
+    training, testing = [], []
+    for filename in args.input:
+        print(f'Loading {filename}...')
+        with open(filename, "rb") as f:
+            new_input = pickle.load(f)
+            print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')
+            training += new_input[:-1]
+            testing += [list(x)[::8] for x in new_input[-1:]] # Remove symmetries
+    
+    #pickle.loads(zlib.decompress(testing[0][0]))[0]
+
+    for t, name in [(training, 'training'), (testing, 'testing')]:
+        filename = args.output + '_' + name + '.examples'
+        print(f'total size {name} = {sum([len(x) for x in t])} --> writing to {filename}')
+        with open(filename, "wb") as f:
+            pickle.dump(t, f)
+        # print(f'Testing...')
+        # with open(filename, "rb") as f:
+        #     new_input = pickle.load(f)
+        #     print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')
