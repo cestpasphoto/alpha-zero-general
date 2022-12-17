@@ -355,7 +355,7 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 	
 	import time
-	output = (args.output if args.output else 'output_') + str(int(time.time()))[:-6]
+	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
 
 	g = Game()
 	nn_args = dict(
