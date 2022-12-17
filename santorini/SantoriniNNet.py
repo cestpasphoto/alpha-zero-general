@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models.resnet as resnet
 
 # Assume 3-dim tensor input N,C,L
 class DenseAndPartialGPool(nn.Module):
@@ -593,23 +594,36 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version in [64]:
+		elif self.version in [52, 64]:
 			n_filters = 128
 
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
-			self.trunk = nn.Sequential(
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-				SE_Residualv2(n_filters),
-			)
-
+			if self.version == 64:
+				self.trunk = nn.Sequential(
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+					SE_Residualv2(n_filters),
+				)
+			elif self.version == 52:
+				self.trunk = nn.Sequential(
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters),
+				)
 
 			self.output_layers_PI = nn.Sequential(
 				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
@@ -739,7 +753,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [64]:
+		elif self.version in [64, 52]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
