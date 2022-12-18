@@ -333,13 +333,14 @@ class GenericNNetWrapper(NeuralNet):
 
 if __name__ == "__main__":
 	import argparse
+	import os.path
+	import time
 	from santorini.SantoriniGame import SantoriniGame as Game
 	from santorini.NNet import NNetWrapper as nn
-
 	torch.set_num_threads(3) # PyTorch more efficient this way
 
 	parser = argparse.ArgumentParser(description='NNet loader')
-	parser.add_argument('--input'      , '-i', action='store', default='./' , help='Input NN to load')
+	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
 	parser.add_argument('--output'     , '-o', action='store', default=None , help='Prefix for output NN')
 	parser.add_argument('--training'   , '-T', action='store', default='../results/new_training.examples' , help='')
 	parser.add_argument('--test'       , '-t', action='store', default='../results/new_testing.examples'  , help='')
@@ -350,11 +351,8 @@ if __name__ == "__main__":
 	parser.add_argument('--batch-size' , '-b' , action='store', default=32   , type=int  , help='')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'  , '-v' , action='store', default=4.   , type=float, help='Weight for value loss')
+	args = parser.parse_args()	
 
-
-	args = parser.parse_args()
-	
-	import time
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
 
 	g = Game()
@@ -366,19 +364,12 @@ if __name__ == "__main__":
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
 		vl_weight=args.vl_weight,
-		# lr=3e-4,
-		# dropout=0,
-		# epochs=1,
-		# batch_size=256,
-		# nn_version=24,
-		# learn_rate=3e-4,
-		# vl_weight=4,
 		surprise_weight=False,
 		no_compression=False,
 	)
 	nnet = nn(g, nn_args)
-	if args.input != './':
-		nnet.load_checkpoint(args.input, filename='temp.pt')
+	if args.input:
+		nnet.load_checkpoint(os.path.dirname(args.input), os.path.basename(args.input))
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
