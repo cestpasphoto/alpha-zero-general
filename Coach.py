@@ -226,18 +226,22 @@ if __name__ == "__main__":
             training += new_input[:-1]
             testing += [list(x)[::8] for x in new_input[-1:]] # Remove symmetries
     
-    #pickle.loads(zlib.decompress(testing[0][0]))[0]
     if args.binarize:
-        for i in range(len(training)):
-            for j in range(len(training[i])):
-                data = pickle.loads(zlib.decompress(testing[i][j]))
-                policy = data[0]
-                bestA = np.argmax(policy)[0]
-                new_policy = np.zeros_like(policy)
-                new_policy[bestA] = 1
-                data[0] = new_policy
-                testing[i][j] = zlib.compress(pickle.dumps(data), level=1)
+        print('Binarizing policy...')
+        for t in [training, testing]:
+            for i in range(len(t)):
+                print(i, end=' ')
+                for j in range(len(t[i])):
+                    data = pickle.loads(zlib.decompress(t[i][j]))
+                    policy = data[1]
+                    bestA = np.argmax(policy)
+                    new_policy = np.zeros_like(policy)
+                    new_policy[bestA] = 1
+                    data = (data[0], new_policy, data[2], data[3], data[4], data[5])
+                    t[i][j] = zlib.compress(pickle.dumps(data), level=1)
+            print()
 
+    # breakpoint()
 
     for t, name in [(training, 'training'), (testing, 'testing')]:
         filename = args.output + '_' + name + '.examples'
