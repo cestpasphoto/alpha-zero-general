@@ -73,7 +73,7 @@ class GenericNNetWrapper(NeuralNet):
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
-				target_qs = torch.FloatTensor(np.array([[q, -q] for q in qs]).astype(np.float32))
+				target_qs = torch.FloatTensor(np.array(qs).astype(np.float32))
 				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
 				for i in range(len(scdiffs)):
 					score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
@@ -114,7 +114,7 @@ class GenericNNetWrapper(NeuralNet):
 						valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 						target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 						target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
-						target_qs = torch.FloatTensor(np.array([[q, -q] for q in qs]).astype(np.float32))
+						target_qs = torch.FloatTensor(np.array(qs).astype(np.float32))
 						target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
 						for i in range(len(scdiffs)):
 							score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
@@ -168,7 +168,7 @@ class GenericNNetWrapper(NeuralNet):
 		return -torch.sum(targets * outputs) / targets.size()[0]
 
 	def loss_v(self, targets_V, targets_Q, outputs):
-		targets = (targets_V + targets_Q)/2
+		targets = (targets_V + self.args['q_weight'] * targets_Q)/2
 		return torch.sum((targets - outputs) ** 2) / (targets_V.size()[0] * targets_V.size()[-1]) # Normalize by batch size * nb of players
 
 	def loss_scdiff_cdf(self, targets, outputs):

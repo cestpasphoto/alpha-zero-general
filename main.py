@@ -28,6 +28,7 @@ def run(args):
 		vl_weight=args.vl_weight,
 		surprise_weight=args.surprise_weight,
 		no_compression=args.no_compression,
+		q_weight=args.q_weight,
 	)
 	nnet = nn(g, nn_args)
 
@@ -114,6 +115,7 @@ def main():
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10.  , type=float, help='Weight for value loss')
+	parser.add_argument('--q-weight'        , '-q' , action='store', default=1.   , type=float, help='Weight for mixing Q into value loss')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
 

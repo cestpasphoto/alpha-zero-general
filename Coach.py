@@ -72,7 +72,7 @@ class Coach():
             episodeStep += 1
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
             temp_mcts = 1 if self.args.tempThreshold > 0 else int(episodeStep < -self.args.tempThreshold)
-            pi, surprise, Q_values, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=1)
+            pi, surprise, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=1)
 
             if self.args.tempThreshold > 0:
                 action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else 0.2)
@@ -82,7 +82,6 @@ class Coach():
             if is_full_search:
                 valids = self.game.getValidMoves(canonicalBoard, 0)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
-                q = Q_values[action] # No need for symmetry
                 for b, p, v in sym:
                     trainExamples.append([b, self.curPlayer, p, v, surprise, q])
 
@@ -98,7 +97,7 @@ class Coach():
                     np.roll([f-final_scores[x[1]] for f in final_scores], -x[1]), # score difference
                     x[3],                                # valids
                     x[4],                                # surprise
-                    x[5] * (1 if x[1] == 0 else -1),     # Q-value
+                    x[5],                                # Q estimates
                 ) for x in trainExamples]
 
                 return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
