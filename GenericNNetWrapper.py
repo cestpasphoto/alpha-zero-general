@@ -47,8 +47,16 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('training')
 
 		if self.optimizer is None:
-			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])		
+			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
+			# self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])		
+			# self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'], weight_decay=1e-4)		
 		batch_count = int(len(examples) / self.args['batch_size'])
+		scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
+		
+		# batch_count = batch_count // 5
+		# every = every // 5
+		# validation_set = validation_set[::5]
+		# scheduler = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=1e-3, total_iters=batch_count)
 
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
@@ -93,10 +101,13 @@ class GenericNNetWrapper(NeuralNet):
 				# compute gradient and do SGD step
 				total_loss.backward()
 				self.optimizer.step()
+				scheduler.step()
 
 				t.update()
 
 				if validation_set and (i_batch % every == 0):
+					# print()
+					# print(f'LR = {scheduler.get_last_lr()[0]:.1e}', end=' ')
 					# Evaluation
 					self.nnet.eval()
 					with torch.no_grad():
@@ -331,13 +342,18 @@ class GenericNNetWrapper(NeuralNet):
 		# Some game needs to reshape boards before being an input of NNet
 		return numpy_boards
 
+	def number_params(self):
+		total_params = sum(p.numel() for p in self.nnet.parameters())
+		trainable_params = sum(p.numel() for p in self.nnet.parameters() if p.requires_grad)
+		return total_params, trainable_params
+
 if __name__ == "__main__":
 	import argparse
 	import os.path
 	import time
 	from santorini.SantoriniGame import SantoriniGame as Game
 	from santorini.NNet import NNetWrapper as nn
-	torch.set_num_threads(3) # PyTorch more efficient this way
+	torch.set_num_threads(2) # PyTorch more efficient this way
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
@@ -370,6 +386,8 @@ if __name__ == "__main__":
 	nnet = nn(g, nn_args)
 	if args.input:
 		nnet.load_checkpoint(os.path.dirname(args.input), os.path.basename(args.input))
+	print(f'Number of params {nnet.number_params()[1]:.2e} (total {nnet.number_params()[0]:.2e})')
+	# breakpoint()
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)

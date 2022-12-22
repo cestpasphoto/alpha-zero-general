@@ -225,6 +225,15 @@ if __name__ == "__main__":
             print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')
             training += new_input[:-1]
             testing += [list(x)[::8] for x in new_input[-1:]] # Remove symmetries
+
+    # for filename in args.input:
+    #     print(f'Loading {filename}...')
+    #     with open(filename, "rb") as f:
+    #         new_input = pickle.load(f)
+    #         print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')
+    #         training += new_input[-3:]
+    # testing = [list(training[-1])[::8]]
+    # training = training[:-1]
     
     if args.binarize:
         print('Binarizing policy...')
