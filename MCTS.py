@@ -148,7 +148,8 @@ class MCTS():
         # get next state and get canonical version of it
         a, next_s, next_player = get_next_best_action_and_canonical_state(
             Es, Vs, Ps, Ns, Qsa, Nsa,
-            self.args.cpuct,
+            self.args.cpuct_base,
+            self.args.cpuct_init,
             self.game.board,
             canonicalBoard,
             forced_playouts,
@@ -183,7 +184,7 @@ class MCTS():
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)
-def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step):
+def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_playouts, step):
     cur_best = MINFLOAT
     best_act = -1
 
@@ -194,6 +195,7 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step):
                     return a
 
             if Qsa[a] != NAN:
+                cpuct = math.log((Ns + cpuct_base + 1) / cpuct_base) + cpuct_init
                 u = Qsa[a] + cpuct * Ps[a] * math.sqrt(Ns) / (1 + Nsa[a])
             else:
                 u = cpuct * Ps[a] * math.sqrt(Ns + EPS)  # Q = 0 ?
@@ -205,8 +207,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step):
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, gameboard, canonicalBoard, forced_playouts, step):
-    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct, forced_playouts, step)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, gameboard, canonicalBoard, forced_playouts, step):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_playouts, step)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)
