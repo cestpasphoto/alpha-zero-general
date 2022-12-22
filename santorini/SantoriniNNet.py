@@ -736,41 +736,22 @@ class SantoriniNNet(nn.Module):
 					resnet.BasicBlock(n_filters, n_filters),
 					resnet.BasicBlock(n_filters, n_filters//2, downsample=downsample_trunk),
 				)
-			elif self.version == 54 or self.version == 57: # resnext style
-				downsample_trunk = nn.Sequential(
-					nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
-					nn.BatchNorm2d(n_filters//2)
-				)
+			elif self.version == 54 or self.version == 57: # bottleneck style
+				n_filters = 512
+				self.first_layer = nn.Conv2d(  2, 256, 3, padding=1, bias=False)
+				# upsample_trunk = nn.Sequential(
+				# 	nn.Conv2d(64, 256, 1, bias=False),
+				# 	nn.BatchNorm2d(256)
+				# )
 				self.trunk = nn.Sequential(
-					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
-					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
-					resnet.Bottleneck(n_filters, n_filters//8, groups=32, base_width=8, downsample=downsample_trunk),
-				)
-			elif self.version == 55: # SE-resnet style
-				downsample_trunk = nn.Sequential(
-					nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
-					nn.BatchNorm2d(n_filters//2)
-				)
-				self.trunk = nn.Sequential(
-					SEBottleneck(n_filters, n_filters//4, groups=32, base_width=8),
-					SEBottleneck(n_filters, n_filters//4, groups=32, base_width=8),
-					SEBottleneck(n_filters, n_filters//8, groups=32, base_width=4, downsample=downsample_trunk),
-				)
-
-			elif self.version == 56: # SE-resnet style, but more like kataGO
-				downsample_trunk = nn.Sequential(
-					nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
-					nn.BatchNorm2d(n_filters//2)
-				)
-				self.trunk = nn.Sequential(
-					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
-					SEBottleneck(n_filters, n_filters//4, groups=32, base_width=8),
-					resnet.Bottleneck(n_filters, n_filters//8, groups=32, base_width=8, downsample=downsample_trunk),
+					resnet.Bottleneck(256, 256//4),
+					resnet.Bottleneck(256, 256//4),
+					resnet.Bottleneck(256, 256//4),
 				)
 
 			if self.version in [53, 54, 55, 56, 57]:
 				self.output_layers_PI = nn.Sequential(
-					SEBasicBlock(n_filters//2, n_filters//2) if self.version in [55, 56, 57] else resnet.BasicBlock(n_filters//2, n_filters//2),
+					resnet.BasicBlock(n_filters//2, n_filters//2),
 					nn.Flatten(1),
 					nn.Linear(n_filters//2 *5*5, self.action_size),
 					nn.ReLU(),
@@ -778,7 +759,7 @@ class SantoriniNNet(nn.Module):
 				)
 
 				self.output_layers_V = nn.Sequential(
-					SEBasicBlock(n_filters//2, n_filters//2) if self.version in [55, 56, 57] else resnet.BasicBlock(n_filters//2, n_filters//2),
+					resnet.BasicBlock(n_filters//2, n_filters//2),
 					nn.Flatten(1),
 					nn.Linear(n_filters//2 *5*5, self.num_players),
 					nn.ReLU(),
