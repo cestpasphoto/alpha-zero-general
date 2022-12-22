@@ -123,6 +123,108 @@ class SE_Residualv2(nn.Module):
 
 		return x
 
+
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+	return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+
+class SELayer(nn.Module):
+	def __init__(self, channel, reduction=16):
+		super(SELayer, self).__init__()
+		self.avg_pool = nn.MaxPool2d(5)
+		self.fc = nn.Sequential(
+			nn.Linear(channel, channel // reduction, bias=False),
+			nn.ReLU(inplace=True),
+			nn.Linear(channel // reduction, channel, bias=False),
+			nn.Sigmoid()
+		)
+
+	def forward(self, x):
+		b, c, _, _ = x.size()
+		y = self.avg_pool(x).view(b, c)
+		y = self.fc(y).view(b, c, 1, 1)
+		return x * y.expand_as(x)
+
+
+class SEBasicBlock(nn.Module):
+	expansion = 1
+
+	def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
+				 base_width=64, dilation=1, norm_layer=None,
+				 *, reduction=16):
+		super(SEBasicBlock, self).__init__()
+		self.conv1 = conv3x3(inplanes, planes, stride)
+		self.bn1 = nn.BatchNorm2d(planes)
+		self.relu = nn.ReLU(inplace=True)
+		self.conv2 = conv3x3(planes, planes, 1)
+		self.bn2 = nn.BatchNorm2d(planes)
+		self.se = SELayer(planes, reduction)
+		self.downsample = downsample
+		self.stride = stride
+
+	def forward(self, x):
+		residual = x
+		out = self.conv1(x)
+		out = self.bn1(out)
+		out = self.relu(out)
+
+		out = self.conv2(out)
+		out = self.bn2(out)
+		out = self.se(out)
+
+		if self.downsample is not None:
+			residual = self.downsample(x)
+
+		out += residual
+		out = self.relu(out)
+
+		return out
+
+
+class SEBottleneck(nn.Module):
+	expansion = 4
+
+	def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
+				 base_width=64, dilation=1, norm_layer=None,
+				 *, reduction=16):
+		super(SEBottleneck, self).__init__()
+		self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+		self.bn1 = nn.BatchNorm2d(planes)
+		self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+							   padding=1, bias=False)
+		self.bn2 = nn.BatchNorm2d(planes)
+		self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+		self.bn3 = nn.BatchNorm2d(planes * 4)
+		self.relu = nn.ReLU(inplace=True)
+		self.se = SELayer(planes * 4, reduction)
+		self.downsample = downsample
+		self.stride = stride
+
+	def forward(self, x):
+		residual = x
+
+		out = self.conv1(x)
+		out = self.bn1(out)
+		out = self.relu(out)
+
+		out = self.conv2(out)
+		out = self.bn2(out)
+		out = self.relu(out)
+
+		out = self.conv3(out)
+		out = self.bn3(out)
+		out = self.se(out)
+
+		if self.downsample is not None:
+			residual = self.downsample(x)
+
+		out += residual
+		out = self.relu(out)
+
+		return out
+
 class SantoriniNNet(nn.Module):
 	def __init__(self, game, args):
 		# game params
@@ -594,7 +696,7 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version in [52, 64]:
+		elif self.version in [52, 53, 54, 55, 56, 57, 64]:
 			n_filters = 128
 
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
@@ -605,11 +707,11 @@ class SantoriniNNet(nn.Module):
 					SE_Residualv2(n_filters),
 					SE_Residualv2(n_filters),
 					SE_Residualv2(n_filters),
-					SE_Residualv2(n_filters),
-					SE_Residualv2(n_filters),
-					SE_Residualv2(n_filters),
-					SE_Residualv2(n_filters),
-					SE_Residualv2(n_filters),
+					# SE_Residualv2(n_filters),
+					# SE_Residualv2(n_filters),
+					# SE_Residualv2(n_filters),
+					# SE_Residualv2(n_filters),
+					# SE_Residualv2(n_filters),
 				)
 			elif self.version == 52:
 				self.trunk = nn.Sequential(
@@ -617,37 +719,100 @@ class SantoriniNNet(nn.Module):
 					resnet.BasicBlock(n_filters, n_filters),
 					resnet.BasicBlock(n_filters, n_filters),
 					resnet.BasicBlock(n_filters, n_filters),
+					# resnet.BasicBlock(n_filters, n_filters),
+					# resnet.BasicBlock(n_filters, n_filters),
+					# resnet.BasicBlock(n_filters, n_filters),
+					# resnet.BasicBlock(n_filters, n_filters),
+					# resnet.BasicBlock(n_filters, n_filters),
+					# resnet.BasicBlock(n_filters, n_filters),
+				)
+			elif self.version == 53:
+				downsample_trunk = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
+					nn.BatchNorm2d(n_filters//2)
+				)
+				self.trunk = nn.Sequential(
 					resnet.BasicBlock(n_filters, n_filters),
 					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters),
+					resnet.BasicBlock(n_filters, n_filters//2, downsample=downsample_trunk),
+				)
+			elif self.version == 54 or self.version == 57: # resnext style
+				downsample_trunk = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
+					nn.BatchNorm2d(n_filters//2)
+				)
+				self.trunk = nn.Sequential(
+					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					resnet.Bottleneck(n_filters, n_filters//8, groups=32, base_width=8, downsample=downsample_trunk),
+				)
+			elif self.version == 55: # SE-resnet style
+				downsample_trunk = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
+					nn.BatchNorm2d(n_filters//2)
+				)
+				self.trunk = nn.Sequential(
+					SEBottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					SEBottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					SEBottleneck(n_filters, n_filters//8, groups=32, base_width=4, downsample=downsample_trunk),
 				)
 
-			self.output_layers_PI = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
-				nn.BatchNorm2d(n_filters),
-				nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.action_size)
-			)
+			elif self.version == 56: # SE-resnet style, but more like kataGO
+				downsample_trunk = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
+					nn.BatchNorm2d(n_filters//2)
+				)
+				self.trunk = nn.Sequential(
+					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					SEBottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					resnet.Bottleneck(n_filters, n_filters//8, groups=32, base_width=8, downsample=downsample_trunk),
+				)
 
-			self.output_layers_V = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
-				nn.BatchNorm2d(n_filters),
-				nn.ReLU(),
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.num_players)
-			)
+			if self.version in [53, 54, 55, 56, 57]:
+				self.output_layers_PI = nn.Sequential(
+					SEBasicBlock(n_filters//2, n_filters//2) if self.version in [55, 56, 57] else resnet.BasicBlock(n_filters//2, n_filters//2),
+					nn.Flatten(1),
+					nn.Linear(n_filters//2 *5*5, self.action_size),
+					nn.ReLU(),
+					nn.Linear(self.action_size, self.action_size)
+				)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters//2, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
-			)
+				self.output_layers_V = nn.Sequential(
+					SEBasicBlock(n_filters//2, n_filters//2) if self.version in [55, 56, 57] else resnet.BasicBlock(n_filters//2, n_filters//2),
+					nn.Flatten(1),
+					nn.Linear(n_filters//2 *5*5, self.num_players),
+					nn.ReLU(),
+					nn.Linear(self.num_players, self.num_players)
+				)
+
+				self.output_layers_SDIFF = nn.Sequential(
+					nn.Conv2d(n_filters//2, n_filters//2, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
+				)
+			else:
+				self.output_layers_PI = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
+					nn.BatchNorm2d(n_filters),
+					nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.action_size)
+				)
+				self.output_layers_V = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=False),
+					nn.BatchNorm2d(n_filters),
+					nn.ReLU(),
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.num_players)
+				)
+
+				self.output_layers_SDIFF = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters//2, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
+				)
 
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
@@ -753,7 +918,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [64, 52]:
+		elif self.version in [64, 52, 53, 54, 55, 56, 57]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
