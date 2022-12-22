@@ -68,11 +68,12 @@ class GenericNNetWrapper(NeuralNet):
 	
 			for i_batch in range(batch_count):
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
-				boards, pis, vs, scdiffs, valid_actions, surprises = self.pick_examples(examples, sample_ids)
+				boards, pis, vs, scdiffs, valid_actions, surprises, qs = self.pick_examples(examples, sample_ids)
 				boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
+				target_qs = torch.FloatTensor(np.array([[q, -q] for q in qs]).astype(np.float32))
 				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
 				for i in range(len(scdiffs)):
 					score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
@@ -80,14 +81,10 @@ class GenericNNetWrapper(NeuralNet):
 						target_scdiffs[i, score_diff[player], player] = 1
 
 				# predict
-				if self.device['training'] == 'cuda':
-					boards, target_pis, target_vs, valid_actions, target_scdiffs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda(), target_scdiffs.contiguous().cuda()
-
-				# compute output
 				self.optimizer.zero_grad(set_to_none=True)
 				out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
 				l_pi = self.loss_pi(target_pis, out_pi)
-				l_v = self.loss_v(target_vs, out_v)
+				l_v = self.loss_v(target_vs, target_qs, out_v)
 				l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
 				l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
 				total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
@@ -112,11 +109,12 @@ class GenericNNetWrapper(NeuralNet):
 					self.nnet.eval()
 					with torch.no_grad():
 						picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
-						boards, pis, vs, scdiffs, valid_actions, surprises = list(zip(*picked_examples))
+						boards, pis, vs, scdiffs, valid_actions, surprises, qs = list(zip(*picked_examples))
 						boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
 						valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 						target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 						target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
+						target_qs = torch.FloatTensor(np.array([[q, -q] for q in qs]).astype(np.float32))
 						target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
 						for i in range(len(scdiffs)):
 							score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
@@ -126,7 +124,7 @@ class GenericNNetWrapper(NeuralNet):
 						# compute output
 						out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
 						l_pi = self.loss_pi(target_pis, out_pi)
-						l_v = self.loss_v(target_vs, out_v)
+						l_v = self.loss_v(target_vs, target_qs, out_v)
 						l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
 						l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
 						total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
@@ -169,8 +167,9 @@ class GenericNNetWrapper(NeuralNet):
 	def loss_pi(self, targets, outputs):
 		return -torch.sum(targets * outputs) / targets.size()[0]
 
-	def loss_v(self, targets, outputs):
-		return torch.sum((targets - outputs) ** 2) / (targets.size()[0] * targets.size()[-1]) # Normalize by batch size * nb of players
+	def loss_v(self, targets_V, targets_Q, outputs):
+		targets = (targets_V + targets_Q)/2
+		return torch.sum((targets - outputs) ** 2) / (targets_V.size()[0] * targets_V.size()[-1]) # Normalize by batch size * nb of players
 
 	def loss_scdiff_cdf(self, targets, outputs):
 		l2_diff = torch.square(torch.cumsum(targets, axis=1) - torch.cumsum(torch.exp(outputs), axis=1))

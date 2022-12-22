@@ -57,6 +57,7 @@ class MCTS():
 
         s = self.game.stringRepresentation(canonicalBoard)
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
+        Qsas   = [self.nodes_data[s][4][a] for a in range(self.game.getActionSize())] # Qs[a]
         Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
 
         # Policy target pruning
@@ -85,12 +86,12 @@ class MCTS():
             bestA = np.random.choice(bestAs)
             probs = [0] * len(counts)
             probs[bestA] = 1
-            return probs, surprise, is_full_search
+            return probs, surprise, Qsas, is_full_search
 
         counts = [x ** (1. / temp) for x in counts]
         counts_sum = float(sum(counts))
         probs = [x / counts_sum for x in counts]
-        return probs, surprise, is_full_search
+        return probs, surprise, Qsas, is_full_search
 
     def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False):
         """
