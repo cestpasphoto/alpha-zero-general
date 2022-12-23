@@ -168,7 +168,7 @@ class GenericNNetWrapper(NeuralNet):
 		return -torch.sum(targets * outputs) / targets.size()[0]
 
 	def loss_v(self, targets_V, targets_Q, outputs):
-		targets = (targets_V + self.args['q_weight'] * targets_Q)/2
+		targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
 		return torch.sum((targets - outputs) ** 2) / (targets_V.size()[0] * targets_V.size()[-1]) # Normalize by batch size * nb of players
 
 	def loss_scdiff_cdf(self, targets, outputs):

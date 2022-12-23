@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models.resnet as resnet
 
 # Assume 3-dim tensor input N,C,L
 class DenseAndPartialGPool(nn.Module):
@@ -564,6 +565,42 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
+		elif self.version == 70:
+			n_filters = 128
+			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
+			
+			downsample_trunk = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
+				nn.BatchNorm2d(n_filters//2)
+			)
+			self.trunk = nn.Sequential(
+				resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+				resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+				resnet.Bottleneck(n_filters, n_filters//8, groups=32, base_width=8, downsample=downsample_trunk),
+			)
+
+			self.output_layers_PI = nn.Sequential(
+				resnet.BasicBlock(n_filters//2, n_filters//2),
+				nn.Flatten(1),
+				nn.Linear(n_filters//2 *5*5, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				resnet.BasicBlock(n_filters//2, n_filters//2),
+				nn.Flatten(1),
+				nn.Linear(n_filters//2 *5*5, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Conv2d(n_filters//2, n_filters//2, 1, padding=0, bias=True),
+				nn.Flatten(1),
+				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
+			)
+
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
 
@@ -646,5 +683,14 @@ class SantoriniNNet(nn.Module):
 			v = self.output_layers_V(x).squeeze(1)
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+
+		elif self.version in [70]:
+			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x, data = x.split([2,1], dim=1)
+			x = self.first_layer(x)
+			x = self.trunk(x)
+			v = self.output_layers_V(x)
+			sdiff = self.output_layers_SDIFF(x)
+			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
 		return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
