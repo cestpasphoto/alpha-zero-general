@@ -72,7 +72,7 @@ class Coach():
             episodeStep += 1
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
             temp_mcts = 1 if self.args.tempThreshold > 0 else int(episodeStep < -self.args.tempThreshold)
-            pi, surprise, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=1)
+            pi, surprise, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp_mcts)
 
             if self.args.tempThreshold > 0:
                 action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else 0.2)

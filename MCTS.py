@@ -148,8 +148,8 @@ class MCTS():
         # get next state and get canonical version of it
         a, next_s, next_player = get_next_best_action_and_canonical_state(
             Es, Vs, Ps, Ns, Qsa, Nsa,
-            self.args.cpuct_base,
-            self.args.cpuct_init,
+            self.args.cpuct[0], # cpuct_base (default=19652)
+            self.args.cpuct[1], # cpuct_init (default=1.25)
             self.game.board,
             canonicalBoard,
             forced_playouts,

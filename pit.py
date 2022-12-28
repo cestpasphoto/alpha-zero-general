@@ -40,9 +40,12 @@ def create_player(name, args):
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(name)
 	additional_keys = net.load_checkpoint(cpt_dir, cpt_file)
+
+	cpuct = additional_keys.get('cpuct')
+	cpuct = [float(x) for x in cpuct] if isinstance(cpuct, list) else [1e9, 1.0]
 	mcts_args = dotdict({
 		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
-		'cpuct'           : args.cpuct       if args.cpuct       else additional_keys.get('cpuct'      , 1.0),
+		'cpuct'           : args.cpuct if args.cpuct else cpuct,
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
 		'no_mem_optim'    : False,
@@ -175,8 +178,8 @@ def main():
 	parser.add_argument('--profile'                   , action='store_true', help='enable profiling')
 	parser.add_argument('--display'                   , action='store_true', help='display')
 
-	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None  , type=int  , help='Number of games moves for MCTS to simulate.')
-	parser.add_argument('--cpuct'              , '-c' , action='store', default=None  , type=float, help='')
+	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None, type=int  , help='Number of games moves for MCTS to simulate.')
+	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, nargs=2, help='cpuct constants (base and init)')
 
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
 	parser.add_argument('--reference'          , '-r' , metavar='ref'   , nargs='*', help='list of reference players')
