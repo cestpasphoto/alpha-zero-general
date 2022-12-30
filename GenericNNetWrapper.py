@@ -36,6 +36,7 @@ class GenericNNetWrapper(NeuralNet):
 		self.max_diff = game.getMaxScoreDiff()
 		self.num_players = game.num_players
 		self.optimizer = None
+		self.requestKnowledgeTransfer = False
 
 	def init_nnet(self, game, nn_args):
 		pass
@@ -202,7 +203,7 @@ class GenericNNetWrapper(NeuralNet):
 			return			
 		try:
 			checkpoint = torch.load(filepath, map_location='cpu')
-			self.load_network(checkpoint, strict=False)
+			self.load_network(checkpoint, strict=(self.args['nn_version']>0))
 		except:
 			print("MODEL {} CAN'T BE READ but file exists".format(filepath))
 			return
@@ -241,20 +242,29 @@ class GenericNNetWrapper(NeuralNet):
 				# else:
 				# 	print(f'hasnt loaded layer {name} because not in target')
 
+		if strict and (checkpoint['full_model'].version != self.args['nn_version']):
+			print('Checkpoint includes NN version', checkpoint['full_model'].version, ', but you ask version', self.args['nn_version'], ' so not loading it and initiate knowledge transfer')
+			self.requestKnowledgeTransfer = True
+			return
+
 		try:
 			self.nnet.load_state_dict(checkpoint['state_dict'])
 		except:
-			if self.nnet.version > 0:
-				try:
-					load_not_strict(checkpoint['state_dict'], self.nnet)
-					print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
-				except:
-					self.nnet = checkpoint['full_model']
-					print('Had to load full model AS IS, saved archi-version was', checkpoint['full_model'].version, 'and WONT BE UPDATED')
-					if input("Continue? [y|n]") != "y":
-						sys.exit()
+			if strict:
+				print('Cant load NN ', checkpoint['full_model'].version, 'in checkpoint, so initiate knowledge transfer')
+				self.requestKnowledgeTransfer = True
 			else:
-				self.nnet = checkpoint['full_model']
+				if self.nnet.version > 0:
+					try:
+						load_not_strict(checkpoint['state_dict'], self.nnet)
+						print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
+					except:
+						self.nnet = checkpoint['full_model']
+						print('Had to load full model AS IS, saved archi-version was', checkpoint['full_model'].version, 'and WONT BE UPDATED')
+						if input("Continue? [y|n]") != "y":
+							sys.exit()
+				else:
+					self.nnet = checkpoint['full_model']
 
 
 	def switch_target(self, mode):
