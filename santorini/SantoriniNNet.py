@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.models.resnet as resnet
+from torchvision.models.resnet import BasicBlock, Bottleneck
+from torchvision.models.efficientnet import MBConvConfig, FusedMBConvConfig
 
 # Assume 3-dim tensor input N,C,L
 class DenseAndPartialGPool(nn.Module):
@@ -696,7 +697,7 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version in [52, 53, 54, 55, 56, 57, 64, 70]:
+		elif self.version in [52, 53, 54, 55, 56, 57, 64, 70, 80]:
 			n_filters = 128
 
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
@@ -715,16 +716,16 @@ class SantoriniNNet(nn.Module):
 				)
 			elif self.version == 52:
 				self.trunk = nn.Sequential(
-					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters),
-					# resnet.BasicBlock(n_filters, n_filters),
-					# resnet.BasicBlock(n_filters, n_filters),
-					# resnet.BasicBlock(n_filters, n_filters),
-					# resnet.BasicBlock(n_filters, n_filters),
-					# resnet.BasicBlock(n_filters, n_filters),
-					# resnet.BasicBlock(n_filters, n_filters),
+					BasicBlock(n_filters, n_filters),
+					BasicBlock(n_filters, n_filters),
+					BasicBlock(n_filters, n_filters),
+					BasicBlock(n_filters, n_filters),
+					# BasicBlock(n_filters, n_filters),
+					# BasicBlock(n_filters, n_filters),
+					# BasicBlock(n_filters, n_filters),
+					# BasicBlock(n_filters, n_filters),
+					# BasicBlock(n_filters, n_filters),
+					# BasicBlock(n_filters, n_filters),
 				)
 			elif self.version == 53:
 				downsample_trunk = nn.Sequential(
@@ -732,9 +733,9 @@ class SantoriniNNet(nn.Module):
 					nn.BatchNorm2d(n_filters//2)
 				)
 				self.trunk = nn.Sequential(
-					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters),
-					resnet.BasicBlock(n_filters, n_filters//2, downsample=downsample_trunk),
+					BasicBlock(n_filters, n_filters),
+					BasicBlock(n_filters, n_filters),
+					BasicBlock(n_filters, n_filters//2, downsample=downsample_trunk),
 				)
 			elif self.version == 54 or self.version == 57: # bottleneck style
 				n_filters = 512
@@ -744,9 +745,9 @@ class SantoriniNNet(nn.Module):
 				# 	nn.BatchNorm2d(256)
 				# )
 				self.trunk = nn.Sequential(
-					resnet.Bottleneck(256, 256//4),
-					resnet.Bottleneck(256, 256//4),
-					resnet.Bottleneck(256, 256//4),
+					Bottleneck(256, 256//4),
+					Bottleneck(256, 256//4),
+					Bottleneck(256, 256//4),
 				)
 
 			elif self.version == 70:
@@ -755,14 +756,26 @@ class SantoriniNNet(nn.Module):
 					nn.BatchNorm2d(n_filters//2)
 				)
 				self.trunk = nn.Sequential(
-					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
-					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
-					resnet.Bottleneck(n_filters, n_filters//8, groups=32, base_width=8, downsample=downsample_trunk),
+					Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					Bottleneck(n_filters, n_filters//8, groups=32, base_width=8, downsample=downsample_trunk),
 				)
+			elif self.version == 80:
+				self.first_layer = nn.Conv2d(  2, 16, 3, padding=1, bias=False)
+				confs = [
+					# expand_ratio, kernel, stride, input_channels, out_channels, arg_pas_utile
+					FusedMBConvConfig(1, 3, 1, 16, 16, 1),
+					FusedMBConvConfig(4, 3, 1, 16, 32, 1),
+					MBConvConfig(     4, 3, 1, 32, 32, 1),
+					MBConvConfig(     4, 3, 1, 32, 64, 1),
+					MBConvConfig(     6, 3, 1, 64, 64, 1),
+					MBConvConfig(     6, 3, 1, 64, 64, 1),
+				]
+				self.trunk = nn.Sequential(*[conf.block(conf, 0., nn.BatchNorm2d) for conf in confs])
 
-			if self.version in [53, 54, 55, 56, 57, 70]:
+			if self.version in [53, 54, 55, 56, 57, 70, 80]:
 				self.output_layers_PI = nn.Sequential(
-					resnet.BasicBlock(n_filters//2, n_filters//2),
+					BasicBlock(n_filters//2, n_filters//2),
 					nn.Flatten(1),
 					nn.Linear(n_filters//2 *5*5, self.action_size),
 					nn.ReLU(),
@@ -770,7 +783,7 @@ class SantoriniNNet(nn.Module):
 				)
 
 				self.output_layers_V = nn.Sequential(
-					resnet.BasicBlock(n_filters//2, n_filters//2),
+					BasicBlock(n_filters//2, n_filters//2),
 					nn.Flatten(1),
 					nn.Linear(n_filters//2 *5*5, self.num_players),
 					nn.ReLU(),
@@ -910,7 +923,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [64, 52, 53, 54, 55, 56, 57, 70]:
+		elif self.version in [64, 52, 53, 54, 55, 56, 57, 70, 80]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
