@@ -696,7 +696,7 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version in [52, 53, 54, 55, 56, 57, 64]:
+		elif self.version in [52, 53, 54, 55, 56, 57, 64, 70]:
 			n_filters = 128
 
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
@@ -749,7 +749,18 @@ class SantoriniNNet(nn.Module):
 					resnet.Bottleneck(256, 256//4),
 				)
 
-			if self.version in [53, 54, 55, 56, 57]:
+			elif self.version == 70:
+				downsample_trunk = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters//2, 1, bias=False),
+					nn.BatchNorm2d(n_filters//2)
+				)
+				self.trunk = nn.Sequential(
+					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					resnet.Bottleneck(n_filters, n_filters//4, groups=32, base_width=8),
+					resnet.Bottleneck(n_filters, n_filters//8, groups=32, base_width=8, downsample=downsample_trunk),
+				)
+
+			if self.version in [53, 54, 55, 56, 57, 70]:
 				self.output_layers_PI = nn.Sequential(
 					resnet.BasicBlock(n_filters//2, n_filters//2),
 					nn.Flatten(1),
@@ -899,7 +910,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [64, 52, 53, 54, 55, 56, 57]:
+		elif self.version in [64, 52, 53, 54, 55, 56, 57, 70]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 
