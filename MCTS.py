@@ -132,6 +132,7 @@ class MCTS():
             Vs = self.game.getValidMoves(canonicalBoard, 0)
             Ps, v = self.nnet.predict(canonicalBoard, Vs)
             if dirichlet_noise:
+                Ps = softmax(Ps, self.args.temperature[0])
                 self.applyDirNoise(Ps, Vs)
             normalise(Ps)
 
@@ -141,6 +142,7 @@ class MCTS():
 
         if dirichlet_noise:
             # We already visited this node, adding dirichlet noise this time
+            Ps = softmax(Ps, self.args.temperature[0])
             self.applyDirNoise(Ps, Vs)
             normalise(Ps)
 
@@ -227,3 +229,11 @@ def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_bas
 def normalise(vector):
     sum_vector = np.sum(vector)
     vector /= sum_vector
+
+@njit(cache=True, fastmath=True, nogil=True)
+def softmax(Ps, softmax_temp):
+    if softmax_temp == 1.:
+        return Ps
+    result = Ps ** (1. / softmax_temp)
+    normalise(result)
+    return result.astype(np.float32)
