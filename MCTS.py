@@ -196,8 +196,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_pl
                 if Nsa[a] < int(math.sqrt(k * Ps[a] * step)): # Nsa is zero when not set
                     return a
 
+            cpuct = math.log((Ns + cpuct_base + 1) / cpuct_base) + cpuct_init
             if Qsa[a] != NAN:
-                cpuct = math.log((Ns + cpuct_base + 1) / cpuct_base) + cpuct_init
                 u = Qsa[a] + cpuct * Ps[a] * math.sqrt(Ns) / (1 + Nsa[a])
             else:
                 u = cpuct * Ps[a] * math.sqrt(Ns + EPS)  # Q = 0 ?
