@@ -374,6 +374,7 @@ if __name__ == "__main__":
 	parser.add_argument('--dropout'    , '-d' , action='store', default=0.2   , type=float, help='')
 	parser.add_argument('--epochs'     , '-p' , action='store', default=1    , type=int  , help='')
 	parser.add_argument('--batch-size' , '-b' , action='store', default=32   , type=int  , help='')
+	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'  , '-v' , action='store', default=4.   , type=float, help='Weight for value loss')
 	args = parser.parse_args()	
@@ -403,11 +404,13 @@ if __name__ == "__main__":
 	trainExamples = []
 	for e in examples:
 		trainExamples.extend(e)
+	trainExamples = trainExamples[:args.nb_samples*1000]
 	with open(args.test, "rb") as f:
 		examples = pickle.load(f)
 	testExamples = []
 	for e in examples:
 		testExamples.extend(e)
+	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}')
 
 	# breakpoint()
 	
