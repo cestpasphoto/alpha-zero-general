@@ -48,9 +48,7 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('training')
 
 		if self.optimizer is None:
-			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
-			# self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])		
-			# self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'], weight_decay=1e-4)		
+			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'], weight_decay=0.1)
 		batch_count = int(len(examples) / self.args['batch_size'])
 		scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
 		
@@ -103,7 +101,7 @@ class GenericNNetWrapper(NeuralNet):
 
 				t.update()
 
-				if validation_set and (i_batch % every == 0):
+				if validation_set and ((i_batch + batch_count*epoch) % every == 0):
 					# print()
 					# print(f'LR = {scheduler.get_last_lr()[0]:.1e}', end=' ')
 					# Evaluation
@@ -404,13 +402,13 @@ if __name__ == "__main__":
 	trainExamples = []
 	for e in examples:
 		trainExamples.extend(e)
-	trainExamples = trainExamples[:args.nb_samples*1000]
+	trainExamples = trainExamples[-args.nb_samples*1000:]
 	with open(args.test, "rb") as f:
 		examples = pickle.load(f)
 	testExamples = []
 	for e in examples:
 		testExamples.extend(e)
-	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}')
+	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}; number of epochs {args.epochs}')
 
 	# breakpoint()
 	
@@ -423,7 +421,7 @@ if __name__ == "__main__":
 
 	# nnet.args['learn_rate'], nnet.args['lr'], nnet.args['batch_size'] = 3e-4, 3e-4, 512
 	# nnet.optimizer = None
-	save_every = 1e5 // nnet.args['batch_size']
+	save_every = (1e5 // nnet.args['batch_size']) - 1
 	nnet.train(trainExamples, testExamples, output, save_every)
 
 	nnet.save_checkpoint(output, filename='last.pt')
