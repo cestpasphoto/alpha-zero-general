@@ -48,7 +48,7 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('training')
 
 		if self.optimizer is None:
-			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'], weight_decay=0.1)
+			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])
 		batch_count = int(len(examples) / self.args['batch_size'])
 		scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
 		
