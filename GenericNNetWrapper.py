@@ -36,6 +36,7 @@ class GenericNNetWrapper(NeuralNet):
 		self.max_diff = game.getMaxScoreDiff()
 		self.num_players = game.num_players
 		self.optimizer = None
+		self.requestKnowledgeTransfer = False
 
 	def init_nnet(self, game, nn_args):
 		pass
@@ -47,16 +48,16 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('training')
 
 		if self.optimizer is None:
-			self.optimizer = optim.Adam(self.nnet.parameters(), lr=self.args['learn_rate'])
-			# self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])		
-			# self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'], weight_decay=1e-4)		
+			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])
 		batch_count = int(len(examples) / self.args['batch_size'])
-		scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
-		
-		# batch_count = batch_count // 5
-		# every = every // 5
-		# validation_set = validation_set[::5]
-		# scheduler = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=1e-3, total_iters=batch_count)
+
+		if True:
+			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
+		else:
+			batch_count = batch_count // 5
+			every = every // 5
+			validation_set = validation_set[::5]
+			scheduler = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=1e-3, total_iters=batch_count)
 
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
@@ -80,10 +81,6 @@ class GenericNNetWrapper(NeuralNet):
 						target_scdiffs[i, score_diff[player], player] = 1
 
 				# predict
-				if self.device['training'] == 'cuda':
-					boards, target_pis, target_vs, valid_actions, target_scdiffs = boards.contiguous().cuda(), target_pis.contiguous().cuda(), target_vs.contiguous().cuda(), valid_actions.contiguous().cuda(), target_scdiffs.contiguous().cuda()
-
-				# compute output
 				self.optimizer.zero_grad(set_to_none=True)
 				out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
 				l_pi = self.loss_pi(target_pis, out_pi)
@@ -105,7 +102,7 @@ class GenericNNetWrapper(NeuralNet):
 
 				t.update()
 
-				if validation_set and (i_batch % every == 0):
+				if validation_set and ((i_batch + batch_count*epoch) % every == 0):
 					# print()
 					# print(f'LR = {scheduler.get_last_lr()[0]:.1e}', end=' ')
 					# Evaluation
@@ -170,6 +167,7 @@ class GenericNNetWrapper(NeuralNet):
 		return -torch.sum(targets * outputs) / targets.size()[0]
 
 	def loss_v(self, targets, outputs):
+		# targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
 		return torch.sum((targets - outputs) ** 2) / (targets.size()[0] * targets.size()[-1]) # Normalize by batch size * nb of players
 
 	def loss_scdiff_cdf(self, targets, outputs):
@@ -203,7 +201,7 @@ class GenericNNetWrapper(NeuralNet):
 			return			
 		try:
 			checkpoint = torch.load(filepath, map_location='cpu')
-			self.load_network(checkpoint, strict=False)
+			self.load_network(checkpoint, strict=(self.args['nn_version']>0))
 		except:
 			print("MODEL {} CAN'T BE READ but file exists".format(filepath))
 			return
@@ -242,20 +240,29 @@ class GenericNNetWrapper(NeuralNet):
 				# else:
 				# 	print(f'hasnt loaded layer {name} because not in target')
 
+		if strict and (checkpoint['full_model'].version != self.args['nn_version']):
+			print('Checkpoint includes NN version', checkpoint['full_model'].version, ', but you ask version', self.args['nn_version'], ' so not loading it and initiate knowledge transfer')
+			self.requestKnowledgeTransfer = True
+			return
+
 		try:
 			self.nnet.load_state_dict(checkpoint['state_dict'])
 		except:
-			if self.nnet.version > 0:
-				try:
-					load_not_strict(checkpoint['state_dict'], self.nnet)
-					print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
-				except:
-					self.nnet = checkpoint['full_model']
-					print('Had to load full model AS IS, saved archi-version was', checkpoint['full_model'].version, 'and WONT BE UPDATED')
-					if input("Continue? [y|n]") != "y":
-						sys.exit()
+			if strict:
+				print('Cant load NN ', checkpoint['full_model'].version, 'in checkpoint, so initiate knowledge transfer')
+				self.requestKnowledgeTransfer = True
 			else:
-				self.nnet = checkpoint['full_model']
+				if self.nnet.version > 0:
+					try:
+						load_not_strict(checkpoint['state_dict'], self.nnet)
+						print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
+					except:
+						self.nnet = checkpoint['full_model']
+						print('Had to load full model AS IS, saved archi-version was', checkpoint['full_model'].version, 'and WONT BE UPDATED')
+						if input("Continue? [y|n]") != "y":
+							sys.exit()
+				else:
+					self.nnet = checkpoint['full_model']
 
 
 	def switch_target(self, mode):
@@ -362,11 +369,13 @@ if __name__ == "__main__":
 	parser.add_argument('--test'       , '-t', action='store', default='../results/new_testing.examples'  , help='')
 
 	parser.add_argument('--learn-rate' , '-l' , action='store', default=0.0003, type=float, help='')
-	parser.add_argument('--dropout'    , '-d' , action='store', default=0.2   , type=float, help='')
-	parser.add_argument('--epochs'     , '-p' , action='store', default=1    , type=int  , help='')
-	parser.add_argument('--batch-size' , '-b' , action='store', default=32   , type=int  , help='')
+	parser.add_argument('--dropout'    , '-d' , action='store', default=0.    , type=float, help='')
+	parser.add_argument('--epochs'     , '-p' , action='store', default=2    , type=int  , help='')
+	parser.add_argument('--batch-size' , '-b' , action='store', default=256  , type=int  , help='')
+	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'  , '-v' , action='store', default=4.   , type=float, help='Weight for value loss')
+	parser.add_argument('--details'    , '-D' , action='store', default=[128,0,6], type=int, nargs=3, help='Details for NN 80')
 	args = parser.parse_args()	
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
@@ -382,23 +391,36 @@ if __name__ == "__main__":
 		vl_weight=args.vl_weight,
 		surprise_weight=False,
 		no_compression=False,
+		n_filters=args.details[0],
+		expansion=['small', 'constant', 'progressive'][args.details[1]],
+		depth=args.details[2],
 	)
 	nnet = nn(g, nn_args)
 	if args.input:
 		nnet.load_checkpoint(os.path.dirname(args.input), os.path.basename(args.input))
-	print(f'Number of params {nnet.number_params()[1]:.2e} (total {nnet.number_params()[0]:.2e})')
-	# breakpoint()
+	
+	from fvcore.nn import FlopCountAnalysis
+	dummy_board         = torch.randn(1, 25, 3, dtype=torch.float32)
+	dummy_valid_actions = torch.BoolTensor(torch.randn(1, 162)>0.5)
+	flops = FlopCountAnalysis(nnet.nnet, (dummy_board, dummy_valid_actions))
+	flops.unsupported_ops_warnings(False)
+	flops.uncalled_modules_warnings(False)
+	print(f'V{args.nn_version} {args.details} -> {flops.total()//1000000} MFlops, nb params {nnet.number_params()[0]:.2e}')
+	if not (2 <= flops.total()//1000000 <= 20):
+		exit()
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
 	trainExamples = []
 	for e in examples:
 		trainExamples.extend(e)
+	trainExamples = trainExamples[-args.nb_samples*1000:]
 	with open(args.test, "rb") as f:
 		examples = pickle.load(f)
 	testExamples = []
 	for e in examples:
 		testExamples.extend(e)
+	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}; number of epochs {args.epochs}')
 
 	# breakpoint()
 	
@@ -411,7 +433,7 @@ if __name__ == "__main__":
 
 	# nnet.args['learn_rate'], nnet.args['lr'], nnet.args['batch_size'] = 3e-4, 3e-4, 512
 	# nnet.optimizer = None
-	save_every = 1e5 // nnet.args['batch_size']
+	save_every = (1e5 // nnet.args['batch_size']) - 1
 	nnet.train(trainExamples, testExamples, output, save_every)
 
 	nnet.save_checkpoint(output, filename='last.pt')
