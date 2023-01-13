@@ -341,34 +341,86 @@ class SantoriniNNet(nn.Module):
 				depth = self.args['depth'] - 2
 
 				self.first_layer = nn.Conv2d(  2, n_filters_first, 3, padding=1, bias=False)
-				confs  = [InvertedResidualConfig(n_filters_first if i==0 else n_filters_begin, 3, n_exp_begin, n_filters_begin, True, "RE", 1, 1, 1) for i in range(depth//2)]
+				confs  = [InvertedResidualConfig(n_filters_first if i==0 else n_filters_begin, 3, n_exp_begin, n_filters_begin, False, "RE", 1, 1, 1) for i in range(depth//2)]
 				confs += [InvertedResidualConfig(n_filters_begin if i==0 else n_filters_end  , 3, n_exp_end  , n_filters_end  , True, "HS", 1, 1, 1) for i in range(depth//2)]
 				confs += [InvertedResidualConfig(n_filters_end                               , 3, n_exp_end  , n_filters      , True, "HS", 1, 1, 1)]
 				self.trunk = nn.Sequential(*[InvertedResidual(conf, nn.BatchNorm2d) for conf in confs])
 
-			self.output_layers_PI = nn.Sequential(
-				Bottleneck(n_filters, n_filters//4),
-				Bottleneck(n_filters, n_filters//4),
-				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size)
-			)
+			if self.version == 65:
+				head_depth = self.args['head_depth']
+				confs_PI = [MBConvConfig(4, 3, 1, n_filters, n_filters, 1) for i in range(head_depth)]
+				head_PI = [conf.block(conf, 0., nn.BatchNorm2d) for conf in confs_PI] + [
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.action_size),
+					nn.ReLU(),
+					nn.Linear(self.action_size, self.action_size)
+				]
+				self.output_layers_PI = nn.Sequential(*head_PI)
 
-			self.output_layers_V = nn.Sequential(
-				Bottleneck(n_filters, n_filters//4),
-				Bottleneck(n_filters, n_filters//4),
-				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players)
-			)
+				confs_V = [MBConvConfig(4, 3, 1, n_filters, n_filters, 1) for i in range(head_depth)]
+				head_V = [conf.block(conf, 0., nn.BatchNorm2d) for conf in confs_V] + [
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.num_players),
+					nn.ReLU(),
+					nn.Linear(self.num_players, self.num_players)
+				]
+				self.output_layers_V = nn.Sequential(*head_V)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
-			)
+				self.output_layers_SDIFF = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
+				)
+			elif self.version == 66:
+				head_depth = self.args['head_depth']
+				n_exp_head = head_depth * 3
+				confs_PI = [InvertedResidualConfig(n_filters, 3, n_exp_head, n_filters, True, "HS", 1, 1, 1) for i in range(head_depth)]
+				head_PI = [InvertedResidual(conf, nn.BatchNorm2d) for conf in confs_PI] + [
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.action_size),
+					nn.ReLU(),
+					nn.Linear(self.action_size, self.action_size)
+				]
+				self.output_layers_PI = nn.Sequential(*head_PI)
+
+				confs_V = [InvertedResidualConfig(n_filters, 3, n_exp_head, n_filters, True, "HS", 1, 1, 1) for i in range(head_depth)]
+				head_V = [InvertedResidual(conf, nn.BatchNorm2d) for conf in confs_V] + [
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.num_players),
+					nn.ReLU(),
+					nn.Linear(self.num_players, self.num_players)
+				]
+				self.output_layers_V = nn.Sequential(*head_V)
+
+				self.output_layers_SDIFF = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
+				)
+			else:
+				self.output_layers_PI = nn.Sequential(
+					Bottleneck(n_filters, n_filters//4),
+					Bottleneck(n_filters, n_filters//4),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.action_size),
+					nn.ReLU(),
+					nn.Linear(self.action_size, self.action_size)
+				)
+
+				self.output_layers_V = nn.Sequential(
+					Bottleneck(n_filters, n_filters//4),
+					Bottleneck(n_filters, n_filters//4),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.num_players),
+					nn.ReLU(),
+					nn.Linear(self.num_players, self.num_players)
+				)
+
+				self.output_layers_SDIFF = nn.Sequential(
+					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+					nn.Flatten(1),
+					nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
+				)
 
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')

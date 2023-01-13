@@ -375,7 +375,7 @@ if __name__ == "__main__":
 	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'  , '-v' , action='store', default=4.   , type=float, help='Weight for value loss')
-	parser.add_argument('--details'    , '-D' , action='store', default=[128,0,6], type=int, nargs=3, help='Details for NN 80')
+	parser.add_argument('--details'    , '-D' , action='store', default=[128,0,6,2], type=int, nargs=4, help='Details for NN 80')
 	args = parser.parse_args()	
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
@@ -394,6 +394,7 @@ if __name__ == "__main__":
 		n_filters=args.details[0],
 		expansion=['small', 'constant', 'progressive'][args.details[1]],
 		depth=args.details[2],
+		head_depth=args.details[3],
 	)
 	nnet = nn(g, nn_args)
 	if args.input:
@@ -405,7 +406,7 @@ if __name__ == "__main__":
 	flops = FlopCountAnalysis(nnet.nnet, (dummy_board, dummy_valid_actions))
 	flops.unsupported_ops_warnings(False)
 	flops.uncalled_modules_warnings(False)
-	print(f'V{args.nn_version} {args.details} -> {flops.total()//1000000} MFlops, nb params {nnet.number_params()[0]:.2e}')
+	print(f'V{args.nn_version} {args.details} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 	if not (2 <= flops.total()//1000000 <= 20):
 		exit()
 
