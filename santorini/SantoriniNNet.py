@@ -318,12 +318,14 @@ class SantoriniNNet(nn.Module):
 					MBConvConfig(     6, 3, 1, 64, 64, 1),
 				]
 				self.trunk = nn.Sequential(*[conf.block(conf, 0., nn.BatchNorm2d) for conf in confs])
-			elif self.version == 65: ## Configurable
+			##### Configurable EfficientNet #####
+			elif self.version == 65: 
+				expansion_str = ['small', 'constant', 'progressive'][self.args['expansion']]
 				# Need to specify 'n_filters', 'expansion' (small, constant, progressive), 'depth'
 				n_filters = self.args['n_filters']
 				n_filters_first = self.args['n_filters']//4
-				n_filters_begin = n_filters if self.args['expansion'] == 'constant' else n_filters_first
-				n_filters_end = n_filters_first if self.args['expansion'] == 'small' else n_filters
+				n_filters_begin = n_filters if expansion_str == 'constant' else n_filters_first
+				n_filters_end = n_filters_first if expansion_str == 'small' else n_filters
 				depth = self.args['depth'] - 2
 
 				self.first_layer = nn.Conv2d(  2, n_filters_first, 3, padding=1, bias=False)
@@ -331,12 +333,15 @@ class SantoriniNNet(nn.Module):
 				confs += [MBConvConfig(4, 3, 1, n_filters_begin if i==0 else n_filters_end  , n_filters_end  , 1) for i in range(depth//2)]
 				confs += [MBConvConfig(4, 3, 1, n_filters_end                               , n_filters      , 1)]
 				self.trunk = nn.Sequential(*[conf.block(conf, 0., nn.BatchNorm2d) for conf in confs])
-			elif self.version == 66: ## Configurable
+
+			##### Configurable MobileNet #####
+			elif self.version == 66:
+				expansion_str = ['small', 'constant', 'progressive'][self.args['expansion']]
 				# Need to specify 'n_filters', 'expansion' (small, constant, progressive), 'depth'
 				n_filters = self.args['n_filters']
 				n_filters_first = self.args['n_filters']//4
-				n_filters_begin = n_filters if self.args['expansion'] == 'constant' else n_filters_first
-				n_filters_end = n_filters_first if self.args['expansion'] == 'small' else n_filters
+				n_filters_begin = n_filters if expansion_str == 'constant' else n_filters_first
+				n_filters_end = n_filters_first if expansion_str == 'small' else n_filters
 				n_exp_begin, n_exp_end = n_filters_begin*2, n_filters_end*3
 				depth = self.args['depth'] - 2
 
@@ -373,7 +378,7 @@ class SantoriniNNet(nn.Module):
 				)
 			elif self.version == 66:
 				head_depth = self.args['head_depth']
-				n_exp_head = head_depth * 3
+				n_exp_head = n_filters * 3
 				confs_PI = [InvertedResidualConfig(n_filters, 3, n_exp_head, n_filters, True, "HS", 1, 1, 1) for i in range(head_depth)]
 				head_PI = [InvertedResidual(conf, nn.BatchNorm2d) for conf in confs_PI] + [
 					nn.Flatten(1),
