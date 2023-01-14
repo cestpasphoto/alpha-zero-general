@@ -392,7 +392,7 @@ if __name__ == "__main__":
 		surprise_weight=False,
 		no_compression=False,
 		n_filters=args.details[0],
-		expansion=['small', 'constant', 'progressive'][args.details[1]],
+		expansion=args.details[1],
 		depth=args.details[2],
 		head_depth=args.details[3],
 	)
@@ -403,9 +403,10 @@ if __name__ == "__main__":
 	from fvcore.nn import FlopCountAnalysis
 	dummy_board         = torch.randn(1, 25, 3, dtype=torch.float32)
 	dummy_valid_actions = torch.BoolTensor(torch.randn(1, 162)>0.5)
+	nnet.nnet.eval()
 	flops = FlopCountAnalysis(nnet.nnet, (dummy_board, dummy_valid_actions))
 	flops.unsupported_ops_warnings(False)
-	flops.uncalled_modules_warnings(False)
+	# flops.uncalled_modules_warnings(False)
 	print(f'V{args.nn_version} {args.details} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 	if not (2 <= flops.total()//1000000 <= 20):
 		exit()
@@ -423,6 +424,7 @@ if __name__ == "__main__":
 		testExamples.extend(e)
 	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}; number of epochs {args.epochs}')
 
+	# print({ k:v//1000 for k,v in flops.by_module().items() if k.count('.') <= 1 })
 	# breakpoint()
 	
 	# trainExamples_small = trainExamples[::30]
