@@ -164,7 +164,13 @@ class GenericNNetWrapper(NeuralNet):
 			return pi, v
 
 	def loss_pi(self, targets, outputs):
-		return -torch.sum(targets * outputs) / targets.size()[0]
+		loss_ = torch.nn.KLDivLoss(reduction="batchmean")
+		return loss_(outputs, targets)
+
+		# loss_ = torch.nn.CrossEntropyLoss()
+		# return loss_(outputs, targets)
+
+		# return -torch.sum(torch.log(targets) * torch.exp(outputs)) / targets.size()[0]
 
 	def loss_v(self, targets, outputs):
 		# targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
@@ -408,8 +414,8 @@ if __name__ == "__main__":
 	flops.unsupported_ops_warnings(False)
 	# flops.uncalled_modules_warnings(False)
 	print(f'V{args.nn_version} {args.details} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
-	if not (2 <= flops.total()//1000000 <= 20):
-		exit()
+	#if not (1 <= flops.total()//1000000 <= 30):
+	#	exit()
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
