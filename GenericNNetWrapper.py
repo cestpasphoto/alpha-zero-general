@@ -414,8 +414,6 @@ if __name__ == "__main__":
 	flops.unsupported_ops_warnings(False)
 	# flops.uncalled_modules_warnings(False)
 	print(f'V{args.nn_version} {args.details} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
-	#if not (1 <= flops.total()//1000000 <= 30):
-	#	exit()
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
@@ -440,8 +438,6 @@ if __name__ == "__main__":
 	# save_every = 1e5 // nnet.args['batch_size']
 	# nnet.train(trainExamples_small, testExamples_small, '', save_every)
 
-	# nnet.args['learn_rate'], nnet.args['lr'], nnet.args['batch_size'] = 3e-4, 3e-4, 512
-	# nnet.optimizer = None
 	save_every = (1e5 // nnet.args['batch_size']) - 1
 	nnet.train(trainExamples, testExamples, output, save_every)
 

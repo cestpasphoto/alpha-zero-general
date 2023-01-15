@@ -125,11 +125,13 @@ class SantoriniNNet(nn.Module):
 				n_exp_begin, n_exp_end = n_filters_begin*2, n_filters_end*3
 				depth = self.args['depth'] - 2
 
+				def inverted_residual(input_ch, expanded_ch, out_ch, use_se, activation, kernel=3, stride=1, dilation=1, width_mult=1.):
+					return InvertedResidual(InvertedResidualConfig(input_ch, kernel, expanded_ch, out_ch, use_se, activation, stride, dilation, width_mult), nn.BatchNorm2d)
 				self.first_layer = nn.Conv2d(  2, n_filters_first, 3, padding=1, bias=False)
-				confs  = [InvertedResidualConfig(n_filters_first if i==0 else n_filters_begin, 3, n_exp_begin, n_filters_begin, False, "RE", 1, 1, 1) for i in range(depth//2)]
-				confs += [InvertedResidualConfig(n_filters_begin if i==0 else n_filters_end  , 3, n_exp_end  , n_filters_end  , True, "HS", 1, 1, 1) for i in range(depth//2)]
-				confs += [InvertedResidualConfig(n_filters_end                               , 3, n_exp_end  , n_filters      , True, "HS", 1, 1, 1)]
-				self.trunk = nn.Sequential(*[InvertedResidual(conf, nn.BatchNorm2d) for conf in confs])
+				confs  = [inverted_residual(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, False, "RE") for i in range(depth//2)]
+				confs += [inverted_residual(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , True , "HS") for i in range(depth//2)]
+				confs += [inverted_residual(n_filters_end                               , n_exp_end  , n_filters      , True , "HS")]
+				self.trunk = nn.Sequential(*confs)
 
 			##### Configurable GARB (NoGoZero+) #####
 			elif self.version == 67:
@@ -154,7 +156,7 @@ class SantoriniNNet(nn.Module):
 				self.trunk = nn.Sequential(*trunk)
 
 			# Head
-			if self.version == 65:
+			if self.version == 65: ##### Configurable EfficientNet #####
 				head_depth = self.args['head_depth']
 				confs_PI = [MBConvConfig(4, 3, 1, n_filters, n_filters, 1) for i in range(head_depth)]
 				head_PI = [conf.block(conf, 0., nn.BatchNorm2d) for conf in confs_PI] + [
@@ -179,11 +181,10 @@ class SantoriniNNet(nn.Module):
 					nn.Flatten(1),
 					nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
 				)
-			elif self.version == 66:
+			elif self.version == 66: ##### Configurable MobileNet #####
 				head_depth = self.args['head_depth']
 				n_exp_head = n_filters * 3
-				confs_PI = [InvertedResidualConfig(n_filters, 3, n_exp_head, n_filters, True, "HS", 1, 1, 1) for i in range(head_depth)]
-				head_PI = [InvertedResidual(conf, nn.BatchNorm2d) for conf in confs_PI] + [
+				head_PI = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 					nn.Flatten(1),
 					nn.Linear(n_filters *5*5, self.action_size),
 					nn.ReLU(),
@@ -191,21 +192,22 @@ class SantoriniNNet(nn.Module):
 				]
 				self.output_layers_PI = nn.Sequential(*head_PI)
 
-				confs_V = [InvertedResidualConfig(n_filters, 3, n_exp_head, n_filters, True, "HS", 1, 1, 1) for i in range(head_depth)]
-				head_V = [InvertedResidual(conf, nn.BatchNorm2d) for conf in confs_V] + [
+				head_V = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 					nn.Flatten(1),
 					nn.Linear(n_filters *5*5, self.num_players),
 					nn.ReLU(),
 					nn.Linear(self.num_players, self.num_players)
 				]
 				self.output_layers_V = nn.Sequential(*head_V)
+				# self.output_layers_PI = Global_Head(n_filters, n_filters, self.action_size, self.action_size)
+				# self.output_layers_V = Global_Head(n_filters, n_filters, self.num_players, self.num_players)
 
 				self.output_layers_SDIFF = nn.Sequential(
 					nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
 					nn.Flatten(1),
 					nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
 				)
-			elif self.version == 67:
+			elif self.version == 67: ##### Configurable GARB (NoGoZero+) #####
 				head_depth = self.args['head_depth']
 				head_PI = [GARB(n_filters) if i == head_depth//2 else BasicBlock(n_filters, n_filters) for i in range(head_depth)] + [
 					nn.Flatten(1),
@@ -228,7 +230,7 @@ class SantoriniNNet(nn.Module):
 					nn.Flatten(1),
 					nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
 				)
-			elif self.version == 68:
+			elif self.version == 68: ##### Configurable KataGo #####
 				self.output_layers_PI = Global_Head(n_filters, n_filters, self.action_size, self.action_size)
 				self.output_layers_V = Global_Head(n_filters, n_filters, self.num_players, self.num_players)
 				self.output_layers_SDIFF = nn.Sequential(
