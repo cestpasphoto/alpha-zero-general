@@ -100,12 +100,6 @@ class Coach():
                     x[5],                                # Q estimates
                 ) for x in trainExamples]
 
-                # Check average number of valid moves, and compare to Dirichlet
-                nb_valid_moves = [sum(x[4]) for x in trainExamples] # check only on latest batch
-                avg_valid_moves = sum(nb_valid_moves) / len(nb_valid_moves)
-                if not (1/1.5 < self.dirichletAlpha / (10/avg_valid_moves) < 1.5):
-                    print(f'There are about {avg_valid_moves:.1} valid moves per state, so I advise to set dirichlet to {10/avg_valid_moves:.1} instead')
-
                 return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
 
     def learn(self):
@@ -135,6 +129,12 @@ class Coach():
 
                 # save the iteration examples to the history 
                 self.trainExamplesHistory.append(iterationTrainExamples)
+
+                # Check average number of valid moves, and compare to Dirichlet
+                nb_valid_moves = [sum(pickle.loads(zlib.decompress(x))[4]) for x in iterationTrainExamples]
+                avg_valid_moves = sum(nb_valid_moves) / len(nb_valid_moves)
+                if not (1/1.5 < self.args.dirichletAlpha / (10/avg_valid_moves) < 1.5):
+                    print(f'There are about {avg_valid_moves:.1f} valid moves per state, so I advise to set dirichlet to {10/avg_valid_moves:.1f} instead')
 
             if self.args.profile:
                 return
