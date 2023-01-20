@@ -119,13 +119,13 @@ class SantoriniNNet(nn.Module):
 				expansion_str = ['small', 'constant', 'progressive'][self.args['expansion']]
 				# Need to specify 'n_filters', 'expansion' (small, constant, progressive), 'depth'
 				n_filters = self.args['n_filters']
-				n_filters_first = self.args['n_filters']//4
+				n_filters_first = self.args['n_filters']//2
 				n_filters_begin = n_filters if expansion_str == 'constant' else n_filters_first
 				n_filters_end = n_filters_first if expansion_str == 'small' else n_filters
-				n_exp_begin, n_exp_end = n_filters_begin*2, n_filters_end*3
+				n_exp_begin, n_exp_end = n_filters_begin*3, n_filters_end*3
 				depth = self.args['depth'] - 2
 
-				def inverted_residual(input_ch, expanded_ch, out_ch, use_se, activation, kernel=3, stride=1, dilation=1, width_mult=1.):
+				def inverted_residual(input_ch, expanded_ch, out_ch, use_se, activation, kernel=3, stride=1, dilation=1, width_mult=1):
 					return InvertedResidual(InvertedResidualConfig(input_ch, kernel, expanded_ch, out_ch, use_se, activation, stride, dilation, width_mult), nn.BatchNorm2d)
 				self.first_layer = nn.Conv2d(  2, n_filters_first, 3, padding=1, bias=False)
 				confs  = [inverted_residual(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, False, "RE") for i in range(depth//2)]

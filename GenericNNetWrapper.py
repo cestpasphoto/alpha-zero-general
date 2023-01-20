@@ -48,11 +48,11 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('training')
 
 		if self.optimizer is None:
-			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])
+			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'][0], betas=(self.args['learn_rate'][1], self.args['learn_rate'][2]), weight_decay=self.args['learn_rate'][3])
 		batch_count = int(len(examples) / self.args['batch_size'])
 
 		if True:
-			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
+			scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'][0], steps_per_epoch=batch_count, epochs=self.args['epochs'])
 		else:
 			batch_count = batch_count // 5
 			every = every // 5
@@ -366,7 +366,7 @@ if __name__ == "__main__":
 	import time
 	from santorini.SantoriniGame import SantoriniGame as Game
 	from santorini.NNet import NNetWrapper as nn
-	torch.set_num_threads(2) # PyTorch more efficient this way
+	torch.set_num_threads(1) # PyTorch more efficient this way
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
@@ -374,14 +374,14 @@ if __name__ == "__main__":
 	parser.add_argument('--training'   , '-T', action='store', default='../results/new_training.examples' , help='')
 	parser.add_argument('--test'       , '-t', action='store', default='../results/new_testing.examples'  , help='')
 
-	parser.add_argument('--learn-rate' , '-l' , action='store', default=0.0003, type=float, help='')
+	parser.add_argument('--learn-rate' , '-l' , action='store', default=[0.0003, 0.9, 0.999, 0.01], type=float, nargs=4, help='')
 	parser.add_argument('--dropout'    , '-d' , action='store', default=0.    , type=float, help='')
 	parser.add_argument('--epochs'     , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size' , '-b' , action='store', default=256  , type=int  , help='')
 	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'  , '-v' , action='store', default=4.   , type=float, help='Weight for value loss')
-	parser.add_argument('--details'    , '-D' , action='store', default=[128,0,6,2], type=int, nargs=4, help='Details for NN 80')
+	parser.add_argument('--details'    , '-D' , action='store', default=[32,1,12,6], type=int, nargs=4, help='Details for NN 80')
 	args = parser.parse_args()	
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
