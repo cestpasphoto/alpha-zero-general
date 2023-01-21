@@ -51,12 +51,6 @@ class GenericNNetWrapper(NeuralNet):
 			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])
 		batch_count = int(len(examples) / self.args['batch_size'])
 		scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
-		
-		# batch_count = batch_count // 5
-		# every = every // 5
-		# validation_set = validation_set[::5]
-		# scheduler = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=1e-3, total_iters=batch_count)
-
 		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
@@ -164,7 +158,13 @@ class GenericNNetWrapper(NeuralNet):
 			return pi, v
 
 	def loss_pi(self, targets, outputs):
-		return -torch.sum(targets * outputs) / targets.size()[0]
+		loss_ = torch.nn.KLDivLoss(reduction="batchmean")
+		return loss_(outputs, targets)
+
+		# loss_ = torch.nn.CrossEntropyLoss()
+		# return loss_(outputs, targets)
+
+		# return -torch.sum(torch.log(targets) * torch.exp(outputs)) / targets.size()[0]
 
 	def loss_v(self, targets_V, targets_Q, outputs):
 		targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
@@ -360,7 +360,7 @@ if __name__ == "__main__":
 	import time
 	from santorini.SantoriniGame import SantoriniGame as Game
 	from santorini.NNet import NNetWrapper as nn
-	torch.set_num_threads(2) # PyTorch more efficient this way
+	torch.set_num_threads(1) # PyTorch more efficient this way
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
@@ -369,9 +369,9 @@ if __name__ == "__main__":
 	parser.add_argument('--test'       , '-t', action='store', default='../results/new_testing.examples'  , help='')
 
 	parser.add_argument('--learn-rate' , '-l' , action='store', default=0.0003, type=float, help='')
-	parser.add_argument('--dropout'    , '-d' , action='store', default=0.2   , type=float, help='')
-	parser.add_argument('--epochs'     , '-p' , action='store', default=1    , type=int  , help='')
-	parser.add_argument('--batch-size' , '-b' , action='store', default=32   , type=int  , help='')
+	parser.add_argument('--dropout'    , '-d' , action='store', default=0.    , type=float, help='')
+	parser.add_argument('--epochs'     , '-p' , action='store', default=2    , type=int  , help='')
+	parser.add_argument('--batch-size' , '-b' , action='store', default=256  , type=int  , help='')
 	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'  , '-v' , action='store', default=4.   , type=float, help='Weight for value loss')
@@ -394,8 +394,15 @@ if __name__ == "__main__":
 	nnet = nn(g, nn_args)
 	if args.input:
 		nnet.load_checkpoint(os.path.dirname(args.input), os.path.basename(args.input))
-	print(f'Number of params {nnet.number_params()[1]:.2e} (total {nnet.number_params()[0]:.2e})')
-	# breakpoint()
+	
+	from fvcore.nn import FlopCountAnalysis
+	dummy_board         = torch.randn(1, 25, 3, dtype=torch.float32)
+	dummy_valid_actions = torch.BoolTensor(torch.randn(1, 162)>0.5)
+	nnet.nnet.eval()
+	flops = FlopCountAnalysis(nnet.nnet, (dummy_board, dummy_valid_actions))
+	flops.unsupported_ops_warnings(False)
+	# flops.uncalled_modules_warnings(False)
+	print(f'V{args.nn_version} {args.details} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
@@ -410,6 +417,7 @@ if __name__ == "__main__":
 		testExamples.extend(e)
 	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}; number of epochs {args.epochs}')
 
+	# print({ k:v//1000 for k,v in flops.by_module().items() if k.count('.') <= 1 })
 	# breakpoint()
 	
 	# trainExamples_small = trainExamples[::30]

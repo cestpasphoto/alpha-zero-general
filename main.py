@@ -131,7 +131,7 @@ def main():
 	
 	args = parser.parse_args()
 	args.arenaCompare = 30 if args.numEps < 500 else 50
-	args.maxlenOfQueue = int(2.5e6/(1.2*args.numItersHistory)) # at most 2GB per process, with each example weighing 1.2kB
+	args.maxlenOfQueue = int(2.5e6/((2 if args.no_compression else 0.5)*args.numItersHistory)) # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
 
 	args.load_model = (args.load_folder_file is not None)
 	if args.profile:
