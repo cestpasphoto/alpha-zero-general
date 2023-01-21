@@ -42,7 +42,7 @@ def run(args):
 	log.debug('Loading the Coach...')
 	c = Coach(g, nnet, args)
 
-	if args.load_model:
+	if args.load_model and not args.forget_examples:
 		log.info("Loading 'trainExamples' from file...")
 		c.loadTrainExamples()
 
@@ -121,6 +121,7 @@ def main():
 	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.25, 1., 0.8], type=float, nargs=3, help='Softmax temp: 1 = to apply before MCTS, 2 = after MCTS + used for learning/selection, 3 = only used for selection')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
+	parser.add_argument('--forget-examples' , '-f' , action='store_true', help='Do not load previous examples')
 
 	parser.add_argument('--no-compression'  , '-z' , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')
 	parser.add_argument('--no-mem-optim'    , '-Z' , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
