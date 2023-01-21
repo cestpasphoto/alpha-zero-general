@@ -118,7 +118,7 @@ def main():
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10.  , type=float, help='Weight for value loss')
 	parser.add_argument('--q-weight'        , '-q' , action='store', default=1.   , type=float, help='Weight for mixing Q into value loss')
-	parser.add_argument('--temperature'     , '-t' , action='store', default=[1., 1., 1.], type=float, nargs=3, help='Softmax temp: 1 = to apply before MCTS, 2 = after MCTS + used for learning/selection, 3 = only used for selection')
+	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.25, 1., 0.8], type=float, nargs=3, help='Softmax temp: 1 = to apply before MCTS, 2 = after MCTS + used for learning/selection, 3 = only used for selection')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
 
