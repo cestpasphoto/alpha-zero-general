@@ -100,7 +100,7 @@ def profiling(args):
 def main():
 	parser = argparse.ArgumentParser(description='tester')
 
-	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int  , help='')
+	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-2   , type=int  , help='Number of failed arenas that will trigger process stop, not consecutively (-N means N*numItersHistory)')
 	parser.add_argument('--numEps'          , '-e' , action='store', default=500  , type=int  , help='Number of complete self-play games to simulate during a new iteration')
 	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves after which changing temperature (5->0.2). Add negative sign for other temps (1->0)')
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
@@ -130,8 +130,11 @@ def main():
 	parser.add_argument('--profile'         , '-P' , action='store_true', help='profiler')
 	
 	args = parser.parse_args()
+	args.numIters = 50
 	args.arenaCompare = 30 if args.numEps < 500 else 50
 	args.maxlenOfQueue = int(2.5e6/((2 if args.no_compression else 0.5)*args.numItersHistory)) # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
+	if args.stop_after_N_fail < 0:
+		args.stop_after_N_fail = -args.stop_after_N_fail * args.numItersHistory
 
 	args.load_model = (args.load_folder_file is not None)
 	if args.profile:

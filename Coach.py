@@ -46,6 +46,7 @@ class Coach():
         self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0))
         self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
         self.skipFirstSelfPlay = nnet.requestKnowledgeTransfer  # can be overriden in loadTrainExamples()
+        self.failedArenas = 0
 
     def executeEpisode(self):
         """
@@ -165,6 +166,10 @@ class Coach():
             if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
                 log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED')
                 self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
+                self.failedArenas += 1
+                if self.failedArenas >= self.args.stop_after_N_fail:
+                    print('Exceeded number of fails, stopping process')
+                    exit()
             else:
                 log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
