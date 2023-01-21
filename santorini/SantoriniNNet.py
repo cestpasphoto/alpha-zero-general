@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models.resnet as resnet
+from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
 
 # Assume 3-dim tensor input N,C,L
 class DenseAndPartialGPool(nn.Module):
@@ -531,40 +532,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
-		elif self.version == 30:
-			self.conv2d_1 = nn.Sequential(
-				nn.Conv2d(  2, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
-				nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
-				nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
-				nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
-				nn.Conv2d(256, 256, 3, padding=1), nn.BatchNorm2d(256), nn.ReLU(),
-				nn.Conv2d(256, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
-			)
-			self.dense1d_0 = nn.Sequential(
-				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
-				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
-				nn.Linear(5*5, 5*5), nn.BatchNorm1d(1), nn.ReLU(),
-			)
-
-			self.dense1d_1 = nn.Sequential(
-				nn.Linear((128+1)*5*5, 256), nn.BatchNorm1d(1), nn.ReLU(),
-				nn.Linear(256, 256)        , nn.BatchNorm1d(1), nn.ReLU(),
-				nn.Linear(256, 256)        , nn.BatchNorm1d(1), nn.ReLU(),
-			)
-
-			self.output_layers_PI = nn.Sequential(
-				nn.Linear(256, 256), nn.BatchNorm1d(1), nn.ReLU(),
-				nn.Linear(256, self.action_size)
-			)
-
-			self.output_layers_V = nn.Sequential(
-				nn.Linear(256, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
-			)
-
 		elif self.version == 70:
 			n_filters = 128
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
@@ -599,6 +566,46 @@ class SantoriniNNet(nn.Module):
 				nn.Conv2d(n_filters//2, n_filters//2, 1, padding=0, bias=True),
 				nn.Flatten(1),
 				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
+			)
+
+		elif self.version == 66:
+			n_filters = 32
+			n_filters_first = n_filters//2
+			n_filters_begin = n_filters_first
+			n_filters_end = n_filters
+			n_exp_begin, n_exp_end = n_filters_begin*3, n_filters_end*3
+			depth = 12 - 2
+
+			def inverted_residual(input_ch, expanded_ch, out_ch, use_se, activation, kernel=3, stride=1, dilation=1, width_mult=1):
+				return InvertedResidual(InvertedResidualConfig(input_ch, kernel, expanded_ch, out_ch, use_se, activation, stride, dilation, width_mult), nn.BatchNorm2d)
+			self.first_layer = nn.Conv2d(  2, n_filters_first, 3, padding=1, bias=False)
+			confs  = [inverted_residual(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, False, "RE") for i in range(depth//2)]
+			confs += [inverted_residual(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , True , "HS") for i in range(depth//2)]
+			confs += [inverted_residual(n_filters_end                               , n_exp_end  , n_filters      , True , "HS")]
+			self.trunk = nn.Sequential(*confs)
+
+			head_depth = 6
+			n_exp_head = n_filters * 3
+			head_PI = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size)
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players)
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
 			)
 
 		else:
@@ -668,23 +675,7 @@ class SantoriniNNet(nn.Module):
 			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [30]:
-			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
-			x, data = x.split([2,1], dim=1)
-
-			x = F.dropout(self.conv2d_1(x)       , p=self.args['dropout'], training=self.training)
-			data = torch.flatten(data, start_dim=2)
-			data = F.dropout(self.dense1d_0(data), p=self.args['dropout'], training=self.training)
-
-			x = torch.flatten(x, start_dim=1).unsqueeze(1)
-			x = torch.cat([x, data], dim=-1)
-			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
-			
-			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
-			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
-
-		elif self.version in [70]:
+		elif self.version in [66, 70]:
 			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 			x = self.first_layer(x)
