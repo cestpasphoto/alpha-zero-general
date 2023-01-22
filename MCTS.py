@@ -53,11 +53,16 @@ class MCTS():
         forced_playouts = (is_full_search and self.args.forced_playouts)
         for self.step in range(nb_MCTS_sims):
             dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
-            q = self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
+            self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
 
         s = self.game.stringRepresentation(canonicalBoard)
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
-        Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
+        # Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
+
+        # Compute Q at root node
+        Qsas = [self.nodes_data[s][4][a] for a in range(self.game.getActionSize())] # Qsa
+        q_player0 = sum([n*q for n,q in zip(counts, Qsas)]) / sum(counts) # n should be 0 when q is NaN
+        q = [q_player0 if n == 0 else -q_player0/(self.game.num_players-1) for n in range(self.game.num_players)]
 
         # Policy target pruning
         if forced_playouts:
@@ -200,7 +205,7 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_pl
             if Qsa[a] != NAN:
                 u = Qsa[a] + cpuct * Ps[a] * math.sqrt(Ns) / (1 + Nsa[a])
             else:
-                u = cpuct * Ps[a] * math.sqrt(Ns + EPS)  # Q = 0 ?
+                u = cpuct * Ps[a] * math.sqrt(Ns + EPS)  # Change FPU here
 
             if u > cur_best:
                 cur_best, best_act = u, a
