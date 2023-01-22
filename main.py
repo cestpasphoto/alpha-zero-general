@@ -100,7 +100,7 @@ def profiling(args):
 def main():
 	parser = argparse.ArgumentParser(description='tester')
 
-	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-2   , type=int  , help='Number of failed arenas that will trigger process stop, not consecutively (-N means N*numItersHistory)')
+	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float  , help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
 	parser.add_argument('--numEps'          , '-e' , action='store', default=500  , type=int  , help='Number of complete self-play games to simulate during a new iteration')
 	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves after which changing temperature (5->0.2). Add negative sign for other temps (1->0)')
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
