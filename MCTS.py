@@ -57,7 +57,6 @@ class MCTS():
 
         s = self.game.stringRepresentation(canonicalBoard)
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
-        # Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
 
         # Compute Q at root node
         Qsas = [self.nodes_data[s][4][a] for a in range(self.game.getActionSize())] # Qsa
@@ -67,6 +66,7 @@ class MCTS():
         # Policy target pruning
         if forced_playouts:
             best_count = max(counts)
+            Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
             adjusted_counts = [Nsa-int(math.sqrt(k*Psa*nb_MCTS_sims)) if Nsa != best_count else Nsa for (Nsa, Psa) in zip(counts, Psas)]
             adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
             # assert sum(adjusted_counts) > 0

@@ -337,9 +337,9 @@ class GenericNNetWrapper(NeuralNet):
 
 	def compute_surprise_weights(self, examples):
 		if self.args['no_compression']:
-			examples_surprises = np.array([x[-1] for x in examples])
+			examples_surprises = np.array([x[5] for x in examples])
 		else:
-			examples_surprises = np.array([pickle.loads(zlib.decompress(x))[-1] for x in examples])
+			examples_surprises = np.array([pickle.loads(zlib.decompress(x))[5] for x in examples])
 		examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
 		examples_weights = examples_weights / examples_weights.sum()
 
