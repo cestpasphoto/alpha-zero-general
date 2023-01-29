@@ -69,7 +69,6 @@ class MCTS():
             Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
             adjusted_counts = [Nsa-int(math.sqrt(k*Psa*nb_MCTS_sims)) if Nsa != best_count else Nsa for (Nsa, Psa) in zip(counts, Psas)]
             adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
-            # assert sum(adjusted_counts) > 0
             counts = adjusted_counts
 
         # Compute kl-divergence on probs vs self.Ps[s]
@@ -161,6 +160,7 @@ class MCTS():
             canonicalBoard,
             forced_playouts,
             self.step,
+            self.args.fpu,
         )
 
         v = self.search(next_s)
@@ -191,21 +191,21 @@ class MCTS():
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)
-def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_playouts, step):
+def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_playouts, n_iter, fpu):
     cur_best = MINFLOAT
     best_act = -1
 
     for a, valid in enumerate(Vs):
         if valid:
             if forced_playouts:
-                if Nsa[a] < int(math.sqrt(k * Ps[a] * step)): # Nsa is zero when not set
+                if Nsa[a] < int(math.sqrt(k * Ps[a] * n_iter)): # Nsa is zero when not set
                     return a
 
             cpuct = math.log((Ns + cpuct_base + 1) / cpuct_base) + cpuct_init
             if Qsa[a] != NAN:
                 u = Qsa[a] + cpuct * Ps[a] * math.sqrt(Ns) / (1 + Nsa[a])
             else:
-                u = cpuct * Ps[a] * math.sqrt(Ns + EPS)  # Change FPU here
+                u = fpu + cpuct * Ps[a] * math.sqrt(Ns + EPS)
 
             if u > cur_best:
                 cur_best, best_act = u, a
@@ -214,8 +214,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_pl
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, gameboard, canonicalBoard, forced_playouts, step):
-    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_playouts, step)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, gameboard, canonicalBoard, forced_playouts, n_iter, fpu):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_playouts, n_iter, fpu)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)
