@@ -62,7 +62,7 @@ class Arena():
                 print(f'Turn {it} Player {curPlayer}: ', end='')
                 
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
-            action = players[curPlayer](canonical_board)
+            action = players[curPlayer](canonical_board, it)
             valids = self.game.getValidMoves(canonical_board, 0)
 
             if verbose:
