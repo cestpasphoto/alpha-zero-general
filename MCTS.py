@@ -31,6 +31,8 @@ class MCTS():
         #       Ns stores #times board s was visited
         #       Qsa stores Q values for s,a (as defined in the paper)
         #       Nsa stores #times edge s,a was visited
+        #       r stores round number
+        #       Qs stores Q value for s
         self.nodes_data = {} # stores data for each nodes in a single dictionary
         self.Qsa_default = np.full (self.game.getActionSize(), NAN, dtype=np.float64)
         self.Nsa_default = np.zeros(self.game.getActionSize()     , dtype=np.int64)
@@ -59,8 +61,7 @@ class MCTS():
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
 
         # Compute Q at root node
-        Qsas = [self.nodes_data[s][4][a] for a in range(self.game.getActionSize())] # Qsa
-        q_player0 = sum([n*q for n,q in zip(counts, Qsas)]) / sum(counts) # n should be 0 when q is NaN
+        q_player0 = self.nodes_data[s][7]
         q = [q_player0 if n == 0 else -q_player0/(self.game.num_players-1) for n in range(self.game.num_players)]
 
         # Policy target pruning
@@ -79,7 +80,7 @@ class MCTS():
         # Clean search tree from very old moves = less memory footprint and less keys to search into
         if not self.args.no_mem_optim:
             r = self.game.getRound(canonicalBoard)
-            if r > self.last_cleaning + 10:
+            if r > self.last_cleaning + 20:
                 for node in [n for n in self.nodes_data.keys() if self.nodes_data[n][6] < r-5]:
                     del self.nodes_data[node]
                 self.last_cleaning = r
@@ -117,7 +118,7 @@ class MCTS():
         """
 
         s = self.game.stringRepresentation(canonicalBoard)
-        Es, Vs, Ps, Ns, Qsa, Nsa, r = self.nodes_data.get(s, (None, )*7)
+        Es, Vs, Ps, Ns, Qsa, Nsa, r, Qs = self.nodes_data.get(s, (None, )*8)
         if r is None:
             r = self.game.getRound(canonicalBoard)
 
@@ -125,7 +126,7 @@ class MCTS():
             Es = self.game.getGameEnded(canonicalBoard, 0)
             if Es.any():
                 # terminal node
-                self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r)
+                self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r, Qs)
                 return Es
         elif Es.any():
             # terminal node
@@ -141,7 +142,7 @@ class MCTS():
             normalise(Ps)
 
             Ns, Qsa, Nsa = 0, self.Qsa_default.copy(), self.Nsa_default.copy()
-            self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r)
+            self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r, v[0])
             return v
 
         if dirichlet_noise:
@@ -153,7 +154,7 @@ class MCTS():
         # pick the action with the highest upper confidence bound
         # get next state and get canonical version of it
         a, next_s, next_player = get_next_best_action_and_canonical_state(
-            Es, Vs, Ps, Ns, Qsa, Nsa,
+            Es, Vs, Ps, Ns, Qsa, Nsa, Qs,
             self.args.cpuct[0], # cpuct_base (default=19652)
             self.args.cpuct[1], # cpuct_init (default=1.25)
             self.game.board,
@@ -167,10 +168,11 @@ class MCTS():
         v = np.roll(v, next_player)
 
         Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
+        Qs = ((Ns+1) * Qs + v[0]) / (Ns+2) # Qs can't be None here
         Nsa[a] += 1
         Ns += 1
 
-        self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r)
+        self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r, Qs)
         return v
 
 
@@ -191,9 +193,10 @@ class MCTS():
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)
-def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_playouts, n_iter, fpu):
+def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, forced_playouts, n_iter, fpu):
     cur_best = MINFLOAT
     best_act = -1
+    fpu_init = Qs-fpu if fpu > 0 else fpu
 
     for a, valid in enumerate(Vs):
         if valid:
@@ -205,7 +208,7 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_pl
             if Qsa[a] != NAN:
                 u = Qsa[a] + cpuct * Ps[a] * math.sqrt(Ns) / (1 + Nsa[a])
             else:
-                u = fpu + cpuct * Ps[a] * math.sqrt(Ns + EPS)
+                u = fpu_init + cpuct * Ps[a] * math.sqrt(Ns + EPS)
 
             if u > cur_best:
                 cur_best, best_act = u, a
@@ -214,8 +217,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_pl
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, gameboard, canonicalBoard, forced_playouts, n_iter, fpu):
-    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, cpuct_base, cpuct_init, forced_playouts, n_iter, fpu)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, gameboard, canonicalBoard, forced_playouts, n_iter, fpu):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, forced_playouts, n_iter, fpu)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)
