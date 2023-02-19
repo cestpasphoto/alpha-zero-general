@@ -8,6 +8,7 @@ os.environ["OMP_NUM_THREADS"] = "1" # PyTorch more efficient this way
 
 import numpy as np
 from tqdm import tqdm
+from time import sleep
 
 sys.path.append('../../')
 from utils import *
@@ -156,6 +157,55 @@ class GenericNNetWrapper(NeuralNet):
 				pi, v, _ = self.nnet(board, valid_actions)
 			pi, v = torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 			return pi, v
+
+	def predictBatch(self, board, valid_actions, batch_info):
+		if self.current_mode != 'onnx':
+			raise Exception('Batch prediction only in ONNX mode')
+
+		i_thread, shared_memory_arg, shared_memory_res, locks = batch_info
+
+		# Store inputs in shared memory
+		shared_memory_arg[i_thread] = (
+			board.astype(np.float32).reshape((-1, self.nb_vect, self.vect_dim)),
+			np.array(valid_actions).astype(np.bool_).reshape((-1, self.action_size)),
+		)
+		# Unblock next thread (= next MCTS or server), and wait for our turn
+		locks[i_thread+1].release()
+		print(f'T{i_thread}: done my job, unblocking T{i_thread+1}, {[l.locked() for l in locks]}')
+		locks[i_thread].acquire()
+		print(f'T{i_thread}: now my turn, reading answer, {[l.locked() for l in locks]}')
+		# Retrieve answer in shared memory
+		ort_outs = shared_memory_res[i_thread]
+
+		pi, v = np.exp(ort_outs[0]), ort_outs[1]
+		return pi, v
+
+	def predictServer(self, batch_info):
+		self.switch_target('inference')
+		nb_threads, shared_memory_arg, shared_memory_res, locks = batch_info
+		locks[0].release()
+
+		while True:
+			# Wait for all inputs
+			print(f'Server: waiting for requests, {[l.locked() for l in locks]}')
+			locks[-1].acquire()
+			print(f'Server: my turn')
+
+			# Compute on batch
+			ort_outs = self.ort_session.run(None, {
+				'board'        : np.concatenate([x[0] for x in shared_memory_arg]),
+				'valid_actions': np.concatenate([x[1] for x in shared_memory_arg]),
+			})
+			# print('DEBUG:', ort_outs)
+			# print('DEBUG:', ort_outs[0].shape)
+			# print('DEBUG:', ort_outs[1].shape)
+			for i in range(nb_threads):
+				shared_memory_res[i] = (ort_outs[0][i], ort_outs[1][i])
+
+			print(f'Server: computed NN, unblocking T0')
+
+			# Unblock 1st thread
+			locks[0].release()
 
 	def loss_pi(self, targets, outputs):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")

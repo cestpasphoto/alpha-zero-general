@@ -5,16 +5,19 @@ from collections import deque
 import pickle
 import zlib
 from random import shuffle
-import time
+from math import ceil
 
 import numpy as np
 from tqdm import tqdm
+from queue import SimpleQueue
+from threading import Thread, Lock
+from time import time, sleep
 
 from Arena import Arena
 from MCTS import MCTS
 
 log = logging.getLogger(__name__)
-
+NB_THREADS = 2
 
 def applyTemperatureAndNormalize(probs, temperature):
     if temperature == 0:
@@ -103,6 +106,97 @@ class Coach():
 
                 return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
 
+    def executeEpisode_batch(self, my_mcts, my_game):
+        """
+        This function executes one episode of self-play, starting with player 1.
+        As the game is played, each turn is added as a training example to
+        trainExamples. The game is played till the game ends. After the game
+        ends, the outcome of the game is used to assign values to each example
+        in trainExamples.
+
+        It uses a temp=1 if episodeStep < tempThreshold, and thereafter
+        uses temp=0.
+
+        Returns:
+            trainExamples: a list of examples of the form (canonicalBoard, currPlayer, pi,v)
+                           pi is the MCTS informed policy vector, v is +1 if
+                           the player eventually won the game, else -1.
+        """
+        trainExamples = []
+        board = my_game.getInitBoard()
+        my_curPlayer = 0
+        episodeStep = 0
+
+        while True:
+            episodeStep += 1
+            canonicalBoard = my_game.getCanonicalForm(board, my_curPlayer)
+            temp_mcts = self.args.temperature[1] if self.args.tempThreshold > 0 else int(episodeStep < -self.args.tempThreshold)
+            pi, surprise, q, is_full_search = my_mcts.getActionProb(canonicalBoard, temp=temp_mcts)
+
+            if self.args.tempThreshold > 0:
+                action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[2])
+            else:
+                action = np.random.choice(len(pi), p=pi)
+
+            if is_full_search:
+                valids = my_game.getValidMoves(canonicalBoard, 0)
+                sym = my_game.getSymmetries(canonicalBoard, pi, valids)
+                for b, p, v in sym:
+                    trainExamples.append([b, my_curPlayer, p, v, surprise, q])
+
+            board, my_curPlayer = my_game.getNextState(board, my_curPlayer, action)
+
+            r = my_game.getGameEnded(board, my_curPlayer)
+            if r.any():
+                final_scores = [my_game.getScore(board, p) for p in range(my_game.num_players)]
+                trainExamples = [(
+                    x[0],                                # board
+                    x[2],                                # policy
+                    np.roll(r, -x[1]),                   # winner
+                    np.roll([f-final_scores[x[1]] for f in final_scores], -x[1]), # score difference
+                    x[3],                                # valids
+                    x[4],                                # surprise
+                    x[5],                                # Q estimates
+                ) for x in trainExamples]
+
+                return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
+
+    def executeEpisodes_thread(self, i_thread):
+        self.locks[i_thread].acquire()
+        while True: # master thread will kill all when enough samples collected
+            my_game = self.game.__class__()
+            my_game.getInitBoard()
+            my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0),
+                batch_info=(i_thread, self.shared_memory_arg, self.shared_memory_res, self.locks))
+            episode = self.executeEpisode_batch(my_mcts, my_game)
+            self.examplesQueue.put(episode)
+
+    def executeEpisodes(self):
+        self.shared_memory_arg = [None] * NB_THREADS
+        self.shared_memory_res = [None] * NB_THREADS
+        self.locks = [Lock() for _ in range(NB_THREADS+1)] # list of Locks: "0;n-1" are MCTSs and "n" is the batch NN processor
+        self.examplesQueue = SimpleQueue()
+        iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
+
+        [l.acquire() for l in self.locks]
+        server_thread = Thread(target=self.nnet.predictServer, args=((NB_THREADS, self.shared_memory_arg, self.shared_memory_res, self.locks),))
+        clients_list = [Thread(target=self.executeEpisodes_thread, args=(i_thread,)) for i_thread in range(NB_THREADS)]
+
+        server_thread.start()
+        [t.start() for t in clients_list]
+
+        while True:
+            sleep(10)
+            for _ in range(self.examplesQueue.qsize()):
+                iterationTrainExamples = self.examplesQueue.get_nowait()
+            # Check if we have collected enough samples
+            if len(iterationTrainExamples) >= self.args.numEps:
+                break
+        [t.terminate() for t in clients_list]
+        server_thread.terminate()
+
+        return iterationTrainExamples
+
     def learn(self):
         """
         Performs numIters iterations with numEps episodes of self-play in each
@@ -112,21 +206,15 @@ class Coach():
         only if it wins >= updateThreshold fraction of games.
         """
 
-        start_time = time.time()
-
         for i in range(1, self.args.numIters + 1):
             # bookkeeping
             log.info(f'Starting Iter #{i} ...')
             # examples of the iteration
             if not self.skipFirstSelfPlay or i > 1:
-                iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
-
-                for _ in tqdm(range(self.args.numEps), desc="Self Play", ncols=120):
-                    iterationTrainExamples += self.executeEpisode()
-                    MCTS.reset_all_search_trees()
-                    if len(iterationTrainExamples) == self.args.maxlenOfQueue:
-                        log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
-                        break
+                iterationTrainExamples = self.executeEpisodes()
+                if len(iterationTrainExamples) == self.args.maxlenOfQueue:
+                    log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
+                    break
 
                 # save the iteration examples to the history 
                 self.trainExamplesHistory.append(iterationTrainExamples)
