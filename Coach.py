@@ -17,7 +17,7 @@ from Arena import Arena
 from MCTS import MCTS
 
 log = logging.getLogger(__name__)
-NB_THREADS = 2
+NB_THREADS = 16
 
 def applyTemperatureAndNormalize(probs, temperature):
     if temperature == 0:
@@ -163,7 +163,7 @@ class Coach():
 
     def executeEpisodes_thread(self, i_thread):
         self.locks[i_thread].acquire()
-        while True: # master thread will kill all when enough samples collected
+        while self.thread_status[0] == 0:
             my_game = self.game.__class__()
             my_game.getInitBoard()
             my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0),
@@ -171,29 +171,42 @@ class Coach():
             episode = self.executeEpisode_batch(my_mcts, my_game)
             self.examplesQueue.put(episode)
 
+        print(f'T{i_thread}: going to sunset')
+        while self.thread_status[0] == 1: # no more new episode, wait for other threads to complete
+            self.locks[i_thread+1].release()
+            self.locks[i_thread].acquire()
+
+        print(f'T{i_thread}: the end')
+
     def executeEpisodes(self):
         self.shared_memory_arg = [None] * NB_THREADS
         self.shared_memory_res = [None] * NB_THREADS
         self.locks = [Lock() for _ in range(NB_THREADS+1)] # list of Locks: "0;n-1" are MCTSs and "n" is the batch NN processor
+        self.thread_status = [0] # 0 = compute, 1 = ending, wait for other threads, 2 = kill
         self.examplesQueue = SimpleQueue()
         iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
+        batch_info = (NB_THREADS, self.shared_memory_arg, self.shared_memory_res, self.locks, self.thread_status)
 
         [l.acquire() for l in self.locks]
-        server_thread = Thread(target=self.nnet.predictServer, args=((NB_THREADS, self.shared_memory_arg, self.shared_memory_res, self.locks),))
-        clients_list = [Thread(target=self.executeEpisodes_thread, args=(i_thread,)) for i_thread in range(NB_THREADS)]
+        threads_list = [Thread(target=self.executeEpisodes_thread, args=(i_thread,)) for i_thread in range(NB_THREADS)]
+        threads_list.append(Thread(target=self.nnet.predictServer, args=(batch_info,)))
+        [t.start() for t in threads_list]
 
-        server_thread.start()
-        [t.start() for t in clients_list]
-
+        progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120)
         while True:
-            sleep(10)
+            sleep(1)
             for _ in range(self.examplesQueue.qsize()):
-                iterationTrainExamples = self.examplesQueue.get_nowait()
+                iterationTrainExamples.append(self.examplesQueue.get_nowait())
+                progress.update()
             # Check if we have collected enough samples
-            if len(iterationTrainExamples) >= self.args.numEps:
-                break
-        [t.terminate() for t in clients_list]
-        server_thread.terminate()
+            if len(iterationTrainExamples) >= self.args.numEps - NB_THREADS:
+                if len(iterationTrainExamples) >= self.args.numEps:
+                    self.thread_status[0] = 2 # all threads can be stopped
+                    break
+                else:
+                    self.thread_status[0] = 1 # no more new episode, wait for other threads to complete
+        [t.join() for t in threads_list]
+        progress.close()
 
         return iterationTrainExamples
 

@@ -171,9 +171,9 @@ class GenericNNetWrapper(NeuralNet):
 		)
 		# Unblock next thread (= next MCTS or server), and wait for our turn
 		locks[i_thread+1].release()
-		print(f'T{i_thread}: done my job, unblocking T{i_thread+1}, {[l.locked() for l in locks]}')
+		# print(f'T{i_thread}: done my job, unblocking T{i_thread+1}, {[l.locked() for l in locks]}')
 		locks[i_thread].acquire()
-		print(f'T{i_thread}: now my turn, reading answer, {[l.locked() for l in locks]}')
+		# print(f'T{i_thread}: now my turn, reading answer, {[l.locked() for l in locks]}')
 		# Retrieve answer in shared memory
 		ort_outs = shared_memory_res[i_thread]
 
@@ -182,30 +182,25 @@ class GenericNNetWrapper(NeuralNet):
 
 	def predictServer(self, batch_info):
 		self.switch_target('inference')
-		nb_threads, shared_memory_arg, shared_memory_res, locks = batch_info
+		nb_threads, shared_memory_arg, shared_memory_res, locks, thread_status = batch_info
 		locks[0].release()
 
-		while True:
+		while thread_status[0] <= 1:
 			# Wait for all inputs
-			print(f'Server: waiting for requests, {[l.locked() for l in locks]}')
 			locks[-1].acquire()
-			print(f'Server: my turn')
 
 			# Compute on batch
 			ort_outs = self.ort_session.run(None, {
 				'board'        : np.concatenate([x[0] for x in shared_memory_arg]),
 				'valid_actions': np.concatenate([x[1] for x in shared_memory_arg]),
 			})
-			# print('DEBUG:', ort_outs)
-			# print('DEBUG:', ort_outs[0].shape)
-			# print('DEBUG:', ort_outs[1].shape)
 			for i in range(nb_threads):
 				shared_memory_res[i] = (ort_outs[0][i], ort_outs[1][i])
 
-			print(f'Server: computed NN, unblocking T0')
-
 			# Unblock 1st thread
 			locks[0].release()
+
+		print(f'Server: the end')
 
 	def loss_pi(self, targets, outputs):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")
