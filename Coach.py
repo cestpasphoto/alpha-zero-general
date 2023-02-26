@@ -17,7 +17,7 @@ from Arena import Arena
 from MCTS import MCTS
 
 log = logging.getLogger(__name__)
-NB_THREADS = 4
+NB_THREADS = 16
 
 def applyTemperatureAndNormalize(probs, temperature):
     if temperature == 0:
@@ -171,14 +171,14 @@ class Coach():
             episode = self.executeEpisode_batch(my_mcts, my_game)
             self.examplesQueue.put(episode)
 
-        print(f'T{i_thread}: going to sunset, {[l.locked() for l in self.locks]}')
+        # print(f'T{i_thread}: going to sunset, {[l.locked() for l in self.locks]}')
         while self.thread_status[0] == 1: # no more new episode, wait for other threads to complete
             self.locks[i_thread+1].release()
             self.locks[i_thread].acquire()
 
-        print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
+        # print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
         self.locks[i_thread+1].release()
-        print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
+        # print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
 
     def executeEpisodes(self):
         self.shared_memory_arg = [None] * NB_THREADS
@@ -210,7 +210,8 @@ class Coach():
                     break
                 elif self.thread_status[0] == 0:
                     limit = nb_examples + NB_THREADS
-                    print(f'{nb_examples=}, {limit=}')
+                    # print(f'{nb_examples=}, {limit=}')
+                    progress.total = limit
                     self.thread_status[0] = 1 # no more new episode, wait for other threads to complete
         [t.join() for t in threads_list]
         progress.close()

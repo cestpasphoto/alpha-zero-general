@@ -198,7 +198,7 @@ class GenericNNetWrapper(NeuralNet):
 
 			locks[0].release() # Unblock 1st thread
 
-		print(f'Server: the end, {[l.locked() for l in locks]}')
+		# print(f'Server: the end, {[l.locked() for l in locks]}')
 
 	def loss_pi(self, targets, outputs):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")

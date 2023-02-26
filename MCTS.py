@@ -166,7 +166,7 @@ class MCTS():
         )
 
         v = self.search(next_s)
-        v = np.roll(v, next_player)
+        v = np_roll(v, next_player)
 
         Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
         Qs = ((Ns+1) * Qs + v[0]) / (Ns+2) # Qs can't be None here
@@ -191,6 +191,9 @@ class MCTS():
             obj.nodes_data = {}
             obj.last_cleaning = 0
         
+@njit(cache=True, fastmath=True, nogil=True)
+def np_roll(arr, n):
+    return np.roll(arr, n)
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)
