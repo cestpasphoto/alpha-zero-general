@@ -17,7 +17,7 @@ from Arena import Arena
 from MCTS import MCTS
 
 log = logging.getLogger(__name__)
-NB_THREADS = 16
+NB_THREADS = 4
 
 def applyTemperatureAndNormalize(probs, temperature):
     if temperature == 0:
@@ -171,12 +171,14 @@ class Coach():
             episode = self.executeEpisode_batch(my_mcts, my_game)
             self.examplesQueue.put(episode)
 
-        print(f'T{i_thread}: going to sunset')
+        print(f'T{i_thread}: going to sunset, {[l.locked() for l in self.locks]}')
         while self.thread_status[0] == 1: # no more new episode, wait for other threads to complete
             self.locks[i_thread+1].release()
             self.locks[i_thread].acquire()
 
-        print(f'T{i_thread}: the end')
+        print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
+        self.locks[i_thread+1].release()
+        print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
 
     def executeEpisodes(self):
         self.shared_memory_arg = [None] * NB_THREADS
@@ -184,6 +186,8 @@ class Coach():
         self.locks = [Lock() for _ in range(NB_THREADS+1)] # list of Locks: "0;n-1" are MCTSs and "n" is the batch NN processor
         self.thread_status = [0] # 0 = compute, 1 = ending, wait for other threads, 2 = kill
         self.examplesQueue = SimpleQueue()
+        nb_examples = 0
+        limit = self.args.numEps
         iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
         batch_info = (NB_THREADS, self.shared_memory_arg, self.shared_memory_res, self.locks, self.thread_status)
 
@@ -192,18 +196,21 @@ class Coach():
         threads_list.append(Thread(target=self.nnet.predictServer, args=(batch_info,)))
         [t.start() for t in threads_list]
 
-        progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120)
+        progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1)
         while True:
             sleep(1)
             for _ in range(self.examplesQueue.qsize()):
-                iterationTrainExamples.append(self.examplesQueue.get_nowait())
+                iterationTrainExamples += self.examplesQueue.get_nowait()
+                nb_examples += 1
                 progress.update()
             # Check if we have collected enough samples
-            if len(iterationTrainExamples) >= self.args.numEps - NB_THREADS:
-                if len(iterationTrainExamples) >= self.args.numEps:
+            if nb_examples >= self.args.numEps - NB_THREADS:
+                if nb_examples >= limit:
                     self.thread_status[0] = 2 # all threads can be stopped
                     break
-                else:
+                elif self.thread_status[0] == 0:
+                    limit = nb_examples + NB_THREADS
+                    print(f'{nb_examples=}, {limit=}')
                     self.thread_status[0] = 1 # no more new episode, wait for other threads to complete
         [t.join() for t in threads_list]
         progress.close()

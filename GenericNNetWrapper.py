@@ -186,8 +186,7 @@ class GenericNNetWrapper(NeuralNet):
 		locks[0].release()
 
 		while thread_status[0] <= 1:
-			# Wait for all inputs
-			locks[-1].acquire()
+			locks[-1].acquire() # Wait for all inputs
 
 			# Compute on batch
 			ort_outs = self.ort_session.run(None, {
@@ -197,10 +196,9 @@ class GenericNNetWrapper(NeuralNet):
 			for i in range(nb_threads):
 				shared_memory_res[i] = (ort_outs[0][i], ort_outs[1][i])
 
-			# Unblock 1st thread
-			locks[0].release()
+			locks[0].release() # Unblock 1st thread
 
-		print(f'Server: the end')
+		print(f'Server: the end, {[l.locked() for l in locks]}')
 
 	def loss_pi(self, targets, outputs):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")
