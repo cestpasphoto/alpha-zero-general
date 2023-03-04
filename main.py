@@ -76,26 +76,35 @@ def compare_settings(args):
 			print(f'{k}: {previous_args_dict.get(k)} --> {current_args_dict.get(k)}')
 
 def profiling(args):
-	import cProfile, pstats
-	profiler = cProfile.Profile()
-	args.numIters, args.numEps, args.epochs = 1, 1, 1 # warmup run
+	# import cProfile, pstats
+	# profiler = cProfile.Profile()
+	import yappi
+	args.numIters, args.numEps, args.epochs = 1, 16, 1 # warmup run
 	run(args)
 
 	print('\nstart profiling')
-	args.numIters, args.numEps, args.epochs = 1, 30, 1
+	args.numIters, args.numEps, args.epochs = 1, 50, 1
 	# Core of the training
-	profiler.enable()
+	yappi.start()
+	# profiler.enable()
 	run(args)
-	profiler.disable()
+	yappi.stop()
+	# profiler.disable()
 
 	# debrief
-	profiler.dump_stats('execution.prof')
-	print('check dumped stats in execution.prof')
+	# profiler.dump_stats('execution.prof')
+	# print('check dumped stats in execution.prof')
 	# Sample code:
 	# from pstats import Stats, SortKey
 	# p = Stats('execution.prof')
 	# p.strip_dirs().sort_stats('cumtime').print_stats(20)
 	# p.strip_dirs().sort_stats('tottime').print_stats(10)
+	threads = yappi.get_thread_stats()
+	for thread in threads:
+		print("Function stats for (%s) (%d)" % (thread.name, thread.id))  # it is the Thread.__class__.__name__
+		yappi.get_func_stats(ctx_id=thread.id).print_all()
+
+	breakpoint()
 
 def main():
 	parser = argparse.ArgumentParser(description='tester')
