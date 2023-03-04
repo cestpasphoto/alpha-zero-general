@@ -1,7 +1,5 @@
 import numpy as np
 from colorama import Style, Fore, Back
-import random
-import itertools
 from .SantoriniConstants import _decode_action, NB_GODS, NO_GOD
 
 my_workers_color    = [Fore.WHITE, Fore.BLUE  , Fore.CYAN]

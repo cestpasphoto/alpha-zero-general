@@ -1,6 +1,5 @@
 import logging
 import math
-import gc
 import numpy as np
 
 from numba import njit
