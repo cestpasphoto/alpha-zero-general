@@ -16,22 +16,6 @@ from MCTS import MCTS
 log = logging.getLogger(__name__)
 
 
-def applyTemperatureAndNormalize(probs, temperature):
-    if temperature == 0:
-        bests = np.array(np.argwhere(probs == np.max(probs))).flatten()
-        result = [0] * len(probs)
-        result[np.random.choice(bests)] = 1
-    else:
-        result = [x ** (1. / temperature) for x in probs]
-        result_sum = float(sum(result))
-        result = [x / result_sum for x in result]
-    return result
-
-def random_pick(probs, temperature=1.):
-    probs_with_temp = applyTemperatureAndNormalize(probs, temperature)
-    pick = np.random.choice(len(probs_with_temp), p=probs_with_temp)
-    return pick
-
 class Coach():
     """
     This class executes the self-play + learning. It uses the functions defined
@@ -72,13 +56,8 @@ class Coach():
         while True:
             episodeStep += 1
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
-            temp_mcts = self.args.temperature[1] if self.args.tempThreshold > 0 else int(episodeStep < -self.args.tempThreshold)
-            pi, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp_mcts)
-
-            if self.args.tempThreshold > 0:
-                action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[2])
-            else:
-                action = np.random.choice(len(pi), p=pi)
+            pi, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=1.)
+            action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[1])
 
             if is_full_search:
                 valids = self.game.getValidMoves(canonicalBoard, 0)
@@ -222,6 +201,22 @@ class Coach():
                     history.pop()
                 log.info('Reduced nb of items in one history of loaded examples')
 
+
+def applyTemperatureAndNormalize(probs, temperature):
+    if temperature == 0:
+        bests = np.array(np.argwhere(probs == np.max(probs))).flatten()
+        result = [0] * len(probs)
+        result[np.random.choice(bests)] = 1
+    else:
+        result = [x ** (1. / temperature) for x in probs]
+        result_sum = float(sum(result))
+        result = [x / result_sum for x in result]
+    return result
+
+def random_pick(probs, temperature=1.):
+    probs_with_temp = applyTemperatureAndNormalize(probs, temperature)
+    pick = np.random.choice(len(probs_with_temp), p=probs_with_temp)
+    return pick
 
 if __name__ == "__main__":
     import argparse
