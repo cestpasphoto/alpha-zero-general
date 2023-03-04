@@ -101,7 +101,6 @@ class SantoriniNNet(nn.Module):
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.num_players = 2
-		self.num_scdiffs = 2 # Number of combinations of 2 players
 		self.args = args
 		self.version = args['nn_version']
 
@@ -569,7 +568,6 @@ class SantoriniNNet(nn.Module):
 			x = F.dropout(self.dense1d_3(x)     , p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		elif self.version in [10, 11, 12, 13]:
@@ -585,7 +583,6 @@ class SantoriniNNet(nn.Module):
 			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		elif self.version in [20, 21, 22, 23, 24, 25]:
@@ -606,7 +603,6 @@ class SantoriniNNet(nn.Module):
 			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		elif self.version in [66, 70]:
@@ -615,7 +611,6 @@ class SantoriniNNet(nn.Module):
 			x = self.first_layer(x)
 			x = self.trunk(x)
 			v = self.output_layers_V(x)
-			sdiff = self.output_layers_SDIFF(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
 		return F.log_softmax(pi, dim=1), torch.tanh(v)

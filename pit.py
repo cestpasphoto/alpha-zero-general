@@ -42,7 +42,6 @@ def create_player(name, args):
 	additional_keys = net.load_checkpoint(cpt_dir, cpt_file)
 
 	cpuct = additional_keys.get('cpuct')
-	cpuct = cpuct[1] if isinstance(cpuct, list) else cpuct
 	mcts_args = dotdict({
 		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
 		'fpu'             : args.fpu if args.fpu else additional_keys.get('fpu', 0.),
