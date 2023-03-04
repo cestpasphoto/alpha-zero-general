@@ -74,7 +74,6 @@ class Coach():
                     x[0],                                # board
                     x[1],                                # policy
                     np.roll(r, -x[2]),                   # winner
-                    np.roll([f-final_scores[x[2]] for f in final_scores], -x[2]), # score difference
                     x[3],                                # valids
                     x[4],                                # Q estimates
                 ) for x in trainExamples]

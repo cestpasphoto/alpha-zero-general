@@ -18,10 +18,6 @@ def observation_size():
 def action_size():
 	return NB_GODS*2*9*9
 
-@njit(cache=True, fastmath=True, nogil=True)
-def max_score_diff():
-	return 3-0
-
 # STATE is 5x5x3
 #	First dimension 5x5 locates the workers (1&2 for current, -1&-2 for opponent)
 #	Second dimension 5x5 lists current level

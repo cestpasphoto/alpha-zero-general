@@ -33,7 +33,6 @@ class GenericNNetWrapper(NeuralNet):
 
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
-		self.max_diff = game.getMaxScoreDiff()
 		self.num_players = game.num_players
 		self.optimizer = None
 		self.requestKnowledgeTransfer = False
@@ -56,36 +55,28 @@ class GenericNNetWrapper(NeuralNet):
 		for epoch in range(self.args['epochs']):
 			t.set_description(f'Train ep{epoch + 1}')
 			self.nnet.train()
-			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
+			pi_losses, v_losses = AverageMeter(), AverageMeter()
 	
 			for i_batch in range(batch_count):
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False)
-				boards, pis, vs, scdiffs, valid_actions, qs = self.pick_examples(examples, sample_ids)
+				boards, pis, vs, valid_actions, qs = self.pick_examples(examples, sample_ids)
 				boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
 				target_qs = torch.FloatTensor(np.array(qs).astype(np.float32))
-				target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
-				for i in range(len(scdiffs)):
-					score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
-					for player in range(self.num_players):
-						target_scdiffs[i, score_diff[player], player] = 1
 
 				# predict
 				self.optimizer.zero_grad(set_to_none=True)
-				out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
+				out_pi, out_v = self.nnet(boards, valid_actions)
 				l_pi = self.loss_pi(target_pis, out_pi)
 				l_v = self.loss_v(target_vs, target_qs, out_v)
-				l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
-				l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
-				total_loss = l_pi + l_v + l_scdiff_c + l_scdiff_p
+				total_loss = l_pi + l_v
 
 				# record loss
 				pi_losses.update(l_pi.item(), boards.size(0))
 				v_losses.update(l_v.item(), boards.size(0))
-				scdiff_losses.update(l_scdiff_c.item() + l_scdiff_p.item(), boards.size(0))
-				t.set_postfix(PI=pi_losses, V=v_losses, SD=scdiff_losses, refresh=False)
+				t.set_postfix(PI=pi_losses, V=v_losses, refresh=False)
 
 				# compute gradient and do SGD step
 				total_loss.backward()
@@ -101,25 +92,18 @@ class GenericNNetWrapper(NeuralNet):
 					self.nnet.eval()
 					with torch.no_grad():
 						picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
-						boards, pis, vs, scdiffs, valid_actions, qs = list(zip(*picked_examples))
+						boards, pis, vs, valid_actions, qs = list(zip(*picked_examples))
 						boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
 						valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 						target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 						target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
 						target_qs = torch.FloatTensor(np.array(qs).astype(np.float32))
-						target_scdiffs = torch.FloatTensor(np.zeros((len(scdiffs), 2*self.max_diff+1, self.num_players)).astype(np.float32))
-						for i in range(len(scdiffs)):
-							score_diff = (scdiffs[i] + self.max_diff).clip(0, 2*self.max_diff)
-							for player in range(self.num_players):
-								target_scdiffs[i, score_diff[player], player] = 1
 
 						# compute output
-						out_pi, out_v, out_scdiff = self.nnet(boards, valid_actions)
+						out_pi, out_v = self.nnet(boards, valid_actions)
 						l_pi = self.loss_pi(target_pis, out_pi)
 						l_v = self.loss_v(target_vs, target_qs, out_v)
-						l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
-						l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
-						total_loss = l_pi + l_v + l_scdiff_c + l_scdiff_p
+						total_loss = l_pi + l_v
 						test_loss = total_loss.item()
 						print(test_loss)
 					self.nnet.train()
@@ -152,7 +136,7 @@ class GenericNNetWrapper(NeuralNet):
 				board, valid_actions = board.contiguous().cuda(), valid_actions.contiguous().cuda()
 			self.nnet.eval()
 			with torch.no_grad():
-				pi, v, _ = self.nnet(board, valid_actions)
+				pi, v = self.nnet(board, valid_actions)
 			pi, v = torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 			return pi, v
 
@@ -168,14 +152,6 @@ class GenericNNetWrapper(NeuralNet):
 	def loss_v(self, targets_V, targets_Q, outputs):
 		targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
 		return torch.sum((targets - outputs) ** 2) / (targets_V.size()[0] * targets_V.size()[-1]) # Normalize by batch size * nb of players
-
-	def loss_scdiff_cdf(self, targets, outputs):
-		l2_diff = torch.square(torch.cumsum(targets, axis=1) - torch.cumsum(torch.exp(outputs), axis=1))
-		return 0.02 * torch.sum(l2_diff) / (targets.size()[0] * targets.size()[-1]) # Normalize by batch size * nb of scdiffs
-
-	def loss_scdiff_pdf(self, targets, outputs):
-		cross_entropy = -torch.sum( torch.mul(targets, outputs) )
-		return 0.02 * cross_entropy / (targets.size()[0] * targets.size()[-1]) # Normalize by batch size * nb of scdiffs
 
 	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', additional_keys={}):
 		filepath = os.path.join(folder, filename)
@@ -312,13 +288,12 @@ class GenericNNetWrapper(NeuralNet):
 			temporary_file,
 			opset_version=11, 	# best ONNX protocol, see comment above
 			input_names = ['board', 'valid_actions'],
-			output_names = ['pi', 'v', 'scdiffs'],
+			output_names = ['pi', 'v'],
 			dynamic_axes={
 				'board'        : {0: 'batch_size'},
 				'valid_actions': {0: 'batch_size'},
 				'pi'           : {0: 'batch_size'},
 				'v'            : {0: 'batch_size'},
-				'scdiffs'      : {0: 'batch_size'},
 			}
 		)
 

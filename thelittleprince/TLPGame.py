@@ -1,7 +1,7 @@
 import sys
 sys.path.append('..')
 from Game import Game
-from .TLPLogicNumba import Board, observation_size, action_size, max_score_diff
+from .TLPLogicNumba import Board, observation_size, action_size
 from .TLPDisplay import move_to_str, print_board
 import numpy as np
 from numba import jit, njit
@@ -22,9 +22,6 @@ class TLPGame(Game):
 
 	def getActionSize(self):
 		return action_size(self.num_players)
-
-	def getMaxScoreDiff(self):
-		return max_score_diff()
 
 	def getNextState(self, board, player, action, deterministic=False):
 		self.board.copy_state(board, True)

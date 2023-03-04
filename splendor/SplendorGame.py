@@ -23,14 +23,10 @@ class SplendorGame(Game):
 	def getActionSize(self):
 		return action_size()
 
-	def getMaxScoreDiff(self):
-		return 15
-
 	def getNextState(self, board, player, action, deterministic=False):
 		self.board.copy_state(board, True)
 		next_player = self.board.make_move(action, player, deterministic)
 		return (self.board.get_state(), next_player)
-
 
 	def getValidMoves(self, board, player):
 		self.board.copy_state(board, False)
