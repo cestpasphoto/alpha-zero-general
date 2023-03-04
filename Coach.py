@@ -34,7 +34,7 @@ class Coach():
         self.skipFirstSelfPlay = nnet.requestKnowledgeTransfer  # can be overriden in loadTrainExamples()
         self.consecutive_failures = 0
 
-    def executeEpisode(self):
+    def executeEpisode(self, my_mcts=None, my_game=None):
         """
         This function executes one episode of self-play, starting with player 1.
         As the game is played, each turn is added as a training example to
@@ -50,62 +50,18 @@ class Coach():
                            pi is the MCTS informed policy vector, v is +1 if
                            the player eventually won the game, else -1.
         """
-        trainExamples = []
-        board = self.game.getInitBoard()
-        self.curPlayer = 0
-        episodeStep = 0
-
-        while True:
-            episodeStep += 1
-            canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
-            pi, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=1.)
-            action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[1])
-
-            if is_full_search:
-                valids = self.game.getValidMoves(canonicalBoard, 0)
-                sym = self.game.getSymmetries(canonicalBoard, pi, valids)
-                for b, p, v in sym:
-                    trainExamples.append([b, p, self.curPlayer, v, q])
-
-            board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
-
-            r = self.game.getGameEnded(board, self.curPlayer)
-            if r.any():
-                final_scores = [self.game.getScore(board, p) for p in range(self.game.num_players)]
-                trainExamples = [(
-                    x[0],                                # board
-                    x[1],                                # policy
-                    np.roll(r, -x[2]),                   # winner
-                    x[3],                                # valids
-                    x[4],                                # Q estimates
-                ) for x in trainExamples]
-
-                return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
-
-    def executeEpisode_batch(self, my_mcts, my_game):
-        """
-        This function executes one episode of self-play, starting with player 1.
-        As the game is played, each turn is added as a training example to
-        trainExamples. The game is played till the game ends. After the game
-        ends, the outcome of the game is used to assign values to each example
-        in trainExamples.
-
-        It uses a temp=1 if episodeStep < tempThreshold, and thereafter
-        uses temp=0.
-
-        Returns:
-            trainExamples: a list of examples of the form (canonicalBoard, currPlayer, pi,v)
-                           pi is the MCTS informed policy vector, v is +1 if
-                           the player eventually won the game, else -1.
-        """
+        if my_mcts is None:
+            my_mcts = self.mcts
+        if my_game is None:
+            my_game = self.game
         trainExamples = []
         board = my_game.getInitBoard()
-        my_curPlayer = 0
+        curPlayer = 0
         episodeStep = 0
 
         while True:
             episodeStep += 1
-            canonicalBoard = my_game.getCanonicalForm(board, my_curPlayer)
+            canonicalBoard = my_game.getCanonicalForm(board, curPlayer)
             pi, q, is_full_search = my_mcts.getActionProb(canonicalBoard, temp=1.)
             action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[1])
 
@@ -113,11 +69,11 @@ class Coach():
                 valids = my_game.getValidMoves(canonicalBoard, 0)
                 sym = my_game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
-                    trainExamples.append([b, p, my_curPlayer, v, q])
+                    trainExamples.append([b, p, curPlayer, v, q])
 
-            board, my_curPlayer = my_game.getNextState(board, my_curPlayer, action)
+            board, curPlayer = my_game.getNextState(board, curPlayer, action)
 
-            r = my_game.getGameEnded(board, my_curPlayer)
+            r = my_game.getGameEnded(board, curPlayer)
             if r.any():
                 final_scores = [my_game.getScore(board, p) for p in range(my_game.num_players)]
                 trainExamples = [(
@@ -137,7 +93,7 @@ class Coach():
             my_game.getInitBoard()
             my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0),
                 batch_info=(i_thread, self.shared_memory_arg, self.shared_memory_res, self.locks))
-            episode = self.executeEpisode_batch(my_mcts, my_game)
+            episode = self.executeEpisode(my_mcts, my_game)
             self.examplesQueue.put(episode)
 
         # print(f'T{i_thread}: going to sunset, {[l.locked() for l in self.locks]}')
@@ -150,15 +106,12 @@ class Coach():
         # print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
 
     def executeEpisodes(self):
-        self.shared_memory_arg = [None] * NB_THREADS
-        self.shared_memory_res = [None] * NB_THREADS
+        self.shared_memory_arg, self.shared_memory_res = [None] * NB_THREADS, [None] * NB_THREADS
         self.locks = [Lock() for _ in range(NB_THREADS+1)] # list of Locks: "0;n-1" are MCTSs and "n" is the batch NN processor
         self.thread_status = [0] # 0 = compute, 1 = ending, wait for other threads, 2 = kill
         self.examplesQueue = SimpleQueue()
-        nb_examples = 0
-        limit = self.args.numEps
-        iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
         batch_info = (NB_THREADS, self.shared_memory_arg, self.shared_memory_res, self.locks, self.thread_status)
+        iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 
         [l.acquire() for l in self.locks]
         threads_list = [Thread(target=self.executeEpisodes_thread, args=(i_thread,)) for i_thread in range(NB_THREADS)]
@@ -166,6 +119,8 @@ class Coach():
         [t.start() for t in threads_list]
 
         progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1)
+        nb_examples = 0
+        limit = self.args.numEps
         while True:
             sleep(1)
             for _ in range(self.examplesQueue.qsize()):
