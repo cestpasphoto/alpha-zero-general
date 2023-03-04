@@ -25,8 +25,6 @@ def run(args):
 		batch_size=args.batch_size,
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
-		vl_weight=args.vl_weight,
-		surprise_weight=args.surprise_weight,
 		no_compression=args.no_compression,
 		q_weight=args.q_weight,
 	)
@@ -108,36 +106,35 @@ def profiling(args):
 
 def main():
 	parser = argparse.ArgumentParser(description='tester')
-
-	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float  , help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
+	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
+	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
+	
 	parser.add_argument('--numEps'          , '-e' , action='store', default=500  , type=int  , help='Number of complete self-play games to simulate during a new iteration')
-	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves after which changing temperature (5->0.2). Add negative sign for other temps (1->0)')
-	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
-	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=1600 , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')
-	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
-	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
-	parser.add_argument('--cpuct'           , '-c' , action='store', default=[19652, 1.25], type=float, nargs=2, help='cpuct constants (base and init)')
-	parser.add_argument('--dirichletAlpha'  , '-d' , action='store', default=0.2  , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position')    
 	parser.add_argument('--numItersHistory' , '-i' , action='store', default=5   , type=int  , help='')
 
+	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=1600 , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')
+	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves after which changing temperature')
+	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.25, 0.8], type=float, nargs=2, help='Softmax temp: 1 = to apply before MCTS, 3 = after MCTS, only used for selection not for learning')
+	parser.add_argument('--cpuct'           , '-c' , action='store', default=1.25 , type=float, help='cpuct value')
+	parser.add_argument('--dirichletAlpha'  , '-d' , action='store', default=0.2  , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position')    
+	parser.add_argument('--fpu'             , '-f' , action='store', default=0.   , type=float, help='Value for FPU (first play urgency): negative value for absolute value, positive value for parent-based reduction')
+	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
+	
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
-	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10.  , type=float, help='Weight for value loss')
-	parser.add_argument('--q-weight'        , '-q' , action='store', default=1.   , type=float, help='Weight for mixing Q into value loss')
-	
-	parser.add_argument('--fpu'             , '-f' , action='store', default=0.   , type=float, help='Value for FPU (first play urgency): negative value for absolute value, positive value for parent-based reduction')
-	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.25, 1., 0.8], type=float, nargs=3, help='Softmax temp: 1 = to apply before MCTS, 2 = after MCTS + used for learning/selection, 3 = only used for selection')
-	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
-	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
-	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
 
+	### Advanced params ###
+	parser.add_argument('--q-weight'        , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
+	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
+	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
+	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
+
+	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
+	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float  , help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
 	parser.add_argument('--no-compression'  , '-z' , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')
 	parser.add_argument('--no-mem-optim'    , '-Z' , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
-	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
-	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
-	
 	parser.add_argument('--profile'         , '-P' , action='store_true', help='profiler')
 	
 	args = parser.parse_args()

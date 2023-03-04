@@ -75,8 +75,6 @@ class Arena():
             if self.display:
                 self.display(board)
             print("Game over: Turn ", str(it), "Result ", self.game.getGameEnded(board, curPlayer))
-
-        MCTS.reset_all_search_trees()
             
         return self.game.getGameEnded(board, curPlayer)[0]
 

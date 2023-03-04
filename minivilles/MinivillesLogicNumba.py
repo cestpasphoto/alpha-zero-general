@@ -11,10 +11,6 @@ def action_size():
 	return 21
 
 @njit(cache=True, fastmath=True, nogil=True)
-def max_score_diff():
-	return 52-0
-
-@njit(cache=True, fastmath=True, nogil=True)
 def my_random_choice_and_normalize(prob):
 	normalized_prob = prob / prob.sum()
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")

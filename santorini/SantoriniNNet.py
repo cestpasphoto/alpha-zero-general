@@ -100,9 +100,7 @@ class SantoriniNNet(nn.Module):
 		# game params
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
-		self.scdiff_size = 2 * game.getMaxScoreDiff() + 1
 		self.num_players = 2
-		self.num_scdiffs = 2 # Number of combinations of 2 players
 		self.args = args
 		self.version = args['nn_version']
 
@@ -137,11 +135,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(128, self.num_players)
 			)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(128, 128),
-				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
-			)
-
 
 		elif self.version == 10:
 			self.conv2d_1 = nn.Sequential(
@@ -173,11 +166,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(128, self.num_players)
 			)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(256, 128),
-				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
-			)
-
 		elif self.version == 11:
 			self.conv2d_1 = nn.Sequential(
 				nn.Conv2d( 3, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
@@ -206,11 +194,6 @@ class SantoriniNNet(nn.Module):
 			self.output_layers_V = nn.Sequential(
 				nn.Linear(256, 128),
 				nn.Linear(128, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(256, 128),
-				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
 			)
 
 		elif self.version == 12:
@@ -244,11 +227,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(128, self.num_players)
 			)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(256, 128),
-				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
-			)
-
 		elif self.version == 13:
 			self.conv2d_1 = nn.Sequential(
 				nn.Conv2d( 2, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
@@ -274,10 +252,6 @@ class SantoriniNNet(nn.Module):
 
 			self.output_layers_V = nn.Sequential(
 				nn.Linear(512, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(512, self.num_scdiffs*self.scdiff_size)
 			)
 
 		elif self.version == 20:
@@ -314,11 +288,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_players)
 			)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(512, 256),
-				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
-			)
-
 		elif self.version == 21:
 			self.conv2d_1 = nn.Sequential(
 				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
@@ -351,11 +320,6 @@ class SantoriniNNet(nn.Module):
 			self.output_layers_V = nn.Sequential(
 				nn.Linear(1024, 256),
 				nn.Linear(256, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(1024, 256),
-				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
 		elif self.version == 22:
@@ -398,11 +362,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(512, self.num_players)
 			)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(512, 512),
-				nn.Linear(512, self.num_scdiffs*self.scdiff_size)
-			)
-
 		elif self.version == 23:
 			self.conv2d_1 = nn.Sequential(
 				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
@@ -441,11 +400,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_players)
 			)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(256, 256),
-				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
-			)
-
 		elif self.version == 24:
 			self.conv2d_1 = nn.Sequential(
 				nn.Conv2d(  2, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(),
@@ -482,11 +436,6 @@ class SantoriniNNet(nn.Module):
 			self.output_layers_V = nn.Sequential(
 				nn.Linear(256, 256),
 				nn.Linear(256, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(256, 256),
-				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
 			)
 
 		elif self.version == 25:
@@ -528,10 +477,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(256, self.num_players)
 			)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Linear(256, self.num_scdiffs*self.scdiff_size)
-			)
-
 		elif self.version == 70:
 			n_filters = 128
 			self.first_layer = nn.Conv2d(  2, n_filters, 3, padding=1, bias=False)
@@ -560,12 +505,6 @@ class SantoriniNNet(nn.Module):
 				nn.Linear(n_filters//2 *5*5, self.num_players),
 				nn.ReLU(),
 				nn.Linear(self.num_players, self.num_players)
-			)
-
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Conv2d(n_filters//2, n_filters//2, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters//2 *5*5, self.num_scdiffs*self.scdiff_size)
 			)
 
 		elif self.version == 66:
@@ -602,12 +541,6 @@ class SantoriniNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
-			self.output_layers_SDIFF = nn.Sequential(
-				nn.Conv2d(n_filters, n_filters, 1, padding=0, bias=True),
-				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.num_scdiffs*self.scdiff_size)
-			)
-
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
 
@@ -635,7 +568,6 @@ class SantoriniNNet(nn.Module):
 			x = F.dropout(self.dense1d_3(x)     , p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		elif self.version in [10, 11, 12, 13]:
@@ -651,7 +583,6 @@ class SantoriniNNet(nn.Module):
 			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		elif self.version in [20, 21, 22, 23, 24, 25]:
@@ -672,7 +603,6 @@ class SantoriniNNet(nn.Module):
 			x = F.dropout(self.dense1d_2(x)     , p=self.args['dropout'], training=self.training)
 			
 			v = self.output_layers_V(x).squeeze(1)
-			sdiff = self.output_layers_SDIFF(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		elif self.version in [66, 70]:
@@ -681,7 +611,6 @@ class SantoriniNNet(nn.Module):
 			x = self.first_layer(x)
 			x = self.trunk(x)
 			v = self.output_layers_V(x)
-			sdiff = self.output_layers_SDIFF(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
-		return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
+		return F.log_softmax(pi, dim=1), torch.tanh(v)

@@ -28,13 +28,12 @@ def export_onnx(nnet, output_filepath):
 		output_filepath,
 		opset_version=16,
 		input_names = ['board', 'valid_actions'],
-		output_names = ['pi', 'v', 'scdiffs'],
+		output_names = ['pi', 'v'],
 		dynamic_axes={
 			'board'        : {0: 'batch_size'},
 			'valid_actions': {0: 'batch_size'},
 			'pi'           : {0: 'batch_size'},
 			'v'            : {0: 'batch_size'},
-			'scdiffs'      : {0: 'batch_size'},
 		}
 	)
 

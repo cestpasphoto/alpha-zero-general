@@ -5,7 +5,6 @@ from collections import deque
 import pickle
 import zlib
 from random import shuffle
-from math import ceil
 
 import numpy as np
 from tqdm import tqdm
@@ -18,22 +17,6 @@ from MCTS import MCTS
 
 log = logging.getLogger(__name__)
 NB_THREADS = 16
-
-def applyTemperatureAndNormalize(probs, temperature):
-    if temperature == 0:
-        bests = np.array(np.argwhere(probs == np.max(probs))).flatten()
-        result = [0] * len(probs)
-        result[np.random.choice(bests)] = 1
-    else:
-        result = [x ** (1. / temperature) for x in probs]
-        result_sum = float(sum(result))
-        result = [x / result_sum for x in result]
-    return result
-
-def random_pick(probs, temperature=1.):
-    probs_with_temp = applyTemperatureAndNormalize(probs, temperature)
-    pick = np.random.choice(len(probs_with_temp), p=probs_with_temp)
-    return pick
 
 class Coach():
     """
@@ -75,19 +58,14 @@ class Coach():
         while True:
             episodeStep += 1
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
-            temp_mcts = self.args.temperature[1] if self.args.tempThreshold > 0 else int(episodeStep < -self.args.tempThreshold)
-            pi, surprise, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp_mcts)
-
-            if self.args.tempThreshold > 0:
-                action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[2])
-            else:
-                action = np.random.choice(len(pi), p=pi)
+            pi, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=1.)
+            action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[1])
 
             if is_full_search:
                 valids = self.game.getValidMoves(canonicalBoard, 0)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
-                    trainExamples.append([b, self.curPlayer, p, v, surprise, q])
+                    trainExamples.append([b, p, self.curPlayer, v, q])
 
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
@@ -96,12 +74,10 @@ class Coach():
                 final_scores = [self.game.getScore(board, p) for p in range(self.game.num_players)]
                 trainExamples = [(
                     x[0],                                # board
-                    x[2],                                # policy
-                    np.roll(r, -x[1]),                   # winner
-                    np.roll([f-final_scores[x[1]] for f in final_scores], -x[1]), # score difference
+                    x[1],                                # policy
+                    np.roll(r, -x[2]),                   # winner
                     x[3],                                # valids
-                    x[4],                                # surprise
-                    x[5],                                # Q estimates
+                    x[4],                                # Q estimates
                 ) for x in trainExamples]
 
                 return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
@@ -130,19 +106,14 @@ class Coach():
         while True:
             episodeStep += 1
             canonicalBoard = my_game.getCanonicalForm(board, my_curPlayer)
-            temp_mcts = self.args.temperature[1] if self.args.tempThreshold > 0 else int(episodeStep < -self.args.tempThreshold)
-            pi, surprise, q, is_full_search = my_mcts.getActionProb(canonicalBoard, temp=temp_mcts)
-
-            if self.args.tempThreshold > 0:
-                action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[2])
-            else:
-                action = np.random.choice(len(pi), p=pi)
+            pi, q, is_full_search = my_mcts.getActionProb(canonicalBoard, temp=1.)
+            action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[1])
 
             if is_full_search:
                 valids = my_game.getValidMoves(canonicalBoard, 0)
                 sym = my_game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
-                    trainExamples.append([b, my_curPlayer, p, v, surprise, q])
+                    trainExamples.append([b, p, my_curPlayer, v, q])
 
             board, my_curPlayer = my_game.getNextState(board, my_curPlayer, action)
 
@@ -151,12 +122,10 @@ class Coach():
                 final_scores = [my_game.getScore(board, p) for p in range(my_game.num_players)]
                 trainExamples = [(
                     x[0],                                # board
-                    x[2],                                # policy
-                    np.roll(r, -x[1]),                   # winner
-                    np.roll([f-final_scores[x[1]] for f in final_scores], -x[1]), # score difference
+                    x[1],                                # policy
+                    np.roll(r, -x[2]),                   # winner
                     x[3],                                # valids
-                    x[4],                                # surprise
-                    x[5],                                # Q estimates
+                    x[4],                                # Q estimates
                 ) for x in trainExamples]
 
                 return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
@@ -241,7 +210,7 @@ class Coach():
                 self.trainExamplesHistory.append(iterationTrainExamples)
 
                 # Check average number of valid moves, and compare to Dirichlet
-                nb_valid_moves = [sum(pickle.loads(zlib.decompress(x))[4]) for x in iterationTrainExamples]
+                nb_valid_moves = [sum(pickle.loads(zlib.decompress(x))[3]) for x in iterationTrainExamples]
                 avg_valid_moves = sum(nb_valid_moves) / len(nb_valid_moves)
                 if not (1/1.5 < self.args.dirichletAlpha / (10/avg_valid_moves) < 1.5):
                     print(f'There are about {avg_valid_moves:.1f} valid moves per state, so I advise to set dirichlet to {10/avg_valid_moves:.1f} instead')
@@ -331,6 +300,22 @@ class Coach():
                     history.pop()
                 log.info('Reduced nb of items in one history of loaded examples')
 
+
+def applyTemperatureAndNormalize(probs, temperature):
+    if temperature == 0:
+        bests = np.array(np.argwhere(probs == np.max(probs))).flatten()
+        result = [0] * len(probs)
+        result[np.random.choice(bests)] = 1
+    else:
+        result = [x ** (1. / temperature) for x in probs]
+        result_sum = float(sum(result))
+        result = [x / result_sum for x in result]
+    return result
+
+def random_pick(probs, temperature=1.):
+    probs_with_temp = applyTemperatureAndNormalize(probs, temperature)
+    pick = np.random.choice(len(probs_with_temp), p=probs_with_temp)
+    return pick
 
 if __name__ == "__main__":
     import argparse
