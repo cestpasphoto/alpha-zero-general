@@ -101,7 +101,6 @@ class Coach():
                 for _ in tqdm(range(self.args.numEps), desc="Self Play", ncols=120):
                     self.mcts = MCTS(self.game, self.nnet, self.args)  # reset search tree
                     iterationTrainExamples += self.executeEpisode()
-                    # MCTS.reset_all_search_trees()
                     if len(iterationTrainExamples) == self.args.maxlenOfQueue:
                         log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
                         break

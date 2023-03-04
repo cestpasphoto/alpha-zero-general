@@ -181,12 +181,6 @@ class MCTS():
             if Vs[idx]:
                Ps[idx] = (0.75 * Ps[idx]) + (0.25 * dir_values[dir_idx])
                dir_idx += 1
-
-    @staticmethod
-    def reset_all_search_trees():
-        for obj in [o for o in gc.get_objects() if type(o) is MCTS]: # dirtier than isinstance, but that would trigger a pytorch warning
-            obj.nodes_data = {}
-            obj.last_cleaning = 0
         
 
 # pick the action with the highest upper confidence bound
