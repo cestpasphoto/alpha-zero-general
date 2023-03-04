@@ -79,7 +79,7 @@ class GenericNNetWrapper(NeuralNet):
 				l_v = self.loss_v(target_vs, target_qs, out_v)
 				l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
 				l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
-				total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
+				total_loss = l_pi + l_v + l_scdiff_c + l_scdiff_p
 
 				# record loss
 				pi_losses.update(l_pi.item(), boards.size(0))
@@ -119,7 +119,7 @@ class GenericNNetWrapper(NeuralNet):
 						l_v = self.loss_v(target_vs, target_qs, out_v)
 						l_scdiff_c = self.loss_scdiff_cdf(target_scdiffs, out_scdiff)
 						l_scdiff_p = self.loss_scdiff_pdf(target_scdiffs, out_scdiff)
-						total_loss = l_pi + self.args['vl_weight']*l_v + l_scdiff_c + l_scdiff_p
+						total_loss = l_pi + l_v + l_scdiff_c + l_scdiff_p
 						test_loss = total_loss.item()
 						print(test_loss)
 					self.nnet.train()
@@ -363,7 +363,6 @@ if __name__ == "__main__":
 	parser.add_argument('--batch-size' , '-b' , action='store', default=256  , type=int  , help='')
 	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
-	parser.add_argument('--vl-weight'  , '-v' , action='store', default=4.   , type=float, help='Weight for value loss')
 	args = parser.parse_args()	
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
@@ -376,7 +375,6 @@ if __name__ == "__main__":
 		batch_size=args.batch_size,
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
-		vl_weight=args.vl_weight,
 		no_compression=False,
 	)
 	nnet = nn(g, nn_args)

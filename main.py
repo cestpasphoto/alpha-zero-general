@@ -25,7 +25,6 @@ def run(args):
 		batch_size=args.batch_size,
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
-		vl_weight=args.vl_weight,
 		no_compression=args.no_compression,
 		q_weight=args.q_weight,
 	)
@@ -114,7 +113,6 @@ def main():
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
-	parser.add_argument('--vl-weight'       , '-v' , action='store', default=10.  , type=float, help='Weight for value loss')
 	parser.add_argument('--q-weight'        , '-q' , action='store', default=1.   , type=float, help='Weight for mixing Q into value loss')
 	
 	parser.add_argument('--fpu'             , '-f' , action='store', default=0.   , type=float, help='Value for FPU (first play urgency): negative value for absolute value, positive value for parent-based reduction')
