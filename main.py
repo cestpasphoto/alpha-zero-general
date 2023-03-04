@@ -26,7 +26,6 @@ def run(args):
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
 		vl_weight=args.vl_weight,
-		surprise_weight=args.surprise_weight,
 		no_compression=args.no_compression,
 		q_weight=args.q_weight,
 	)
@@ -121,7 +120,6 @@ def main():
 	parser.add_argument('--fpu'             , '-f' , action='store', default=0.   , type=float, help='Value for FPU (first play urgency): negative value for absolute value, positive value for parent-based reduction')
 	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.25, 1., 0.8], type=float, nargs=3, help='Softmax temp: 1 = to apply before MCTS, 2 = after MCTS + used for learning/selection, 3 = only used for selection')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
-	parser.add_argument('--surprise-weight' , '-W' , action='store_true', help='Give more learning weights to surprising results')
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
 
 	parser.add_argument('--no-compression'  , '-z' , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')

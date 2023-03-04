@@ -75,7 +75,6 @@ class MCTS():
         # Compute kl-divergence on probs vs self.Ps[s]
         probs = np.array(counts)
         probs = probs / probs.sum()
-        surprise = (np.log(probs+EPS) - np.log(self.nodes_data[s][2]+EPS)).dot(probs).item()
 
         # Clean search tree from very old moves = less memory footprint and less keys to search into
         if not self.args.no_mem_optim:
@@ -90,12 +89,12 @@ class MCTS():
             bestA = np.random.choice(bestAs)
             probs = [0] * len(counts)
             probs[bestA] = 1
-            return probs, surprise, q, is_full_search
+            return probs, q, is_full_search
 
         counts = [x ** (1. / temp) for x in counts]
         counts_sum = float(sum(counts))
         probs = [x / counts_sum for x in counts]
-        return probs, surprise, q, is_full_search
+        return probs, q, is_full_search
 
     def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False):
         """

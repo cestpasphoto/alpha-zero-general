@@ -73,7 +73,7 @@ class Coach():
             episodeStep += 1
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
             temp_mcts = self.args.temperature[1] if self.args.tempThreshold > 0 else int(episodeStep < -self.args.tempThreshold)
-            pi, surprise, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp_mcts)
+            pi, q, is_full_search = self.mcts.getActionProb(canonicalBoard, temp=temp_mcts)
 
             if self.args.tempThreshold > 0:
                 action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[2])
@@ -84,7 +84,7 @@ class Coach():
                 valids = self.game.getValidMoves(canonicalBoard, 0)
                 sym = self.game.getSymmetries(canonicalBoard, pi, valids)
                 for b, p, v in sym:
-                    trainExamples.append([b, self.curPlayer, p, v, surprise, q])
+                    trainExamples.append([b, p, self.curPlayer, v, q])
 
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
@@ -93,12 +93,11 @@ class Coach():
                 final_scores = [self.game.getScore(board, p) for p in range(self.game.num_players)]
                 trainExamples = [(
                     x[0],                                # board
-                    x[2],                                # policy
-                    np.roll(r, -x[1]),                   # winner
-                    np.roll([f-final_scores[x[1]] for f in final_scores], -x[1]), # score difference
+                    x[1],                                # policy
+                    np.roll(r, -x[2]),                   # winner
+                    np.roll([f-final_scores[x[2]] for f in final_scores], -x[2]), # score difference
                     x[3],                                # valids
-                    x[4],                                # surprise
-                    x[5],                                # Q estimates
+                    x[4],                                # Q estimates
                 ) for x in trainExamples]
 
                 return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]

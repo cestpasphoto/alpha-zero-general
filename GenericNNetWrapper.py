@@ -51,7 +51,6 @@ class GenericNNetWrapper(NeuralNet):
 			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])
 		batch_count = int(len(examples) / self.args['batch_size'])
 		scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
-		examples_weights = self.compute_surprise_weights(examples) if self.args['surprise_weight'] else None
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 		for epoch in range(self.args['epochs']):
@@ -60,8 +59,8 @@ class GenericNNetWrapper(NeuralNet):
 			pi_losses, v_losses, scdiff_losses = AverageMeter(), AverageMeter(), AverageMeter()
 	
 			for i_batch in range(batch_count):
-				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False, p=examples_weights)
-				boards, pis, vs, scdiffs, valid_actions, surprises, qs = self.pick_examples(examples, sample_ids)
+				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False)
+				boards, pis, vs, scdiffs, valid_actions, qs = self.pick_examples(examples, sample_ids)
 				boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
@@ -102,7 +101,7 @@ class GenericNNetWrapper(NeuralNet):
 					self.nnet.eval()
 					with torch.no_grad():
 						picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
-						boards, pis, vs, scdiffs, valid_actions, surprises, qs = list(zip(*picked_examples))
+						boards, pis, vs, scdiffs, valid_actions, qs = list(zip(*picked_examples))
 						boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
 						valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 						target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
@@ -334,16 +333,6 @@ class GenericNNetWrapper(NeuralNet):
 		else: 
 			picked_examples = [pickle.loads(zlib.decompress(examples[i])) for i in sample_ids]
 		return list(zip(*picked_examples))
-
-	def compute_surprise_weights(self, examples):
-		if self.args['no_compression']:
-			examples_surprises = np.array([x[5] for x in examples])
-		else:
-			examples_surprises = np.array([pickle.loads(zlib.decompress(x))[5] for x in examples])
-		examples_weights = examples_surprises / examples_surprises.sum() + 1./len(examples_surprises)
-		examples_weights = examples_weights / examples_weights.sum()
-
-		return examples_weights
 	
 	def reshape_boards(self, numpy_boards):
 		# Some game needs to reshape boards before being an input of NNet
@@ -388,7 +377,6 @@ if __name__ == "__main__":
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
 		vl_weight=args.vl_weight,
-		surprise_weight=False,
 		no_compression=False,
 	)
 	nnet = nn(g, nn_args)
