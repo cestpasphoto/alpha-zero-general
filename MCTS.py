@@ -1,6 +1,7 @@
 import logging
 import math
 import numpy as np
+import gc
 
 from numba import njit
 
@@ -72,7 +73,6 @@ class MCTS():
             adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
             counts = adjusted_counts
 
-        # Compute kl-divergence on probs vs self.Ps[s]
         probs = np.array(counts)
         probs = probs / probs.sum()
 
@@ -184,6 +184,12 @@ class MCTS():
             if Vs[idx]:
                Ps[idx] = (0.75 * Ps[idx]) + (0.25 * dir_values[dir_idx])
                dir_idx += 1
+
+    @staticmethod
+    def reset_all_search_trees():
+        for obj in [o for o in gc.get_objects() if type(o) is MCTS]: # dirtier than isinstance, but that would trigger a pytorch warning
+            obj.nodes_data = {}
+            obj.last_cleaning = 0
         
 @njit(cache=True, fastmath=True, nogil=True)
 def np_roll(arr, n):
