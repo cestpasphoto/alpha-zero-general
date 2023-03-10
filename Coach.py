@@ -148,6 +148,8 @@ class Coach():
 					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
 					break
 
+		MCTS.reset_all_search_trees()
+		
 		return iterationTrainExamples
 
 	def learn(self):

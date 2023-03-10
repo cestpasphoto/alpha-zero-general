@@ -111,6 +111,7 @@ class GenericNNetWrapper(NeuralNet):
 					if (i_batch > 0) and save_folder:
 						self.save_checkpoint(save_folder, filename=f'intermediary_{i_batch}.pt')
 
+		self.optimizer = None
 		t.close()
 		
 	def predict(self, board, valid_actions):
