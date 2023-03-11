@@ -142,47 +142,42 @@ class GenericNNetWrapper(NeuralNet):
 			pi, v = torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 			return pi, v
 
-	def predictBatch(self, board, valid_actions, batch_info):
+	def predict_client(self, board, valid_actions, batch_info):
 		if self.current_mode != 'onnx':
 			raise Exception('Batch prediction only in ONNX mode')
-
-		i_thread, shared_memory_arg, shared_memory_res, locks = batch_info
+		i_thread, i_result, shared_memory, locks = batch_info
 
 		# Store inputs in shared memory
-		shared_memory_arg[i_thread] = (
+		shared_memory[i_thread] = (
 			board.astype(np.float32).reshape((-1, self.nb_vect, self.vect_dim)),
 			np.array(valid_actions).astype(np.bool_).reshape((-1, self.action_size)),
 		)
 		# Unblock next thread (= next MCTS or server), and wait for our turn
 		locks[i_thread+1].release()
-		# print(f'T{i_thread}: done my job, unblocking T{i_thread+1}, {[l.locked() for l in locks]}')
 		locks[i_thread].acquire()
-		# print(f'T{i_thread}: now my turn, reading answer, {[l.locked() for l in locks]}')
-		# Retrieve answer in shared memory
-		ort_outs = shared_memory_res[i_thread]
 
+		# Retrieve results in shared memory
+		ort_outs = shared_memory[i_result]
 		pi, v = np.exp(ort_outs[0]), ort_outs[1]
+
 		return pi, v
 
-	def predictServer(self, batch_info):
+	def predict_server(self, nb_threads, shared_memory, locks):
 		self.switch_target('inference')
-		nb_threads, shared_memory_arg, shared_memory_res, locks, thread_status = batch_info
 		locks[0].release()
 
-		while thread_status[0] <= 1:
+		while shared_memory[-1] <= 1:
 			locks[-1].acquire() # Wait for all inputs
 
-			# Compute on batch
+			# Batch inference
 			ort_outs = self.ort_session.run(None, {
-				'board'        : np.concatenate([x[0] for x in shared_memory_arg]),
-				'valid_actions': np.concatenate([x[1] for x in shared_memory_arg]),
+				'board'        : np.concatenate([x[0] for x in shared_memory[:nb_threads]]),
+				'valid_actions': np.concatenate([x[1] for x in shared_memory[:nb_threads]]),
 			})
 			for i in range(nb_threads):
-				shared_memory_res[i] = (ort_outs[0][i], ort_outs[1][i])
+				shared_memory[i+nb_threads] = (ort_outs[0][i], ort_outs[1][i])
 
 			locks[0].release() # Unblock 1st thread
-
-		# print(f'Server: the end, {[l.locked() for l in locks]}')
 
 	def loss_pi(self, targets, outputs):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")

@@ -4,19 +4,18 @@ import sys
 from collections import deque
 import pickle
 import zlib
-from random import shuffle
-
-import numpy as np
 from tqdm import tqdm, trange
 from queue import SimpleQueue
 from threading import Thread, Lock
-from time import time, sleep
+from time import sleep
+
+from random import shuffle
+import numpy as np
 
 from Arena import Arena
 from MCTS import MCTS
 
 log = logging.getLogger(__name__)
-NB_THREADS = 16
 
 class Coach():
 	"""
@@ -33,6 +32,7 @@ class Coach():
 		self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
 		self.skipFirstSelfPlay = nnet.requestKnowledgeTransfer  # can be overriden in loadTrainExamples()
 		self.consecutive_failures = 0
+		self.nb_threads = self.args.parallel_inferences
 
 	def executeEpisode(self, my_mcts=None, my_game=None):
 		"""
@@ -86,42 +86,49 @@ class Coach():
 
 				return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
 
-	def executeEpisodes_thread(self, i_thread):
-		self.locks[i_thread].acquire()
-		while self.thread_status[0] == 0:
+	def executeEpisodes_batch(self, i_thread, shared_memory, locks):
+		# Execute an episode in a thread until need to evaluate NN
+		# then unlock next threads, etc until batch of inferences to do is full
+		# then server runs inferences on batch.
+		# Each thread loops until receiving a signal to stop
+		locks[i_thread].acquire()
+		batch_info = (i_thread, i_thread+self.nb_threads, shared_memory, locks)
+		while shared_memory[-1] == 0: # Signal 0 means to continue computing
 			my_game = self.game.__class__()
 			my_game.getInitBoard()
-			my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0),
-				batch_info=(i_thread, self.shared_memory_arg, self.shared_memory_res, self.locks))
+			my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0), batch_info=batch_info)
 			episode = self.executeEpisode(my_mcts, my_game)
 			self.examplesQueue.put(episode)
 
-		# print(f'T{i_thread}: going to sunset, {[l.locked() for l in self.locks]}')
-		while self.thread_status[0] == 1: # no more new episode, wait for other threads to complete
-			self.locks[i_thread+1].release()
-			self.locks[i_thread].acquire()
-
-		# print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
-		self.locks[i_thread+1].release()
-		# print(f'T{i_thread}: the end, {[l.locked() for l in self.locks]}')
+		while shared_memory[-1] == 1: # We received signal 1, wait for other threads to complete
+			locks[i_thread+1].release()
+			locks[i_thread].acquire()
+		locks[i_thread+1].release()
 
 	def executeEpisodes(self):
 		iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
-		if NB_THREADS > 1:
-			self.shared_memory_arg, self.shared_memory_res = [None] * NB_THREADS, [None] * NB_THREADS
-			self.locks = [Lock() for _ in range(NB_THREADS+1)] # list of Locks: "0;n-1" are MCTSs and "n" is the batch NN processor
-			self.thread_status = [0] # 0 = compute, 1 = ending, wait for other threads, 2 = kill
-			self.examplesQueue = SimpleQueue()
-			batch_info = (NB_THREADS, self.shared_memory_arg, self.shared_memory_res, self.locks, self.thread_status)
+		if self.nb_threads == 1:
+			for _ in trange(self.args.numEps, desc="Self Play", ncols=120):
+				iterationTrainExamples += self.executeEpisode()
+				self.MCTS = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0))
+				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
+					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
+					break
+		else:
+			# N slots for NN inputs, N slots for NN ouputs, 1 slot for signaling
+			# signal: 0 = compute, 1 = stop after current episode, 2 = stop
+			shared_memory = [None] * (2*self.nb_threads) + [0]
+			# list of Locks: "0;n-1" are MCTSs and "n" is the batch NN processor
+			locks = [Lock() for _ in range(self.nb_threads+1)]
 
-			[l.acquire() for l in self.locks]
-			threads_list = [Thread(target=self.executeEpisodes_thread, args=(i_thread,)) for i_thread in range(NB_THREADS)]
-			threads_list.append(Thread(target=self.nnet.predictServer, args=(batch_info,)))
+			self.examplesQueue = SimpleQueue()
+			[l.acquire() for l in locks]
+			threads_list = [Thread(target=self.executeEpisodes_batch, args=(i_thread, shared_memory, locks)) for i_thread in range(self.nb_threads)]
+			threads_list.append(Thread(target=self.nnet.predict_server, args=(self.nb_threads, shared_memory, locks)))
 			[t.start() for t in threads_list]
 
 			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1)
-			nb_examples = 0
-			limit = self.args.numEps
+			nb_examples, max_nb_episodes = 0, self.args.numEps
 			while True:
 				sleep(1)
 				for _ in range(self.examplesQueue.qsize()):
@@ -129,27 +136,18 @@ class Coach():
 					nb_examples += 1
 					progress.update()
 				# Check if we have collected enough samples
-				if nb_examples >= self.args.numEps - NB_THREADS:
-					if nb_examples >= limit:
-						self.thread_status[0] = 2 # all threads can be stopped
+				if nb_examples >= self.args.numEps - self.nb_threads:
+					if nb_examples >= max_nb_episodes:
+						shared_memory[-1] = 2 # send signal 2 = all threads can be stopped
 						break
-					elif self.thread_status[0] == 0:
-						limit = nb_examples + NB_THREADS
-						# print(f'{nb_examples=}, {limit=}')
-						progress.total = limit
-						self.thread_status[0] = 1 # no more new episode, wait for other threads to complete
+					elif shared_memory[-1] == 0:
+						max_nb_episodes = nb_examples + self.nb_threads
+						progress.total = max_nb_episodes
+						shared_memory[-1] = 1 # send signal 1 = threads can stop after their current episode
 			[t.join() for t in threads_list]
 			progress.close()
-		else:
-			for _ in trange(self.args.numEps, desc="Self Play", ncols=120):
-				iterationTrainExamples += self.executeEpisode()
-				self.MCTS = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0))
-				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
-					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
-					break
 
 		MCTS.reset_all_search_trees()
-		
 		return iterationTrainExamples
 
 	def learn(self):

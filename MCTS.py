@@ -18,7 +18,7 @@ class MCTS():
     This class handles the MCTS tree.
     """
 
-    def __init__(self, game, nnet, args, dirichlet_noise=False, batch_info=(None, None, None, None)):
+    def __init__(self, game, nnet, args, dirichlet_noise=False, batch_info=None):
         self.game = game
         self.nnet = nnet
         self.args = args
@@ -134,10 +134,10 @@ class MCTS():
         if Ps is None:
             # First time that we explore state s
             Vs = self.game.getValidMoves(canonicalBoard, 0)
-            if self.batch_info[0] is None:
+            if self.batch_info is None:
                 Ps, v = self.nnet.predict(canonicalBoard, Vs)
             else:
-                Ps, v = self.nnet.predictBatch(canonicalBoard, Vs, self.batch_info)
+                Ps, v = self.nnet.predict_client(canonicalBoard, Vs, self.batch_info)
             if dirichlet_noise:
                 Ps = softmax(Ps, self.args.temperature[0])
                 self.applyDirNoise(Ps, Vs)
