@@ -8,6 +8,7 @@ os.environ["OMP_NUM_THREADS"] = "1" # PyTorch more efficient this way
 
 import numpy as np
 from tqdm import tqdm
+from time import sleep
 
 sys.path.append('../../')
 from utils import *
@@ -110,6 +111,7 @@ class GenericNNetWrapper(NeuralNet):
 					if (i_batch > 0) and save_folder:
 						self.save_checkpoint(save_folder, filename=f'intermediary_{i_batch}.pt')
 
+		self.optimizer = None
 		t.close()
 		
 	def predict(self, board, valid_actions):
@@ -139,6 +141,43 @@ class GenericNNetWrapper(NeuralNet):
 				pi, v = self.nnet(board, valid_actions)
 			pi, v = torch.exp(pi).data.cpu().numpy()[0], v.data.cpu().numpy()[0]
 			return pi, v
+
+	def predict_client(self, board, valid_actions, batch_info):
+		if self.current_mode != 'onnx':
+			raise Exception('Batch prediction only in ONNX mode')
+		i_thread, i_result, shared_memory, locks = batch_info
+
+		# Store inputs in shared memory
+		shared_memory[i_thread] = (
+			board.astype(np.float32).reshape((-1, self.nb_vect, self.vect_dim)),
+			np.array(valid_actions).astype(np.bool_).reshape((-1, self.action_size)),
+		)
+		# Unblock next thread (= next MCTS or server), and wait for our turn
+		locks[i_thread+1].release()
+		locks[i_thread].acquire()
+
+		# Retrieve results in shared memory
+		ort_outs = shared_memory[i_result]
+		pi, v = np.exp(ort_outs[0]), ort_outs[1]
+
+		return pi, v
+
+	def predict_server(self, nb_threads, shared_memory, locks):
+		self.switch_target('inference')
+		locks[0].release()
+
+		while shared_memory[-1] <= 1:
+			locks[-1].acquire() # Wait for all inputs
+
+			# Batch inference
+			ort_outs = self.ort_session.run(None, {
+				'board'        : np.concatenate([x[0] for x in shared_memory[:nb_threads]]),
+				'valid_actions': np.concatenate([x[1] for x in shared_memory[:nb_threads]]),
+			})
+			for i in range(nb_threads):
+				shared_memory[i+nb_threads] = (ort_outs[0][i], ort_outs[1][i])
+
+			locks[0].release() # Unblock 1st thread
 
 	def loss_pi(self, targets, outputs):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")

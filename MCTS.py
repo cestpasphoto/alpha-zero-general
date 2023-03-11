@@ -1,7 +1,7 @@
 import logging
 import math
-import gc
 import numpy as np
+import gc
 
 from numba import njit
 
@@ -18,7 +18,7 @@ class MCTS():
     This class handles the MCTS tree.
     """
 
-    def __init__(self, game, nnet, args, dirichlet_noise=False):
+    def __init__(self, game, nnet, args, dirichlet_noise=False, batch_info=None):
         self.game = game
         self.nnet = nnet
         self.args = args
@@ -40,6 +40,7 @@ class MCTS():
         self.rng = np.random.default_rng()
         self.step = 0
         self.last_cleaning = 0
+        self.batch_info = batch_info
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -72,7 +73,6 @@ class MCTS():
             adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
             counts = adjusted_counts
 
-        # Compute kl-divergence on probs vs self.Ps[s]
         probs = np.array(counts)
         probs = probs / probs.sum()
 
@@ -134,7 +134,10 @@ class MCTS():
         if Ps is None:
             # First time that we explore state s
             Vs = self.game.getValidMoves(canonicalBoard, 0)
-            Ps, v = self.nnet.predict(canonicalBoard, Vs)
+            if self.batch_info is None:
+                Ps, v = self.nnet.predict(canonicalBoard, Vs)
+            else:
+                Ps, v = self.nnet.predict_client(canonicalBoard, Vs, self.batch_info)
             if dirichlet_noise:
                 Ps = softmax(Ps, self.args.temperature[0])
                 self.applyDirNoise(Ps, Vs)
@@ -163,7 +166,7 @@ class MCTS():
         )
 
         v = self.search(next_s)
-        v = np.roll(v, next_player)
+        v = np_roll(v, next_player)
 
         Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
         Qs = ((Ns+1) * Qs + v[0]) / (Ns+2) # Qs can't be None here
@@ -181,7 +184,16 @@ class MCTS():
             if Vs[idx]:
                Ps[idx] = (0.75 * Ps[idx]) + (0.25 * dir_values[dir_idx])
                dir_idx += 1
+
+    @staticmethod
+    def reset_all_search_trees():
+        for obj in [o for o in gc.get_objects() if type(o) is MCTS]: # dirtier than isinstance, but that would trigger a pytorch warning
+            obj.nodes_data = {}
+            obj.last_cleaning = 0
         
+@njit(cache=True, fastmath=True, nogil=True)
+def np_roll(arr, n):
+    return np.roll(arr, n)
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)

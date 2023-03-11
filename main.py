@@ -74,26 +74,35 @@ def compare_settings(args):
 			print(f'{k}: {previous_args_dict.get(k)} --> {current_args_dict.get(k)}')
 
 def profiling(args):
-	import cProfile, pstats
-	profiler = cProfile.Profile()
-	args.numIters, args.numEps, args.epochs = 1, 1, 1 # warmup run
+	# import cProfile, pstats
+	# profiler = cProfile.Profile()
+	import yappi
+	args.numIters, args.numEps, args.epochs = 1, 16, 1 # warmup run
 	run(args)
 
 	print('\nstart profiling')
-	args.numIters, args.numEps, args.epochs = 1, 30, 1
+	args.numIters, args.numEps, args.epochs = 1, 50, 1
 	# Core of the training
-	profiler.enable()
+	yappi.start()
+	# profiler.enable()
 	run(args)
-	profiler.disable()
+	yappi.stop()
+	# profiler.disable()
 
 	# debrief
-	profiler.dump_stats('execution.prof')
-	print('check dumped stats in execution.prof')
+	# profiler.dump_stats('execution.prof')
+	# print('check dumped stats in execution.prof')
 	# Sample code:
 	# from pstats import Stats, SortKey
 	# p = Stats('execution.prof')
 	# p.strip_dirs().sort_stats('cumtime').print_stats(20)
 	# p.strip_dirs().sort_stats('tottime').print_stats(10)
+	threads = yappi.get_thread_stats()
+	for thread in threads:
+		print("Function stats for (%s) (%d)" % (thread.name, thread.id))  # it is the Thread.__class__.__name__
+		yappi.get_func_stats(ctx_id=thread.id).print_all()
+
+	breakpoint()
 
 def main():
 	parser = argparse.ArgumentParser(description='tester')
@@ -123,7 +132,8 @@ def main():
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
-	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float  , help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
+	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float, help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
+	parser.add_argument('--parallel-inferences'    , action='store', default=8    , type=int  , help='Size of batch for inferences = nb of threads, set to 1 to disable')
 	parser.add_argument('--no-compression'  , '-z' , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')
 	parser.add_argument('--no-mem-optim'    , '-Z' , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	parser.add_argument('--profile'         , '-P' , action='store_true', help='profiler')

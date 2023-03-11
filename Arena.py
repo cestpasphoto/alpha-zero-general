@@ -2,7 +2,7 @@ import logging
 log = logging.getLogger(__name__)
 
 import bisect
-from tqdm import tqdm
+from tqdm import trange
 
 from MCTS import MCTS
 
@@ -75,6 +75,8 @@ class Arena():
             if self.display:
                 self.display(board)
             print("Game over: Turn ", str(it), "Result ", self.game.getGameEnded(board, curPlayer))
+
+        MCTS.reset_all_search_trees()
             
         return self.game.getGameEnded(board, curPlayer)[0]
 
@@ -92,7 +94,7 @@ class Arena():
         colors           = ['#d60000',     '#d66b00',     '#f9f900',   '#a0d600',  '#6b8e00'] #https://icolorpalette.com/ff3b3b_ff9d3b_ffce3b_ffff3b_ceff3b
 
         oneWon, twoWon, draws = 0, 0, 0
-        t = tqdm(range(num), desc="Arena.playGames", ncols=120, disable=None)
+        t = trange(num, desc="Arena.playGames", ncols=120, disable=None)
         for i in t:
             # Since trees may not be resetted, the first games (1vs2) can't be
             # considered as fair as the last games (2vs1). Switching between 
