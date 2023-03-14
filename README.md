@@ -57,6 +57,8 @@ Contrary to previous investigations, latest versions of onnxruntime and pytorch 
 
 `./pit.py splendor/pretrained_2players.pt human -n 1`
 
+
+_Ongoing code/features rework, some pretrained networks won't work anymore_
 You can also make 2 networks fight each other ![2 networks fighting](splendor/many_games.gif). Contrary to baseline version, pit.py automatically retrieves training settings and load them (numMCTSSims, num_channels, ...) although you can override if you want; you may even select 2 different architecture to compare them!
 
 #### Recommended settings for training
