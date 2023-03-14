@@ -50,6 +50,9 @@ Using similar settings as baseline, my version achieve **similar results in 25x 
 And all of that in python language, no C.
 
 
-Compared to other AI I found (using no god power, other AI always starting first, my AI choose random player position)
-* about 70% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/), set with a timelimit of 10sec/move + 10sec/build
-* 90+% win rate against [BoardSpace AI](https://www.boardspace.net/english/index.shtml), using BestBot
+Compared to best AI I found:
+* >95% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/) - 20 wins in 20 games
+  * Even running a degraded version of mine leads to >90% winrate - 10 wins in 10 games
+* 98+% win rate against [BoardSpace AI](https://www.boardspace.net/english/index.shtml), using BestBot
+
+Details: games use no god power, other AI always starting first, both with random initial positions. Mine was running at 800 rollouts per move (50 for degraded version), Ai Ai was set with a timelimit of 15+15sec/move (about 900k iterations on my computer). 

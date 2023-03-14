@@ -36,7 +36,7 @@ There are some limitations: implemented logic doesn't allow you to both take gem
 
 ![Sample game of Santorini](santorini/sample_game_with_random_init.gif)
 
-About 70% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/) and 90+% win rate against [BoardSpace AI](https://www.boardspace.net/english/index.shtml). See [more details here](santorini/README.md)
+About 90+% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/) and 95+% win rate against [BoardSpace AI](https://www.boardspace.net/english/index.shtml). See [more details here](santorini/README.md)
 
 ---
 

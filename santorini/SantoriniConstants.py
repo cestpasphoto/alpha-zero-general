@@ -16,7 +16,7 @@ HERMES     = 7
 PAN        = 8
 ATHENA     = 9
 PROMETHEUS = 10
-NB_GODS = 1 # Modify this to 1 to disable use of any god, or 11 to enable all of them
+NB_GODS = 11 # Modify this to 1 to disable use of any god, or 11 to enable all of them
 # Don't forget to update INIT_METHOD in SantoriniLogicNumba.py
 
 

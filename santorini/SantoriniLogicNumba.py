@@ -111,7 +111,6 @@ class Board():
 				self.workers[place//5, place%5] = worker
 
 			gods = [NO_GOD, NO_GOD] if NB_GODS <= 1 else (np.random.choice(NB_GODS-1, 2, replace=False)+1)
-			# gods = [HERMES, HERMES]
 			self.gods_power.flat[gods[0]+NB_GODS*0] = 64
 			self.gods_power.flat[gods[1]+NB_GODS*1] = 64
 
