@@ -35,7 +35,6 @@ class GenericNNetWrapper(NeuralNet):
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.num_players = game.num_players
-		self.optimizer = None
 		self.requestKnowledgeTransfer = False
 
 	def init_nnet(self, game, nn_args):
@@ -46,11 +45,9 @@ class GenericNNetWrapper(NeuralNet):
 		examples: list of examples, each example is of form (board, pi, v)
 		"""
 		self.switch_target('training')
-
-		if self.optimizer is None:
-			self.optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])
+		optimizer = optim.AdamW(self.nnet.parameters(), lr=self.args['learn_rate'])
 		batch_count = int(len(examples) / self.args['batch_size'])
-		scheduler = optim.lr_scheduler.OneCycleLR(self.optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
+		scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
 
 		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 		for epoch in range(self.args['epochs']):
@@ -68,10 +65,9 @@ class GenericNNetWrapper(NeuralNet):
 				target_qs = torch.FloatTensor(np.array(qs).astype(np.float32))
 
 				# predict
-				self.optimizer.zero_grad(set_to_none=True)
+				optimizer.zero_grad(set_to_none=True)
 				out_pi, out_v = self.nnet(boards, valid_actions)
-				l_pi = self.loss_pi(target_pis, out_pi)
-				l_v = self.loss_v(target_vs, target_qs, out_v)
+				l_pi, l_v = self.loss_pi(target_pis, out_pi), self.loss_v(target_vs, target_qs, out_v)
 				total_loss = l_pi + l_v
 
 				# record loss
@@ -81,37 +77,17 @@ class GenericNNetWrapper(NeuralNet):
 
 				# compute gradient and do SGD step
 				total_loss.backward()
-				self.optimizer.step()
+				optimizer.step()
 				scheduler.step()
 
 				t.update()
 
 				if validation_set and ((i_batch + batch_count*epoch) % every == 0):
-					# print()
-					# print(f'LR = {scheduler.get_last_lr()[0]:.1e}', end=' ')
-					# Evaluation
-					self.nnet.eval()
-					with torch.no_grad():
-						picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
-						boards, pis, vs, valid_actions, qs = list(zip(*picked_examples))
-						boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
-						valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
-						target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
-						target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
-						target_qs = torch.FloatTensor(np.array(qs).astype(np.float32))
-
-						# compute output
-						out_pi, out_v = self.nnet(boards, valid_actions)
-						l_pi = self.loss_pi(target_pis, out_pi)
-						l_v = self.loss_v(target_vs, target_qs, out_v)
-						total_loss = l_pi + l_v
-						test_loss = total_loss.item()
-						print(test_loss)
+					print(self.evaluate(validation_set))
 					self.nnet.train()
 					if (i_batch > 0) and save_folder:
 						self.save_checkpoint(save_folder, filename=f'intermediary_{i_batch}.pt')
 
-		self.optimizer = None
 		t.close()
 		
 	def predict(self, board, valid_actions):
@@ -178,6 +154,26 @@ class GenericNNetWrapper(NeuralNet):
 				shared_memory[i+nb_threads] = (ort_outs[0][i], ort_outs[1][i])
 
 			locks[0].release() # Unblock 1st thread
+
+	def evaluate(self, validation_set):
+		# print()
+		# print(f'LR = {scheduler.get_last_lr()[0]:.1e}', end=' ')
+
+		# Evaluation
+		self.nnet.eval()
+		with torch.no_grad():
+			picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
+			boards, pis, vs, valid_actions, qs = list(zip(*picked_examples))
+			boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
+			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
+			target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
+			target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
+			target_qs = torch.FloatTensor(np.array(qs).astype(np.float32))
+
+			# compute output
+			out_pi, out_v = self.nnet(boards, valid_actions)
+			total_loss = self.loss_pi(target_pis, out_pi) + self.loss_v(target_vs, target_qs, out_v)
+			return total_loss.item()
 
 	def loss_pi(self, targets, outputs):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")
