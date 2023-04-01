@@ -42,6 +42,8 @@ About 90+% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/) 
 
 ## Technical details
 
+To change game, change the import in `main.py` and in `pit.py` (also in `GenericNNetWrapper.py` for debug)
+
 <details>
   <summary>Click here for details about training, running or playing</summary>
 

@@ -6,8 +6,8 @@ import coloredlogs
 import argparse
 
 from Coach import Coach
-from santorini.SantoriniGame import SantoriniGame as Game
-from santorini.NNet import NNetWrapper as nn
+from splendor.SplendorGame import SplendorGame as Game
+from splendor.NNet import NNetWrapper as nn
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ def run(args):
 
 	# Backup code used for this run
 	subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
-	subprocess.run(f'cp *py santorini/*py "{args.checkpoint}/"', shell=True)
+	subprocess.run(f'cp *py splendor/*py "{args.checkpoint}/"', shell=True)
 	subprocess.run(f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"', shell=True)
 
 	log.debug('Starting the learning process 🎉')

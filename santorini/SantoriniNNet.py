@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.models.resnet as resnet
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
 
 class CatInTheMiddle(nn.Module):

@@ -6,7 +6,7 @@ from .SplendorLogicNumba import Board, observation_size, action_size
 import numpy as np
 from numba import jit, njit
 
-NUMBER_PLAYERS = 4
+NUMBER_PLAYERS = 2
 
 class SplendorGame(Game):
 	def __init__(self):

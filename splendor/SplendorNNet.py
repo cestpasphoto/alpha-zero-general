@@ -58,9 +58,7 @@ class SplendorNNet(nn.Module):
 		# game params
 		self.nb_vect, self.vect_dim = game.getBoardSize()
 		self.action_size = game.getActionSize()
-		self.scdiff_size = 2 * game.getMaxScoreDiff() + 1
 		self.num_players = game.num_players
-		self.num_scdiffs = {2: 2, 3: 3, 4: 4}[self.num_players] # Number of combinations of 2 players
 		self.args = args
 		self.version = args['nn_version']
 
@@ -108,15 +106,10 @@ class SplendorNNet(nn.Module):
 			nn.Linear(128, self.num_players)
 		)
 
-		self.output_layers_SDIFF = nn.Sequential(
-			nn.Linear(128, 128),
-			nn.Linear(128, self.num_scdiffs*self.scdiff_size)
-		)
-
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_3, self.flatten_and_gpool]:
 			layer2D.apply(_init)
-		for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V, self.output_layers_SDIFF]:
+		for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V]:
 			layer1D.apply(_init)
 
 	def forward(self, input_data, valid_actions):
@@ -132,7 +125,6 @@ class SplendorNNet(nn.Module):
 		x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
 		
 		v = self.output_layers_V(x).squeeze(1)
-		sdiff = self.output_layers_SDIFF(x).squeeze(1)
 		pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
+		return F.log_softmax(pi, dim=1), torch.tanh(v)

@@ -357,8 +357,8 @@ if __name__ == "__main__":
 	import argparse
 	import os.path
 	import time
-	from santorini.SantoriniGame import SantoriniGame as Game
-	from santorini.NNet import NNetWrapper as nn
+	from splendor.SplendorGame import SplendorGame as Game
+	from splendor.NNet import NNetWrapper as nn
 	torch.set_num_threads(1) # PyTorch more efficient this way
 
 	parser = argparse.ArgumentParser(description='NNet loader')
