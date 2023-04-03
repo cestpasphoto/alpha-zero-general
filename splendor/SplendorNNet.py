@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models._utils import _make_divisible
+
 
 # Assume 3-dim tensor input N,C,L
 class DenseAndPartialGPool(nn.Module):
@@ -53,6 +55,91 @@ class FlattenAndPartialGPool(nn.Module):
 		return x.unsqueeze(1)
 
 
+class LinearNormActivation(nn.Module):
+	def __init__(self, in_size, out_size, activation_layer, depthwise=False, channels=None):
+		super().__init__()
+		self.linear     = nn.Linear(in_size, out_size, bias=False)
+		self.norm       = nn.BatchNorm1d(channels if depthwise else out_size)
+		self.activation = activation_layer(inplace=True) if activation_layer is not None else nn.Identity()
+		self.depthwise = depthwise
+
+	def forward(self, input):
+		if self.depthwise:
+			result = self.linear(input)
+		else:
+			result = self.linear(input.transpose(-1, -2)).transpose(-1, -2)
+			
+		result = self.norm(result)
+		result = self.activation(result)
+		return result
+
+class SqueezeExcitation1d(nn.Module):
+	def __init__(self, input_channels, squeeze_channels, scale_activation):
+		super().__init__()
+		self.avgpool = torch.nn.AdaptiveAvgPool1d(1)
+		self.fc1 = nn.Linear(input_channels, squeeze_channels)
+		self.activation = nn.ReLU()
+		self.fc2 = torch.nn.Linear(squeeze_channels, input_channels)
+		self.scale_activation = scale_activation()
+
+	def _scale(self, input):
+		scale = self.avgpool(input)
+		scale = self.fc1(scale.transpose(-1, -2)).transpose(-1, -2)
+		scale = self.activation(scale)
+		scale = self.fc2(scale.transpose(-1, -2)).transpose(-1, -2)
+		return self.scale_activation(scale)
+
+	def forward(self, input):
+
+		scale = self._scale(input)
+		return scale * input
+
+class InvertedResidual1d(nn.Module):
+	def __init__(self, in_channels, exp_channels, out_channels, kernel, use_hs, use_se):
+		super().__init__()
+
+		self.use_res_connect = (in_channels == out_channels)
+
+		layers = []
+		activation_layer = nn.Hardswish if use_hs else nn.ReLU
+
+		# expand
+		if exp_channels != in_channels:
+			self.expand = LinearNormActivation(in_channels, exp_channels, activation_layer=activation_layer)
+		else:
+			self.expand = nn.Identity()
+
+		# depthwise
+		self.depthwise = LinearNormActivation(kernel, kernel, activation_layer=activation_layer, depthwise=True, channels=exp_channels)
+
+		if use_se:
+			squeeze_channels = _make_divisible(exp_channels // 4, 8)
+			self.se = SqueezeExcitation1d(exp_channels, squeeze_channels, scale_activation=nn.Hardsigmoid)
+		else:
+			self.se = nn.Identity()
+
+		# project
+		self.project = LinearNormActivation(exp_channels, out_channels, activation_layer=None)
+
+	def forward(self, input):
+		# print(f'Input -> {input.shape}')
+		result = self.expand(input)
+		# print(f'Expand -> {result.shape}')
+		result = self.depthwise(result)
+		# print(f'Depthwise -> {result.shape}')
+		result = self.se(result)
+		# print(f'SqEx -> {result.shape}')
+		result = self.project(result)
+		# print(f'Project -> {result.shape}')
+
+		if self.use_res_connect:
+			result += input
+
+		# print(f'Result -> {result.shape}')
+		return result
+
+
+
 class SplendorNNet(nn.Module):
 	def __init__(self, game, args):
 		# game params
@@ -63,6 +150,75 @@ class SplendorNNet(nn.Module):
 		self.version = args['nn_version']
 
 		super(SplendorNNet, self).__init__()
+		if self.version == 1:
+			self.dense2d_1 = nn.Sequential(
+				nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(7), nn.ReLU(),
+				nn.Linear(128, 128)                            , nn.ReLU(), # no batchnorm before max pooling
+			)
+
+			self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=7)
+
+			self.dense2d_2 = nn.Identity()
+			self.partialgpool_2 = nn.Identity()
+
+			self.dense2d_3 = nn.Sequential(
+				nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
+			self.dense1d_4 = nn.Sequential(
+				nn.Linear(64*4+(128-64)*7, 128), nn.ReLU(),
+			)
+			self.partialgpool_4 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
+			
+			self.dense1d_5 = nn.Sequential(
+				nn.Linear(128, 128), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.num_players)
+			)
+
+		elif self.version == 60:
+			n_filters = 32
+			n_filters_first = n_filters//2
+			n_filters_begin = n_filters_first
+			n_filters_end = n_filters
+			n_exp_begin, n_exp_end = n_filters_begin*3, n_filters_end*3
+			depth = 6 - 2
+
+			self.first_layer = LinearNormActivation(7, n_filters_first, None)
+			confs  = [InvertedResidual1d(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, 56, False, "RE") for i in range(depth//2)]
+			confs += [InvertedResidual1d(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , 56, True , "HS") for i in range(depth//2)]
+			confs += [InvertedResidual1d(n_filters_end                               , n_exp_end  , n_filters      , 56, True , "HS")]
+			self.trunk = nn.Sequential(*confs)
+
+			head_depth = 3
+			n_exp_head = n_filters * 3
+			head_PI = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
+				nn.Flatten(1),
+				nn.Linear(n_filters *56, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size)
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
+				nn.Flatten(1),
+				nn.Linear(n_filters *56, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players)
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
 				nn.init.kaiming_uniform_(m.weight)
@@ -70,61 +226,39 @@ class SplendorNNet(nn.Module):
 			elif type(m) == nn.Sequential:
 				for module in m:
 					_init(module)
-
-		self.dense2d_1 = nn.Sequential(
-			nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(7), nn.ReLU(),
-			nn.Linear(128, 128)                            , nn.ReLU(), # no batchnorm before max pooling
-		)
-
-		self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=7)
-
-		self.dense2d_2 = nn.Identity()
-		self.partialgpool_2 = nn.Identity()
-
-		self.dense2d_3 = nn.Sequential(
-			nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
-		)
-		self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=5)
-		self.dense1d_4 = nn.Sequential(
-			nn.Linear(64*4+(128-64)*7, 128), nn.ReLU(),
-		)
-		self.partialgpool_4 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
-		
-		self.dense1d_5 = nn.Sequential(
-			nn.Linear(128, 128), nn.BatchNorm1d(1), nn.ReLU(),
-			nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
-		)
-		self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
-
-		self.output_layers_PI = nn.Sequential(
-			nn.Linear(128, 128),
-			nn.Linear(128, self.action_size)
-		)
-
-		self.output_layers_V = nn.Sequential(
-			nn.Linear(128, 128),
-			nn.Linear(128, self.num_players)
-		)
-
-		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
-		for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_3, self.flatten_and_gpool]:
-			layer2D.apply(_init)
-		for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V]:
-			layer1D.apply(_init)
+		for _, layer in self.__dict__.items():
+			if isinstance(layer, nn.Module):
+				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
-		
-		x = self.dense2d_1(x)
-		x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
-		x = F.dropout(self.dense2d_3(x), p=self.args['dropout'], training=self.training)
-		x = self.flatten_and_gpool(x)
-		x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training)
-		x = F.dropout(self.partialgpool_4(x), p=self.args['dropout'], training=self.training)
-		x = F.dropout(self.dense1d_5(x)     , p=self.args['dropout'], training=self.training)
-		x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
-		
-		v = self.output_layers_V(x).squeeze(1)
-		pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+		if self.version == 1:
+			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
+			
+			x = self.dense2d_1(x)
+			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.dense2d_3(x), p=self.args['dropout'], training=self.training)
+			x = self.flatten_and_gpool(x)
+			x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.partialgpool_4(x), p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.dense1d_5(x)     , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
+			
+			v = self.output_layers_V(x).squeeze(1)
+			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+
+		elif self.version in [60]:
+			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
+			x = self.first_layer(x)
+			x = self.trunk(x)
+			v = self.output_layers_V(x)
+			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
 		return F.log_softmax(pi, dim=1), torch.tanh(v)
+
+
+# layer2 = InvertedResidual1d(7,7,21, 56, use_hs=True, use_se=True)
+# layer2(torch.rand(1,7,56))
+# breakpoint()
+# total_params = sum(p.numel() for p in layer2.parameters())
+# trainable_params = sum(p.numel() for p in layer2.parameters() if p.requires_grad)
+# print(total_params, trainable_params)

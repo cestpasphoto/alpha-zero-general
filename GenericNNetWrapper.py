@@ -401,6 +401,8 @@ if __name__ == "__main__":
 	flops.unsupported_ops_warnings(False)
 	# flops.uncalled_modules_warnings(False)
 	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
+	# print(flops.by_module().most_common(15))
+	# exit()
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
