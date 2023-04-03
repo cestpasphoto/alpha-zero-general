@@ -257,6 +257,7 @@ class GenericNNetWrapper(NeuralNet):
 
 		try:
 			self.nnet.load_state_dict(checkpoint['state_dict'])
+			self.nnet.version = checkpoint['full_model'].version
 		except:
 			if strict:
 				print('Cant load NN ', checkpoint['full_model'].version, 'in checkpoint, so initiate knowledge transfer')
@@ -359,7 +360,6 @@ if __name__ == "__main__":
 	import time
 	from splendor.SplendorGame import SplendorGame as Game
 	from splendor.NNet import NNetWrapper as nn
-	torch.set_num_threads(1) # PyTorch more efficient this way
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
@@ -372,7 +372,7 @@ if __name__ == "__main__":
 	parser.add_argument('--epochs'     , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size' , '-b' , action='store', default=256  , type=int  , help='')
 	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
-	parser.add_argument('--nn-version' , '-V' , action='store', default=24   , type=int  , help='Which architecture to choose')
+	parser.add_argument('--nn-version' , '-V' , action='store', default=-1   , type=int  , help='Which architecture to choose')
 	args = parser.parse_args()	
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
@@ -390,15 +390,17 @@ if __name__ == "__main__":
 	nnet = nn(g, nn_args)
 	if args.input:
 		nnet.load_checkpoint(os.path.dirname(args.input), os.path.basename(args.input))
-	
+	elif args.nn_version == -1:
+		raise Exception("You have to specify at least a NN file to load or a NN version")
+
 	from fvcore.nn import FlopCountAnalysis
-	dummy_board         = torch.randn(1, 25, 3, dtype=torch.float32)
-	dummy_valid_actions = torch.BoolTensor(torch.randn(1, 162)>0.5)
+	dummy_board         = torch.randn(1, 56, 7, dtype=torch.float32)
+	dummy_valid_actions = torch.BoolTensor(torch.randn(1, 81)>0.5)
 	nnet.nnet.eval()
 	flops = FlopCountAnalysis(nnet.nnet, (dummy_board, dummy_valid_actions))
 	flops.unsupported_ops_warnings(False)
 	# flops.uncalled_modules_warnings(False)
-	print(f'V{args.nn_version} {args.details} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
+	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
