@@ -364,15 +364,16 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
 	parser.add_argument('--output'     , '-o', action='store', default=None , help='Prefix for output NN')
-	parser.add_argument('--training'   , '-T', action='store', default='../results/new_training.examples' , help='')
-	parser.add_argument('--test'       , '-t', action='store', default='../results/new_testing.examples'  , help='')
+	parser.add_argument('--training'   , '-T', action='store', default=None , help='')
+	parser.add_argument('--test'       , '-t', action='store', default=None , help='')
 
 	parser.add_argument('--learn-rate' , '-l' , action='store', default=0.0003, type=float, help='')
-	parser.add_argument('--dropout'    , '-d' , action='store', default=0.    , type=float, help='')
+	parser.add_argument('--dropout'    , '-d' , action='store', default=0.3   , type=float, help='')
 	parser.add_argument('--epochs'     , '-p' , action='store', default=2    , type=int  , help='')
-	parser.add_argument('--batch-size' , '-b' , action='store', default=256  , type=int  , help='')
+	parser.add_argument('--batch-size' , '-b' , action='store', default=32   , type=int  , help='')
 	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=-1   , type=int  , help='Which architecture to choose')
+	parser.add_argument('--q-weight'   , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
 	args = parser.parse_args()	
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
@@ -386,6 +387,7 @@ if __name__ == "__main__":
 		nn_version=args.nn_version,
 		learn_rate=args.learn_rate,
 		no_compression=False,
+		q_weight=args.q_weight,
 	)
 	nnet = nn(g, nn_args)
 	if args.input:
@@ -402,19 +404,23 @@ if __name__ == "__main__":
 	# flops.uncalled_modules_warnings(False)
 	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 	# print(flops.by_module().most_common(15))
-	# exit()
+
 
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
 	trainExamples = []
 	for e in examples:
 		trainExamples.extend(e)
+	if args.test is None:
+		splitNumber = len(trainExamples) // 10
+		testExamples, trainExamples = trainExamples[-splitNumber:], trainExamples[:-splitNumber]
+	else:
+		with open(args.test, "rb") as f:
+			examples = pickle.load(f)
+		testExamples = []
+		for e in examples:
+			testExamples.extend(e)
 	trainExamples = trainExamples[-args.nb_samples*1000:]
-	with open(args.test, "rb") as f:
-		examples = pickle.load(f)
-	testExamples = []
-	for e in examples:
-		testExamples.extend(e)
 	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}; number of epochs {args.epochs}')
 
 	# print({ k:v//1000 for k,v in flops.by_module().items() if k.count('.') <= 1 })

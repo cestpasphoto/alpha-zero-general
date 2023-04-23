@@ -160,8 +160,6 @@ class Coach():
 		"""
 
 		for i in range(1, self.args.numIters + 1):
-			# bookkeeping
-			log.info(f'Starting Iter #{i} ...')
 			# examples of the iteration
 			if not self.skipFirstSelfPlay or i > 1:
 				iterationTrainExamples = self.executeEpisodes()
@@ -205,13 +203,13 @@ class Coach():
 
 			if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
 				self.consecutive_failures += 1
-				log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED ({self.consecutive_failures})')
+				log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED ({self.consecutive_failures})')
 				if self.consecutive_failures >= self.args.stop_after_N_fail:
 					log.error('Exceeded threshold number of consecutive fails, stopping process')
 					exit()
 				self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
 			else:
-				log.info(f'new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
+				log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
 				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
 				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
 				self.consecutive_failures = 0
