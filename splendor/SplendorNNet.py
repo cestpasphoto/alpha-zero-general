@@ -189,167 +189,6 @@ class SplendorNNet(nn.Module):
 				nn.Linear(128, self.num_players)
 			)
 
-		elif self.version == 60:
-			n_filters = 32
-			n_filters_first = n_filters//2
-			n_filters_begin = n_filters_first
-			n_filters_end = n_filters
-			n_exp_begin, n_exp_end = n_filters_begin*3, n_filters_end*3
-			depth = 6 - 2
-
-			self.first_layer = LinearNormActivation(7, n_filters_first, None)
-			confs  = [InvertedResidual1d(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, 56, False, "RE") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , 56, True , "HS") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_end                               , n_exp_end  , n_filters      , 56, True , "HS")]
-			self.trunk = nn.Sequential(*confs)
-
-			head_depth = 3
-			n_exp_head = n_filters * 3
-			head_PI = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size)
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players)
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 65: 
-			n_filters = 24
-			n_filters_first = n_filters//2
-			n_filters_begin = n_filters_first
-			n_filters_end = n_filters
-			n_exp_begin, n_exp_end = n_filters_begin*2, n_filters_end*2
-			depth = 4 - 2
-
-			self.first_layer = LinearNormActivation(7, n_filters_first, None)
-			confs  = [InvertedResidual1d(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, 56, False, "RE") for i in range(depth//2)]
-			confs += [LinearNormActivation(56, 40, None, depthwise=True, channels=n_filters_begin)]
-			confs += [InvertedResidual1d(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , 40, True , "HS") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_end                               , n_exp_end  , n_filters      , 40, True , "HS")]
-			self.trunk = nn.Sequential(*confs)
-
-			head_depth = 2
-			n_exp_head = n_filters * 2
-			head_PI = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 40, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *40, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size)
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 40, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *40, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players)
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 66: # Priorité petitesse
-			n_filters = 12
-			n_filters_first = n_filters//1
-			n_filters_begin = n_filters_first
-			n_filters_end = n_filters
-			n_exp_begin, n_exp_end = n_filters_begin*2, n_filters_end*2
-			depth = 4 - 2
-
-			self.first_layer = LinearNormActivation(7, n_filters_first, None)
-			confs  = [InvertedResidual1d(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, 56, False, "RE") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , 56, True , "HS") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_end                               , n_exp_end  , n_filters      , 56, True , "HS")]
-			self.trunk = nn.Sequential(*confs)
-
-			head_depth = 1
-			n_exp_head = n_filters * 2
-			head_PI = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size)
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players)
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 67: # Priorité filtres expanded
-			n_filters = 12
-			n_filters_first = n_filters//1
-			n_filters_begin = n_filters_first
-			n_filters_end = n_filters
-			n_exp_begin, n_exp_end = n_filters_begin*3, n_filters_end*3
-			depth = 4 - 2
-
-			self.first_layer = LinearNormActivation(7, n_filters_first, None)
-			confs  = [InvertedResidual1d(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, 56, False, "RE") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , 56, True , "HS") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_end                               , n_exp_end  , n_filters      , 56, True , "HS")]
-			self.trunk = nn.Sequential(*confs)
-
-			head_depth = 1
-			n_exp_head = n_filters * 3
-			head_PI = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size)
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players)
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 68: # Priorité profondeur
-			n_filters = 12
-			n_filters_first = n_filters//1
-			n_filters_begin = n_filters_first
-			n_filters_end = n_filters
-			n_exp_begin, n_exp_end = n_filters_begin*2, n_filters_end*2
-			depth = 6 - 2
-
-			self.first_layer = LinearNormActivation(7, n_filters_first, None)
-			confs  = [InvertedResidual1d(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, 56, False, "RE") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , 56, True , "HS") for i in range(depth//2)]
-			confs += [InvertedResidual1d(n_filters_end                               , n_exp_end  , n_filters      , 56, True , "HS")]
-			self.trunk = nn.Sequential(*confs)
-
-			head_depth = 2
-			n_exp_head = n_filters * 2
-			head_PI = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size)
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [InvertedResidual1d(n_filters, n_exp_head, n_filters, 56, True, "HS",) for i in range(head_depth)] + [
-				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players)
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
 		elif self.version == 69: # even smaller
 			self.first_layer = LinearNormActivation(7, 12, None)
 			confs  = []
@@ -406,6 +245,112 @@ class SplendorNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
+		elif self.version == 71: # Idem 70, avec max
+			self.first_layer = LinearNormActivation(56, 56, None)
+			confs  = []
+			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
+			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
+			confs += [InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max')]
+			confs += [InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max')]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 56
+			head_PI = [
+				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		elif self.version == 72: # Idem 71 mais en plus petit
+			self.first_layer = LinearNormActivation(56, 56, None)
+			confs  = []
+			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
+			confs += [InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max')]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 56
+			head_PI = [
+				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		elif self.version == 73: # Idem 71 mais ENCORE plus petit
+			self.first_layer = LinearNormActivation(56, 56, None)
+			confs  = []
+			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 56
+			head_PI = [
+				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		elif self.version == 74: # Petit mais large
+			self.first_layer = LinearNormActivation(56, 56, None)
+			confs  = []
+			confs += [InvertedResidual1d(56, 159, 56, 7, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 56
+			head_PI = [
+				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -441,10 +386,10 @@ class SplendorNNet(nn.Module):
 			v = self.output_layers_V(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
-		elif self.version in [70]:
+		elif self.version in [70, 71, 72, 73, 74]:
 			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
 			x = self.first_layer(x)
-			x = self.trunk(x)
+			x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
 			v = self.output_layers_V(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
