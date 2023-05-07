@@ -351,6 +351,59 @@ class SplendorNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
+		elif self.version == 75: # Idem 74 avec un niveau de plus
+			self.first_layer = LinearNormActivation(56, 56, None)
+			confs  = []
+			confs += [InvertedResidual1d(56, 159, 56, 7, False, "RE")]
+			confs += [InvertedResidual1d(56, 159, 56, 7, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 56
+			head_PI = [
+				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
+				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
+				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		elif self.version == 76: # Idem 74 encore plus large
+			self.first_layer = LinearNormActivation(56, 56, None)
+			confs  = []
+			confs += [InvertedResidual1d(56, 224, 56, 7, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 56
+			head_PI = [
+				InvertedResidual1d(56, 224, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(56, 224, 56, 7, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *7, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -386,7 +439,7 @@ class SplendorNNet(nn.Module):
 			v = self.output_layers_V(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
-		elif self.version in [70, 71, 72, 73, 74]:
+		elif self.version in [70, 71, 72, 73, 74, 75, 76]:
 			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
 			x = self.first_layer(x)
 			x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
