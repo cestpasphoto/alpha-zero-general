@@ -6,6 +6,87 @@ import numba
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
+############################## BOARD DESCRIPTION ##############################
+# Board is described by a 56x7 array (1st dim is larger with 3-4 players)
+# Gems and Nobles are represented using 1 line. Each is described by 7 values
+#####   0      1      2      3      4      5      6
+##### White  Blue   Green  Red    Black  Gold   Points 
+#
+# Cards are represented using 2 lines
+#####          0      1      2      3      4      5      6
+##### line0: White  Blue   Green  Red    Black    -      -     [ cost ]
+##### line1: White  Blue   Green  Red    Black    -   Points   [ gain ]
+# First line describes what is needed to buy the card, second line describes
+# the card offers once bought (one of the color has value 1, others are 0)
+#
+# Here is the description of each line of the board. For readibility, we defined
+# "shortcuts" that actually are views (numpy name) of overal board.
+##### Index  Shortcut              Meaning
+#####   0    self.bank             Number of gems in bank, including gold
+#####  1-2   self.cards_tiers      Description of 1st visible card (bottom left)
+#####  3-4       =                 Description of 2nd visible card (bottom)
+#####  5-6       =                 Description of 3rd visible card (bottom)
+#####  7-8       =                 Description of 4th visible card (bottom right)
+#####  9-10      =                 Description of 5th visible card (middle left)
+#####  ...       =
+#####  25    self.nb_deck_tiers    How many cards of each color in bottom deck
+#####  26        =                 Bitfield listing which cards are in bottom deck
+#####  27        =                 How many cards of each color in middle deck
+#####  ...       =
+#####  31    self.nobles           Description of 1st noble in bank
+#####  32        =                 Description of 2nd noble in bank
+#####  33        =                 Description of 3rd noble in bank
+#####  34    self.players_gems     Number of gems owned by Player0, including gold
+#####  35        =                 Number of gems owned by Player1, including gold
+#####  36    self.players_nobles   Description of 1st noble owned by Player0
+#####  ...       =
+#####  39        =                 Description of 1st noble owned by Player1
+#####  ...       =
+#####  42    self.players_cards    Number of cards owned by Player0, including sum of ther points
+#####  43        =                 Number of cards owned by Player1, including sum of ther points
+##### 44-45  self.players_reserved Description of 1st reserved card by Player0
+#####  ...       =
+##### 50-51      =                 Description of 1st reserved card by Player1
+#####  ...       =
+# Indexes above are assuming 2 players, you can have more details in copy_state().
+# When a noble is won, its value is defined to zero, and other nobles stay in
+# place (not shifted). The won noble uses same slot index on player side.
+# When a card slot is empty (bank or player reserve), both lines are set to zero.
+
+############################## ACTION DESCRIPTION #############################
+# We coded 81 actions, taking some shortcuts on combinations of gems that can be
+# got or that can be given back, and forbidding to simultaneously get gems and
+# give some back.
+# Here is description of each action:
+##### Index  Meaning
+#####   0    Buy 1st visible card (bottom left)
+#####   1    Buy 2nd visible card (bottom)
+#####   2    Buy 3rd visible card (bottom)
+#####   3    Buy 4th visible card (bottom right)
+#####   4    Buy 5th visible card (middle left)
+#####  ...
+#####   12   Reserve 1st visible card
+#####  ...
+#####   24   Reserve blindly card for bottom deck
+#####   25   Reserve blindly card for middle deck
+#####   26   Reserve blindly card for top deck
+#####   27   Buy 1st card from player's reserve
+#####   28   Buy 2nd card from player's reserve
+#####   29   Buy 3rd card from player's reserve
+#####   30   Get 1st combination of different gems (up to 3)
+#####   31   Get 2nd combination of different gems (up to 3)
+#####  ...
+#####   55   Get 2 identical gems of color 0 = white
+#####  ...
+#####   60   Give back 1st combination of different gems (up to 2)
+#####  ...
+#####   75   Give back 2 identical gems of color 0 = white
+#####  ...
+#####   80   No action, pass
+# List of combinations of gems for actions 30-79 are in variables
+# list_different_gems_up_to_2 and list_different_gems_up_to_3 in file SplendorLogic
+
+
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
 	return (32 + 10*num_players + num_players*num_players, 7)
