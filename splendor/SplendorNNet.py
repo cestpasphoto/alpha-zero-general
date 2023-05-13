@@ -189,216 +189,74 @@ class SplendorNNet(nn.Module):
 				nn.Linear(128, self.num_players)
 			)
 
-		elif self.version == 69: # even smaller
-			self.first_layer = LinearNormActivation(7, 12, None)
+
+		elif self.version == 80: # Very small version using MobileNetV3
+			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
 			confs  = []
-			confs += [InvertedResidual1d(12, 36, 12, 56, False, "RE")]
-			confs += [InvertedResidual1d(12, 36, 12, 56, True, "HS")]
+			confs += [InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 7, False, "RE")]
 			self.trunk = nn.Sequential(*confs)
 
-			n_filters = 12
 			head_PI = [
-				InvertedResidual1d(12, 24, 12, 56, True, "HS",),
+				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 7, True, "HS", setype='max'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.action_size),
+				nn.Linear(self.nb_vect*7, self.action_size),
 				nn.ReLU(),
 				nn.Linear(self.action_size, self.action_size),
 			]
 			self.output_layers_PI = nn.Sequential(*head_PI)
 
 			head_V = [
-				InvertedResidual1d(12, 24, 12, 56, True, "HS",),
+				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 7, True, "HS", setype='max'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *56, self.num_players),
+				nn.Linear(self.nb_vect*7, self.num_players),
 				nn.ReLU(),
 				nn.Linear(self.num_players, self.num_players),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
-		elif self.version == 70: # Inverser channels / length
-			self.first_layer = LinearNormActivation(56, 56, None)
+		elif self.version == 81: # Same as V80, using average in S&E instead of max
+			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
 			confs  = []
-			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
-			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
-			confs += [InvertedResidual1d(56, 112, 56, 7, True, "HS")]
-			confs += [InvertedResidual1d(56, 112, 56, 7, True, "HS")]
+			confs += [InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 7, False, "RE")]
 			self.trunk = nn.Sequential(*confs)
 
-			n_filters = 56
 			head_PI = [
-				InvertedResidual1d(56, 112, 56, 7, True, "HS",),
-				InvertedResidual1d(56, 112, 56, 7, True, "HS",),
+				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 7, True, "HS", setype='avg'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.action_size),
+				nn.Linear(self.nb_vect*7, self.action_size),
 				nn.ReLU(),
 				nn.Linear(self.action_size, self.action_size),
 			]
 			self.output_layers_PI = nn.Sequential(*head_PI)
 
 			head_V = [
-				InvertedResidual1d(56, 112, 56, 7, True, "HS",),
-				InvertedResidual1d(56, 112, 56, 7, True, "HS",),
+				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 7, True, "HS", setype='avg'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.num_players),
+				nn.Linear(self.nb_vect*7, self.num_players),
 				nn.ReLU(),
 				nn.Linear(self.num_players, self.num_players),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
-		elif self.version == 71: # Idem 70, avec max
-			self.first_layer = LinearNormActivation(56, 56, None)
+		elif self.version == 85: # Same as V80 but bit wider
+			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
 			confs  = []
-			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
-			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
-			confs += [InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max')]
-			confs += [InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max')]
+			confs += [InvertedResidual1d(self.nb_vect, 4*self.nb_vect, self.nb_vect, 7, False, "RE")]
 			self.trunk = nn.Sequential(*confs)
 
-			n_filters = 56
 			head_PI = [
-				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
-				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				InvertedResidual1d(self.nb_vect, 4*self.nb_vect, self.nb_vect, 7, True, "HS", setype='max'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.action_size),
+				nn.Linear(self.nb_vect*7, self.action_size),
 				nn.ReLU(),
 				nn.Linear(self.action_size, self.action_size),
 			]
 			self.output_layers_PI = nn.Sequential(*head_PI)
 
 			head_V = [
-				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
-				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
+				InvertedResidual1d(self.nb_vect, 4*self.nb_vect, self.nb_vect, 7, True, "HS", setype='max'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players),
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 72: # Idem 71 mais en plus petit
-			self.first_layer = LinearNormActivation(56, 56, None)
-			confs  = []
-			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
-			confs += [InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max')]
-			self.trunk = nn.Sequential(*confs)
-
-			n_filters = 56
-			head_PI = [
-				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size),
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [
-				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players),
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 73: # Idem 71 mais ENCORE plus petit
-			self.first_layer = LinearNormActivation(56, 56, None)
-			confs  = []
-			confs += [InvertedResidual1d(56, 112, 56, 7, False, "RE")]
-			self.trunk = nn.Sequential(*confs)
-
-			n_filters = 56
-			head_PI = [
-				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size),
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [
-				InvertedResidual1d(56, 112, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players),
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 74: # Petit mais large
-			self.first_layer = LinearNormActivation(56, 56, None)
-			confs  = []
-			confs += [InvertedResidual1d(56, 159, 56, 7, False, "RE")]
-			self.trunk = nn.Sequential(*confs)
-
-			n_filters = 56
-			head_PI = [
-				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size),
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [
-				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players),
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 75: # Idem 74 avec un niveau de plus
-			self.first_layer = LinearNormActivation(56, 56, None)
-			confs  = []
-			confs += [InvertedResidual1d(56, 159, 56, 7, False, "RE")]
-			confs += [InvertedResidual1d(56, 159, 56, 7, False, "RE")]
-			self.trunk = nn.Sequential(*confs)
-
-			n_filters = 56
-			head_PI = [
-				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
-				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size),
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [
-				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
-				InvertedResidual1d(56, 159, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players),
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 76: # Idem 74 encore plus large
-			self.first_layer = LinearNormActivation(56, 56, None)
-			confs  = []
-			confs += [InvertedResidual1d(56, 224, 56, 7, False, "RE")]
-			self.trunk = nn.Sequential(*confs)
-
-			n_filters = 56
-			head_PI = [
-				InvertedResidual1d(56, 224, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size),
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [
-				InvertedResidual1d(56, 224, 56, 7, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *7, self.num_players),
+				nn.Linear(self.nb_vect*7, self.num_players),
 				nn.ReLU(),
 				nn.Linear(self.num_players, self.num_players),
 			]
@@ -432,14 +290,7 @@ class SplendorNNet(nn.Module):
 			v = self.output_layers_V(x).squeeze(1)
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
-		elif self.version in [60, 61, 62, 63, 64, 65, 66, 67, 68, 69]:
-			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
-			x = self.first_layer(x)
-			x = self.trunk(x)
-			v = self.output_layers_V(x)
-			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
-
-		elif self.version in [70, 71, 72, 73, 74, 75, 76]:
+		elif self.version in [80, 81, 85]:
 			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
 			x = self.first_layer(x)
 			x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
