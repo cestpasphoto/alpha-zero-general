@@ -141,14 +141,22 @@ class Board():
 		if self.get_round() % self.num_players != 0: # Check only when 1st player is about to play
 			return np.full(self.num_players, 0., dtype=np.float32)
 		
-		scores = np.array([self.get_score(p) for p in range(self.num_players)], dtype=np.int8)
+		scores = np.array([self.get_score(p) for p in range(self.num_players)], dtype=np.float32)
 		score_max = scores.max()
 		end = (score_max >= self.score_win) or (self.get_round() >= self.max_moves)
 		if not end:
 			return np.full(self.num_players, 0., dtype=np.float32)
-		single_winner = ((scores == score_max).sum() == 1)
-		winners = [(1. if single_winner else 0.01) if s == score_max else -1. for s in scores]
-		return np.array(winners, dtype=np.float32)
+		who_has_won = (scores == score_max)
+		several_winners = (who_has_won.sum() > 1)
+		# Resolve tie by applying penalty in function of nb of cards
+		if several_winners:
+			for p in range(self.num_players):
+				scores[p] -= self._nb_of_cards(p) / 100.
+				score_max = scores.max()
+				who_has_won = (scores == score_max)
+				several_winners = (who_has_won.sum() > 1)
+		
+		return np.where(who_has_won > 0, 0.01 if several_winners else 1., -1.).astype(np.float32)
 
 	# if n=1, transform P0 to Pn, P1 to P0, ... and Pn to Pn-1
 	# else do this action n times
@@ -377,3 +385,6 @@ class Board():
 			if self.players_reserved[6*player+2*card,:idx_gold].sum() == 0:
 				return card # slot 'card' is empty, there are 'card' cards
 		return 3
+
+	def _nb_of_cards(self, player):
+		return self.players_cards[player, :idx_gold].sum()
