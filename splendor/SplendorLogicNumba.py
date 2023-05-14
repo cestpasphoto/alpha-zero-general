@@ -3,11 +3,89 @@ import numpy as np
 from numba import njit
 import numba
 
-ENABLE_ACTION_RESERVE  = True
-ENABLE_ACTION_GIVEBACK = True
-
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
+
+############################## BOARD DESCRIPTION ##############################
+# Board is described by a 56x7 array (1st dim is larger with 3-4 players)
+# Gems and Nobles are represented using 1 line. Each is described by 7 values
+#####   0      1      2      3      4      5      6
+##### White  Blue   Green  Red    Black  Gold   Points 
+#
+# Cards are represented using 2 lines
+#####          0      1      2      3      4      5      6
+##### line0: White  Blue   Green  Red    Black    -      -     [ cost ]
+##### line1: White  Blue   Green  Red    Black    -   Points   [ gain ]
+# First line describes what is needed to buy the card, second line describes
+# the card offers once bought (one of the color has value 1, others are 0)
+#
+# Here is the description of each line of the board. For readibility, we defined
+# "shortcuts" that actually are views (numpy name) of overal board.
+##### Index  Shortcut              Meaning
+#####   0    self.bank             Number of gems in bank, including gold
+#####  1-2   self.cards_tiers      Description of 1st visible card (bottom left)
+#####  3-4       =                 Description of 2nd visible card (bottom)
+#####  5-6       =                 Description of 3rd visible card (bottom)
+#####  7-8       =                 Description of 4th visible card (bottom right)
+#####  9-10      =                 Description of 5th visible card (middle left)
+#####  ...       =
+#####  25    self.nb_deck_tiers    How many cards of each color in bottom deck
+#####  26        =                 Bitfield listing which cards are in bottom deck
+#####  27        =                 How many cards of each color in middle deck
+#####  ...       =
+#####  31    self.nobles           Description of 1st noble in bank
+#####  32        =                 Description of 2nd noble in bank
+#####  33        =                 Description of 3rd noble in bank
+#####  34    self.players_gems     Number of gems owned by Player0, including gold
+#####  35        =                 Number of gems owned by Player1, including gold
+#####  36    self.players_nobles   Description of 1st noble owned by Player0
+#####  ...       =
+#####  39        =                 Description of 1st noble owned by Player1
+#####  ...       =
+#####  42    self.players_cards    Number of cards owned by Player0, including sum of ther points
+#####  43        =                 Number of cards owned by Player1, including sum of ther points
+##### 44-45  self.players_reserved Description of 1st reserved card by Player0
+#####  ...       =
+##### 50-51      =                 Description of 1st reserved card by Player1
+#####  ...       =
+# Indexes above are assuming 2 players, you can have more details in copy_state().
+# When a noble is won, its value is defined to zero, and other nobles stay in
+# place (not shifted). The won noble uses same slot index on player side.
+# When a card slot is empty (bank or player reserve), both lines are set to zero.
+
+############################## ACTION DESCRIPTION #############################
+# We coded 81 actions, taking some shortcuts on combinations of gems that can be
+# got or that can be given back, and forbidding to simultaneously get gems and
+# give some back.
+# Here is description of each action:
+##### Index  Meaning
+#####   0    Buy 1st visible card (bottom left)
+#####   1    Buy 2nd visible card (bottom)
+#####   2    Buy 3rd visible card (bottom)
+#####   3    Buy 4th visible card (bottom right)
+#####   4    Buy 5th visible card (middle left)
+#####  ...
+#####   12   Reserve 1st visible card
+#####  ...
+#####   24   Reserve blindly card for bottom deck
+#####   25   Reserve blindly card for middle deck
+#####   26   Reserve blindly card for top deck
+#####   27   Buy 1st card from player's reserve
+#####   28   Buy 2nd card from player's reserve
+#####   29   Buy 3rd card from player's reserve
+#####   30   Get 1st combination of different gems (up to 3)
+#####   31   Get 2nd combination of different gems (up to 3)
+#####  ...
+#####   55   Get 2 identical gems of color 0 = white
+#####  ...
+#####   60   Give back 1st combination of different gems (up to 2)
+#####  ...
+#####   75   Give back 2 identical gems of color 0 = white
+#####  ...
+#####   80   No action, pass
+# List of combinations of gems for actions 30-79 are in variables
+# list_different_gems_up_to_2 and list_different_gems_up_to_3 in file SplendorLogic
+
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
@@ -84,9 +162,9 @@ class Board():
 		for tier in range(3):
 			nb_deck_cards_per_color = len_all_cards[tier]
 			# HOW MANY cards per color are in deck of tier 0, pratical for NN
-			self.nb_deck_tiers[2*tier,:5] = nb_deck_cards_per_color
+			self.nb_deck_tiers[2*tier,:idx_gold] = nb_deck_cards_per_color
 			# WHICH cards per color are in deck of tier 0, pratical for logic
-			self.nb_deck_tiers[2*tier+1,:5] = my_packbits(np.ones(nb_deck_cards_per_color, dtype=np.int8))
+			self.nb_deck_tiers[2*tier+1,:idx_gold] = my_packbits(np.ones(nb_deck_cards_per_color, dtype=np.int8))
 		# Tiers
 		for tier in range(3):
 			for index in range(4):
@@ -144,14 +222,22 @@ class Board():
 		if self.get_round() % self.num_players != 0: # Check only when 1st player is about to play
 			return np.full(self.num_players, 0., dtype=np.float32)
 		
-		scores = np.array([self.get_score(p) for p in range(self.num_players)], dtype=np.int8)
+		scores = np.array([self.get_score(p) for p in range(self.num_players)], dtype=np.float32)
 		score_max = scores.max()
 		end = (score_max >= self.score_win) or (self.get_round() >= self.max_moves)
 		if not end:
 			return np.full(self.num_players, 0., dtype=np.float32)
-		single_winner = ((scores == score_max).sum() == 1)
-		winners = [(1. if single_winner else 0.01) if s == score_max else -1. for s in scores]
-		return np.array(winners, dtype=np.float32)
+		who_has_won = (scores == score_max)
+		several_winners = (who_has_won.sum() > 1)
+		# Resolve tie by applying penalty in function of nb of cards
+		if several_winners:
+			for p in range(self.num_players):
+				scores[p] -= self._nb_of_cards(p) / 100.
+				score_max = scores.max()
+				who_has_won = (scores == score_max)
+				several_winners = (who_has_won.sum() > 1)
+		
+		return np.where(who_has_won > 0, 0.01 if several_winners else 1., -1.).astype(np.float32)
 
 	# if n=1, transform P0 to Pn, P1 to P0, ... and Pn to Pn-1
 	# else do this action n times
@@ -218,7 +304,7 @@ class Board():
 		return self.bank[0].astype(np.uint8)[idx_points]
 
 	def _get_deck_card(self, tier):
-		nb_remaining_cards_per_color = self.nb_deck_tiers[2*tier,:5]
+		nb_remaining_cards_per_color = self.nb_deck_tiers[2*tier,:idx_gold]
 		if nb_remaining_cards_per_color.sum() == 0: # no more cards
 			return None
 		
@@ -247,14 +333,14 @@ class Board():
 				self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = card
 
 	def _buy_card(self, card0, card1, player):
-		card_cost = card0[:5]
-		player_gems = self.players_gems[player][:5]
-		player_cards = self.players_cards[player][:5]
+		card_cost = card0[:idx_gold]
+		player_gems = self.players_gems[player][:idx_gold]
+		player_cards = self.players_cards[player][:idx_gold]
 		missing_colors = np.maximum(card_cost - player_gems - player_cards, 0).sum()
 		# Apply changes
 		paid_gems = np.minimum(np.maximum(card_cost - player_cards, 0), player_gems)
 		player_gems -= paid_gems
-		self.bank[0][:5] += paid_gems
+		self.bank[0][:idx_gold] += paid_gems
 		self.players_gems[player][idx_gold] -= missing_colors
 		self.bank[0][idx_gold] += missing_colors
 		self.players_cards[player] += card1
@@ -262,10 +348,10 @@ class Board():
 		self._give_nobles_if_earned(player)
 
 	def _valid_buy(self, player):
-		cards_cost = self.cards_tiers[:2*12:2,:5]
+		cards_cost = self.cards_tiers[:2*12:2,:idx_gold]
 
-		player_gems = self.players_gems[player][:5]
-		player_cards = self.players_cards[player][:5]
+		player_gems = self.players_gems[player][:idx_gold]
+		player_cards = self.players_cards[player][:idx_gold]
 		missing_colors = np.maximum(cards_cost - player_gems - player_cards, 0).sum(axis=1)
 		enough_gems_and_gold = missing_colors <= self.players_gems[player][idx_gold]
 		not_empty_cards = cards_cost.sum(axis=1) != 0
@@ -278,19 +364,17 @@ class Board():
 		self._fill_new_card(tier, index, deterministic)
 
 	def _valid_reserve(self, player):
-		if not ENABLE_ACTION_RESERVE:
-			return np.zeros(12+3, dtype=np.int8)
-		not_empty_cards = np.vstack((self.cards_tiers[:2*12:2,:5], self.nb_deck_tiers[::2, :5])).sum(axis=1) != 0
+		not_empty_cards = np.vstack((self.cards_tiers[:2*12:2,:idx_gold], self.nb_deck_tiers[::2, :idx_gold])).sum(axis=1) != 0
 
 		allowed_reserved_cards = 3
-		empty_slot = (self.players_reserved[6*player+2*(allowed_reserved_cards-1)+1][:5].sum() == 0)
+		empty_slot = (self.players_reserved[6*player+2*(allowed_reserved_cards-1)+1][:idx_gold].sum() == 0)
 		return np.logical_and(not_empty_cards, empty_slot).astype(np.int8)
 
 	def _reserve(self, i, player, deterministic):
 		# Detect empty reserve slot
 		reserve_slots = [6*player+2*i for i in range(3)]
 		for slot in reserve_slots:
-			if self.players_reserved[slot,:5].sum() == 0:
+			if self.players_reserved[slot,:idx_gold].sum() == 0:
 				empty_slot = slot
 				break
 		
@@ -309,10 +393,10 @@ class Board():
 
 	def _valid_buy_reserve(self, player):
 		card_index = np.arange(3)
-		cards_cost = self.players_reserved[6*player+2*card_index,:5]
+		cards_cost = self.players_reserved[6*player+2*card_index,:idx_gold]
 
-		player_gems = self.players_gems[player][:5]
-		player_cards = self.players_cards[player][:5]
+		player_gems = self.players_gems[player][:idx_gold]
+		player_cards = self.players_cards[player][:idx_gold]
 		missing_colors = np.maximum(cards_cost - player_gems - player_cards, 0).sum(axis=1)
 		enough_gems_and_gold = missing_colors <= self.players_gems[player][idx_gold]
 		not_empty_cards = cards_cost.sum(axis=1) != 0
@@ -328,8 +412,8 @@ class Board():
 		self.players_reserved[6*player+4:6*player+6] = 0 # empty last reserve slot
 
 	def _valid_get_gems(self, player):
-		gems = np_different_gems_up_to_3[:,:5]
-		enough_in_bank = np_all_axis1((self.bank[0][:5] - gems) >= 0)
+		gems = np_different_gems_up_to_3[:,:idx_gold]
+		enough_in_bank = np_all_axis1((self.bank[0][:idx_gold] - gems) >= 0)
 		not_too_many_gems = self.players_gems[player].sum() + gems.sum(axis=1) <= 10
 		result = np.logical_and(enough_in_bank, not_too_many_gems).astype(np.int8)
 		return result
@@ -343,46 +427,45 @@ class Board():
 
 	def _get_gems(self, i, player):
 		if i < np_different_gems_up_to_3.shape[0]: # Different gems
-			gems = np_different_gems_up_to_3[i][:5]
+			gems = np_different_gems_up_to_3[i][:idx_gold]
 		else:                                      # 2 identical gems
 			color = i - np_different_gems_up_to_3.shape[0]
 			gems = np.zeros(5, dtype=np.int8)
 			gems[color] = 2
-		self.bank[0][:5] -= gems
-		self.players_gems[player][:5] += gems
+		self.bank[0][:idx_gold] -= gems
+		self.players_gems[player][:idx_gold] += gems
 
 	def _valid_give_gems(self, player):
-		if not ENABLE_ACTION_GIVEBACK:
-			return np.zeros(np_different_gems_up_to_2.shape[0], dtype=np.int8)
-		gems = np_different_gems_up_to_2[:,:5]
-		result = np_all_axis1((self.players_gems[player][:5] - gems) >= 0).astype(np.int8)
+		gems = np_different_gems_up_to_2[:,:idx_gold]
+		result = np_all_axis1((self.players_gems[player][:idx_gold] - gems) >= 0).astype(np.int8)
 		return result
 
 	def _valid_give_gems_identical(self, player):
-		if not ENABLE_ACTION_GIVEBACK:
-			return np.zeros(5, dtype=np.int8)
 		colors = np.arange(5)
 		return (self.players_gems[player][colors] >= 2).astype(np.int8)
 
 	def _give_gems(self, i, player):
 		if i < np_different_gems_up_to_2.shape[0]: # Different gems
-			gems = np_different_gems_up_to_2[i][:5]
+			gems = np_different_gems_up_to_2[i][:idx_gold]
 		else:                                      # 2 identical gems
 			color = i - np_different_gems_up_to_2.shape[0]
 			gems = np.zeros(5, dtype=np.int8)
 			gems[color] = 2
-		self.bank[0][:5] += gems
-		self.players_gems[player][:5] -= gems
+		self.bank[0][:idx_gold] += gems
+		self.players_gems[player][:idx_gold] -= gems
 
 	def _give_nobles_if_earned(self, player):
 		for i_noble in range(self.num_nobles):
-			noble = self.nobles[i_noble][:5]
-			if noble.sum() > 0 and np.all(self.players_cards[player][:5] >= noble):
+			noble = self.nobles[i_noble][:idx_gold]
+			if noble.sum() > 0 and np.all(self.players_cards[player][:idx_gold] >= noble):
 				self.players_nobles[self.num_nobles*player+i_noble] = self.nobles[i_noble]
 				self.nobles[i_noble] = 0
 
 	def _nb_of_reserved_cards(self, player):
 		for card in range(3):
-			if self.players_reserved[6*player+2*card,:5].sum() == 0:
+			if self.players_reserved[6*player+2*card,:idx_gold].sum() == 0:
 				return card # slot 'card' is empty, there are 'card' cards
 		return 3
+
+	def _nb_of_cards(self, player):
+		return self.players_cards[player, :idx_gold].sum()

@@ -14,6 +14,7 @@ import subprocess
 import itertools
 import json
 import multiprocessing
+from math import inf
 
 """
 use this script to play any two agents against each other, or play manually with
@@ -78,15 +79,20 @@ def plays(list_tasks, args, callback_results=None):
 	n = len(list_tasks)
 	nb_tasks_per_thread = math.ceil(n/args.max_compare_threads)
 	nb_threads = math.ceil(n/nb_tasks_per_thread)
-	current_threads_list = subprocess.check_output(['ps', '-e', '-o', 'cmd']).decode('utf-8').split('\n')
-	idx_thread = sum([1 for t in current_threads_list if 'pit.py' in t]) - 1
-	if idx_thread == 0:
-		print(f'\t{n} pits to do, splitted in {nb_tasks_per_thread} tasks * {nb_threads} threads')
-	if idx_thread < nb_threads-1:
-		print(f'\tPlease call same script {nb_threads-1-idx_thread} time(s) more in other console')
-	elif idx_thread >= nb_threads:
-		print(f'I already have enough processes, exiting current one')
-		exit()
+	if nb_threads > 1:
+		current_threads_list = subprocess.check_output(['ps', '-e', '-o', 'cmd']).decode('utf-8').split('\n')
+		idx_thread = sum([1 for t in current_threads_list if 'pit.py' in t]) - 1
+		if idx_thread == 0:
+			print(f'\t{n} pits to do, splitted in {nb_tasks_per_thread} tasks * {nb_threads} threads')
+		if idx_thread < nb_threads-1:
+			print(f'\tPlease call same script {nb_threads-1-idx_thread} time(s) more in other console')
+		elif idx_thread >= nb_threads:
+			print(f'I already have enough processes, exiting current one')
+			exit()
+	else:
+		idx_thread = 0
+		if n > 1:
+			print(f'\t{n} pits to do')
 
 	last_kbd_interrupt = 0.
 	for (p1, p2) in list_tasks[idx_thread::nb_threads]:
@@ -149,9 +155,15 @@ def play_several_files(args):
 			name = os.path.basename(os.path.dirname(p)) + ('' if os.path.basename(p) == 'best.pt' else (' - ' + os.path.basename(p)))
 			print(f'{name[-20:].ljust(20)} rating={int(r.rating)}±{int(r.rd)}, vol={r.vol:.3e}')
 	else:
-		plays(list_tasks, args)
-
-
+		worst_games = {}
+		def show_worst_game(p1, p2, result, _):
+			worst_games[p1] = min(result[0], worst_games.get(p1, inf))
+			worst_games[p2] = min(result[1], worst_games.get(p2, inf))
+		
+		plays(list_tasks, args, callback_results=show_worst_game)
+		if len(players) > 3:
+			for name, worst_game in worst_games.items():
+				print(f'{name:<40}: {worst_game}')
 
 def profiling(args):
 	import cProfile, pstats
