@@ -20,7 +20,7 @@ def run(args):
 	log.debug('Loading %s...', nn.__name__)
 	nn_args = dict(
 		lr=args.learn_rate,
-		dropout=0.5,
+		dropout=args.dropout,
 		epochs=args.epochs,
 		batch_size=args.batch_size,
 		nn_version=args.nn_version,
@@ -123,6 +123,7 @@ def main():
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
+	parser.add_argument('--dropout'         , '-D' , action='store', default=0.5  , type=float  , help='')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 
 	### Advanced params ###

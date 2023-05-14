@@ -3,6 +3,9 @@
 Based on the superb repo https://github.com/suragnair/alpha-zero-general but with higher strength, optimized for CPU-only 25-100x speed improvement, and supporting 2+ players games. You can play with it on your browser https://github.com/cestpasphoto/cestpasphoto.github.io.
 Games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (with basic gods)
 
+
+Warning: refactoring of AlphaZero code in-progress, only Splendor and Santorini-2pl have been fully updated and tuned, Splendor-3pl and 4pl have a first model that needs tuning and the 2 others games are broken.
+
 ### Splendor
 
 ![Sample game of Splendor](splendor/sample_game.gif)
