@@ -4,7 +4,7 @@ Based on the superb repo https://github.com/suragnair/alpha-zero-general but wit
 Games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (with basic gods)
 
 
-Warning: refactoring of AlphaZero code in-progress, only Splendor and Santorini-2pl have been fully updated and tuned, Splendor-3pl and 4pl have a first model that needs tuning and the 2 others games are broken.
+Warning: refactoring of AlphaZero code in-progress, only Splendor and Santorini have been fully updated and tuned. The 2 others games are broken.
 
 ### Splendor
 
@@ -15,7 +15,7 @@ Warning: refactoring of AlphaZero code in-progress, only Splendor and Santorini-
 * [x] Proper MCTS handling of "chance" factor when revealing new deck card
 * [x] Added pretrained models for 2-3-4 players
 
-There are some limitations: implemented logic doesn't allow you to both take gems from the bank and give back some (whereas allowed in real rules), you can either 1-2-3 gems or give back 1-2 gems.
+There is one limitation: implemented logic doesn't allow you to both take gems from the bank and give back some (whereas allowed in real rules), you are limited to either take 1-2-3 gems or give back 1-2 gems.
 
 ### Machi Koro / Minivilles
 
