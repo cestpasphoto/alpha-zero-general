@@ -3,8 +3,11 @@ import numpy as np
 from numba import njit
 import numba
 
+PREDICTABLE_RANDOM = False # Replace normal random by predictable random when shuffling cards
+
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
+mask2 = 2**(5*np.arange(idx_gold))
 
 ############################## BOARD DESCRIPTION ##############################
 # Board is described by a 56x7 array (1st dim is larger with 3-4 players)
@@ -188,6 +191,9 @@ class Board():
 		return result
 
 	def make_move(self, move, player, deterministic):
+		if PREDICTABLE_RANDOM:
+			deterministic = False
+
 		if   move < 12:
 			self._buy(move, player, deterministic)
 		elif move < 12+15:
@@ -308,10 +314,18 @@ class Board():
 		if nb_remaining_cards_per_color.sum() == 0: # no more cards
 			return None
 		
-		# First we chose color randomly, then we pick a card 
-		color = my_random_choice(nb_remaining_cards_per_color/nb_remaining_cards_per_color.sum())
-		remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
-		card_index = my_random_choice(remaining_cards/remaining_cards.sum())
+		if PREDICTABLE_RANDOM and self.bank[0][idx_points] > 6:
+			remaining_cards_all = [ (c,i) for c in range(5) for i,b in enumerate(my_unpackbits(self.nb_deck_tiers[2*tier+1, c])) if b]
+			seed = (self.nb_deck_tiers[2*tier+1, :idx_gold].astype(np.uint8) * mask2).sum()
+			np.random.seed(seed)
+			color, card_index = remaining_cards_all[ np.random.randint(len(remaining_cards_all)) ]
+			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
+		else:
+			# First we chose color randomly, then we pick a card 
+			color = my_random_choice(nb_remaining_cards_per_color/nb_remaining_cards_per_color.sum())
+			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
+			card_index = my_random_choice(remaining_cards/remaining_cards.sum())
+
 		# Update internals
 		remaining_cards[card_index] = 0
 		self.nb_deck_tiers[2*tier+1, color] = my_packbits(remaining_cards)
