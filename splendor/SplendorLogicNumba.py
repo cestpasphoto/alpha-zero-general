@@ -3,7 +3,12 @@ import numpy as np
 from numba import njit
 import numba
 
-PREDICTABLE_RANDOM = False # Replace normal random by predictable random when shuffling cards
+# Full random actions "breaks" exploration of MCTS tree. By having repeatable
+# behavior but still kind of random (that I called "predictable random"), the
+# exploration of MCTS tree go deeper and training data is more relevant. Even
+# on truly random pit, the training result behaves better than before.
+# Enable it ONLY FOR TRAINING.
+PREDICTABLE_RANDOM = False
 
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
