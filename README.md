@@ -13,7 +13,7 @@ Warning: refactoring of AlphaZero code in-progress, only Splendor and Santorini 
 * [x] Support of [Splendor game](https://en.wikipedia.org/wiki/Splendor_(game)) with 2 players
 * [x] Support of 3-4 players (just change NUMBER_PLAYERS constant)
 * [x] Proper MCTS handling of "chance" factor when revealing new deck card
-* [x] Adding "predictable random" feature for even better training
+* [x] Adding "repeatable randomness" feature for even better training
 * [x] Added pretrained models for 2-3-4 players
 
 The AI engine doesn't know which cards will be drawn. There is one limitation: implemented logic doesn't allow you to both take gems from the bank and give back some (whereas allowed in real rules), you are limited to either take 1-2-3 gems or give back 1-2 gems.

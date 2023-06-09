@@ -3,12 +3,13 @@ import numpy as np
 from numba import njit
 import numba
 
-# Full random actions "breaks" exploration of MCTS tree. By having repeatable
-# behavior but still kind of random (that I called "predictable random"), the
-# exploration of MCTS tree go deeper and training data is more relevant. Even
-# on truly random pit, the training result behaves better than before.
+# Full random actions "breaks" exploration of MCTS tree (same action applied to
+# same state may lead to different state). By having repeatable behavior but
+# still kind of random (that I called "repeatable randomness"), the exploration
+# of MCTS tree go deeper and training data is more relevant. Even on truly
+# random pit, the training result behaves better than before.
 # Enable it ONLY FOR TRAINING.
-PREDICTABLE_RANDOM = False
+REPEATABLE_RANDOM = False
 
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
@@ -196,7 +197,7 @@ class Board():
 		return result
 
 	def make_move(self, move, player, deterministic):
-		if PREDICTABLE_RANDOM:
+		if REPEATABLE_RANDOM:
 			deterministic = False
 
 		if   move < 12:
@@ -319,7 +320,7 @@ class Board():
 		if nb_remaining_cards_per_color.sum() == 0: # no more cards
 			return None
 		
-		if PREDICTABLE_RANDOM and self.bank[0][idx_points] > 6:
+		if REPEATABLE_RANDOM and self.bank[0][idx_points] > 6:
 			remaining_cards_all = [ (c,i) for c in range(5) for i,b in enumerate(my_unpackbits(self.nb_deck_tiers[2*tier+1, c])) if b]
 			seed = (self.nb_deck_tiers[2*tier+1, :idx_gold].astype(np.uint8) * mask2).sum()
 			np.random.seed(seed)
