@@ -198,6 +198,31 @@ class TLPNNet(nn.Module):
 					nn.Linear(128, self.num_scdiffs*self.scdiff_size)
 				)
 
+		elif self.version == 80: # Very small version using MobileNetV3 building blocks
+			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
+			confs  = []
+			confs += [InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 15, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			head_PI = [
+				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 15, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*15, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 15, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*15, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -229,6 +254,14 @@ class TLPNNet(nn.Module):
 			if self.version == 398:
 				sdiff = self.output_layers_SDIFF(x).squeeze(1)
 				return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
+
+		elif self.version in [80, 81, 82, 85]:
+			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
+			x = self.first_layer(x)
+			x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
+			v = self.output_layers_V(x)
+			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
+
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
 
