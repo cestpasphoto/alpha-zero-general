@@ -358,8 +358,8 @@ if __name__ == "__main__":
 	import argparse
 	import os.path
 	import time
-	from splendor.SplendorGame import SplendorGame as Game
-	from splendor.NNet import NNetWrapper as nn
+	from thelittleprince.TLPGame import TLPGame as Game
+	from thelittleprince.NNet import NNetWrapper as nn
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
@@ -396,8 +396,8 @@ if __name__ == "__main__":
 		raise Exception("You have to specify at least a NN file to load or a NN version")
 
 	from fvcore.nn import FlopCountAnalysis
-	dummy_board         = torch.randn(1, 56, 7, dtype=torch.float32)
-	dummy_valid_actions = torch.BoolTensor(torch.randn(1, 81)>0.5)
+	dummy_board         = torch.randn(1, g.getBoardSize()[0], g.getBoardSize()[1], dtype=torch.float32)
+	dummy_valid_actions = torch.BoolTensor(torch.randn(1, g.getActionSize())>0.5)
 	nnet.nnet.eval()
 	flops = FlopCountAnalysis(nnet.nnet, (dummy_board, dummy_valid_actions))
 	flops.unsupported_ops_warnings(False)
@@ -405,7 +405,8 @@ if __name__ == "__main__":
 	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 	# print(flops.by_module().most_common(15))
 
-
+	if not args.training:
+		exit()
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
 	trainExamples = []

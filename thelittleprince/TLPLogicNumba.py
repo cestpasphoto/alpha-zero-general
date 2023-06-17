@@ -3,6 +3,32 @@ from numba import njit
 import numba
 import random
 
+############################## BOARD DESCRIPTION ##############################
+# Board is described by a 55x15 array (1st dim is larger with 4+ players).
+# Each card is described by a line 1x15, each of 15 attributes are listed
+# below(see "List of attributes"). Here is the description of each line of
+# the board. For readibility, we defined "shortcuts" that actually are views
+# (numpy name) of overal board.
+##### Index  Shortcut              	Meaning
+#####   0    self.round_and_state  	Round number on row 0, current player in row 1, bitfield of who can play on row 2, and rows 3-12 are bitfield representing remaining cards
+#####  1-3   self.market      		Cards ready to be picked by players
+#####  4-6   self.players_score		Score for each player, attribute by attribute
+#####  7-54  self.players_cards		Description of 16 Player0 cards, then 16 Player1 cards
+# Indexes above are assuming 3 players, you can have more details in copy_state().
+
+############################## ACTION DESCRIPTION #############################
+# There are n*n actions (n being nb of players). Here is description of each action:
+##### Index  Meaning
+#####   0    Take card 0, and designate player 0 as next player
+#####   1    Take card 0, and designate player 1 as next player
+#####  ...
+#####   n    Take card 1, and designate player 0 as next player
+#####  n+1   Take card 1, and designate player 1 as next player
+#####  ...
+#####  n*n-1 Take card n-1, and designate player n-1 as next player
+# Next player can be current player, when selecting last card. Type of card is
+# randomly chosen by logic not by players.
+
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
 	return (18*num_players + 1, 15) # 2nd dimension is card attributes (like fox, sunset, ...)
