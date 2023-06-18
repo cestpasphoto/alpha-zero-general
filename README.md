@@ -71,11 +71,12 @@ You can also make 2 networks fight each other ![2 networks fighting](splendor/ma
 
 Compared to initial version, I target a smaller network but more MCTS simulations allowing to see further: this approach is less efficient on GPU, but similar on CPU and allow stronger AI.
 
-`main.py -m 800 -e 500 -i 10 -c 2.5 -F -f 0.03 -T 10 -d 0.50 -b 32 -l 0.0003 -p 2 -C ../results/mytest`: 
+`main.py -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -d 0.50 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest`: 
 
 * Start by defining proper number of players in SplendorGame.py and disabling card reserve actions in first lines of splendor/SplendorLogicNumba.py
-* `-b 32 -l 0.0003 -p 2`: define batch size, learning rate and number of epochs. Larger number of epochs degrades performance, same for larger batch sizes
-* `-c 2.5 -f 0.03 -F`: MCTS options, here cpuct value, FPU (first play urgency) and enabled forced playouts
+* `-c 2.5 -f 0.1 -d 0.50`: MCTS options to tune, like cpuct value, FPU (first play urgency) and dirichlet noise
+* Initiate training with lower simulations number and less episodes per round
+* `-b 32 -l 0.0003 -p 1 -D 0.3`: define batch size, learning rate, number of epochs and dropout. Larger number of epochs may degrade performance, same for larger batch sizes so you only need to tune roughly dropout value (0., 0.3 or 0.3).
 
 ![Sample training](splendor/sample_training.jpg)
 
