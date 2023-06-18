@@ -406,6 +406,11 @@ if __name__ == "__main__":
 	# print(flops.by_module().most_common(15))
 
 	if not args.training:
+		if args.input:
+			checkpoint = torch.load(args.input, map_location='cpu')
+			for k in sorted(checkpoint.keys()):
+				if k not in ['state_dict', 'full_model', 'optim_state']:
+					print(f'  {k}: {checkpoint[k]}')
 		exit()
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
