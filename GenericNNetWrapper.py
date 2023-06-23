@@ -358,8 +358,8 @@ if __name__ == "__main__":
 	import argparse
 	import os.path
 	import time
-	from thelittleprince.TLPGame import TLPGame as Game
-	from thelittleprince.NNet import NNetWrapper as nn
+	from minivilles.MinivillesGame import MinivillesGame as Game
+	from minivilles.NNet import NNetWrapper as nn
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')

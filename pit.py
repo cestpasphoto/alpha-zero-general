@@ -2,9 +2,9 @@
 
 import Arena
 from MCTS import MCTS
-from thelittleprince.TLPPlayers import *
-from thelittleprince.TLPGame import TLPGame as Game
-from thelittleprince.NNet import NNetWrapper as NNet
+from minivilles.MinivillesPlayers import *
+from minivilles.MinivillesGame import MinivillesGame as Game
+from minivilles.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *
