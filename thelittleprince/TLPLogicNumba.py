@@ -29,6 +29,9 @@ import random
 # Next player can be current player, when selecting last card. Type of card is
 # randomly chosen by logic not by players.
 
+# REPEATABLE_RANDOM like in splendor/SplendorLogicNumba.py doesn't seem to help
+# for this game, probably because too much randomness...
+
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
 	return (18*num_players + 1, 15) # 2nd dimension is card attributes (like fox, sunset, ...)
@@ -348,10 +351,10 @@ class Board():
 			return
 		# Market is empty, need to refill it. First, chose randomly one of 4 categories of cards
 		type_with_room_player0 = [
-			self.players_cards[10, CARD_TYPE] == EMPTY,
-			self.players_cards[14, CARD_TYPE] == EMPTY,
-			self.players_cards[13, CARD_TYPE] == EMPTY,
-			self.players_cards[15, CARD_TYPE] == EMPTY,
+			self.players_cards[10, CARD_TYPE] == EMPTY, # Does player 0 has last card of type CENTER
+			self.players_cards[14, CARD_TYPE] == EMPTY, # Does player 0 has last card of type UPHILL_EDGE
+			self.players_cards[13, CARD_TYPE] == EMPTY, # Does player 0 has last card of type DOWNHILL_EDGE
+			self.players_cards[15, CARD_TYPE] == EMPTY, # Does player 0 has last card of type CORNER
 		]
 		# the simpler code below is not supported by numba
 		#type_with_room_player0 = [self.players_cards[location, CARD_TYPE] == EMPTY for location in [10,14,13,15]]
