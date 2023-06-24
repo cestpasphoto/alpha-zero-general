@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models._utils import _make_divisible
 
 # Assume 3-dim tensor input N,C,L
 class DenseAndPartialGPool(nn.Module):
@@ -52,6 +53,92 @@ class FlattenAndPartialGPool(nn.Module):
 		], 1)
 		return x.unsqueeze(1)
 
+class LinearNormActivation(nn.Module):
+	def __init__(self, in_size, out_size, activation_layer, depthwise=False, channels=None):
+		super().__init__()
+		self.linear     = nn.Linear(in_size, out_size, bias=False)
+		self.norm       = nn.BatchNorm1d(channels if depthwise else out_size)
+		self.activation = activation_layer(inplace=True) if activation_layer is not None else nn.Identity()
+		self.depthwise = depthwise
+
+	def forward(self, input):
+		if self.depthwise:
+			result = self.linear(input)
+		else:
+			result = self.linear(input.transpose(-1, -2)).transpose(-1, -2)
+			
+		result = self.norm(result)
+		result = self.activation(result)
+		return result
+
+class SqueezeExcitation1d(nn.Module):
+	def __init__(self, input_channels, squeeze_channels, scale_activation, setype='avg'):
+		super().__init__()
+		if setype == 'avg':
+			self.avgpool = torch.nn.AdaptiveAvgPool1d(1)
+		else:
+			self.avgpool = torch.nn.AdaptiveMaxPool1d(1)
+		self.fc1 = nn.Linear(input_channels, squeeze_channels)
+		self.activation = nn.ReLU()
+		self.fc2 = torch.nn.Linear(squeeze_channels, input_channels)
+		self.scale_activation = scale_activation()
+
+	def _scale(self, input):
+		scale = self.avgpool(input)
+		scale = self.fc1(scale.transpose(-1, -2)).transpose(-1, -2)
+		scale = self.activation(scale)
+		scale = self.fc2(scale.transpose(-1, -2)).transpose(-1, -2)
+		return self.scale_activation(scale)
+
+	def forward(self, input):
+
+		scale = self._scale(input)
+		return scale * input
+
+class InvertedResidual1d(nn.Module):
+	def __init__(self, in_channels, exp_channels, out_channels, kernel, use_hs, use_se, setype='avg'):
+		super().__init__()
+
+		self.use_res_connect = (in_channels == out_channels)
+
+		layers = []
+		activation_layer = nn.Hardswish if use_hs else nn.ReLU
+
+		# expand
+		if exp_channels != in_channels:
+			self.expand = LinearNormActivation(in_channels, exp_channels, activation_layer=activation_layer)
+		else:
+			self.expand = nn.Identity()
+
+		# depthwise
+		self.depthwise = LinearNormActivation(kernel, kernel, activation_layer=activation_layer, depthwise=True, channels=exp_channels)
+
+		if use_se:
+			squeeze_channels = _make_divisible(exp_channels // 4, 8)
+			self.se = SqueezeExcitation1d(exp_channels, squeeze_channels, scale_activation=nn.Hardsigmoid, setype=setype)
+		else:
+			self.se = nn.Identity()
+
+		# project
+		self.project = LinearNormActivation(exp_channels, out_channels, activation_layer=None)
+
+	def forward(self, input):
+		# print(f'Input -> {input.shape}')
+		result = self.expand(input)
+		# print(f'Expand -> {result.shape}')
+		result = self.depthwise(result)
+		# print(f'Depthwise -> {result.shape}')
+		result = self.se(result)
+		# print(f'SqEx -> {result.shape}')
+		result = self.project(result)
+		# print(f'Project -> {result.shape}')
+
+		if self.use_res_connect:
+			result += input
+
+		# print(f'Result -> {result.shape}')
+		return result
+
 
 class MinivillesNNet(nn.Module):
 	def __init__(self, game, args):
@@ -66,6 +153,73 @@ class MinivillesNNet(nn.Module):
 		self.num_scdiffs = self.num_players
 
 		super(MinivillesNNet, self).__init__()
+
+		if self.version == 1 or self.version == 398:
+			self.dense2d_1 = nn.Sequential(
+				nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(2), nn.ReLU(),
+				nn.Linear(128, 128)                            , nn.ReLU(), # no batchnorm before max pooling
+			)
+
+			self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=2)
+
+			self.dense2d_2 = nn.Identity()
+			self.partialgpool_2 = nn.Identity()
+
+			self.dense2d_3 = nn.Sequential(
+				nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=1)
+			self.dense1d_4 = nn.Sequential(
+				nn.Linear(64*3+(128-64)*2, 128), nn.ReLU(),
+			)
+			self.partialgpool_4 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
+			
+			self.dense1d_5 = nn.Sequential(
+				nn.Linear(128, 128), nn.BatchNorm1d(1), nn.ReLU(),
+				nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
+			)
+			self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
+
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.action_size)
+			)
+
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.num_players)
+			)
+
+			self.output_layers_SDIFF = nn.Sequential(
+				nn.Linear(128, 128),
+				nn.Linear(128, self.num_scdiffs*self.scdiff_size)
+			)
+
+		elif self.version == 80:
+			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
+			confs  = []
+			confs += [InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 2, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			head_PI = [
+				InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 2, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*2, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 2, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*2, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
 				nn.init.kaiming_uniform_(m.weight)
@@ -73,67 +227,35 @@ class MinivillesNNet(nn.Module):
 			elif type(m) == nn.Sequential:
 				for module in m:
 					_init(module)
-
-		self.dense2d_1 = nn.Sequential(
-			nn.Linear(self.nb_vect, 128), nn.BatchNorm1d(2), nn.ReLU(),
-			nn.Linear(128, 128)                            , nn.ReLU(), # no batchnorm before max pooling
-		)
-
-		self.partialgpool_1 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=8, channels_for_batchnorm=2)
-
-		self.dense2d_2 = nn.Identity()
-		self.partialgpool_2 = nn.Identity()
-
-		self.dense2d_3 = nn.Sequential(
-			nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
-		)
-		self.flatten_and_gpool = FlattenAndPartialGPool(length_to_pool=64, nb_channels_to_pool=1)
-		self.dense1d_4 = nn.Sequential(
-			nn.Linear(64*3+(128-64)*2, 128), nn.ReLU(),
-		)
-		self.partialgpool_4 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
-		
-		self.dense1d_5 = nn.Sequential(
-			nn.Linear(128, 128), nn.BatchNorm1d(1), nn.ReLU(),
-			nn.Linear(128, 128)                   , nn.ReLU(), # no batchnorm before max pooling
-		)
-		self.partialgpool_5 = DenseAndPartialGPool(128, 128, nb_groups=4, nb_items_in_groups=4, channels_for_batchnorm=1)
-
-		self.output_layers_PI = nn.Sequential(
-			nn.Linear(128, 128),
-			nn.Linear(128, self.action_size)
-		)
-
-		self.output_layers_V = nn.Sequential(
-			nn.Linear(128, 128),
-			nn.Linear(128, self.num_players)
-		)
-
-		self.output_layers_SDIFF = nn.Sequential(
-			nn.Linear(128, 128),
-			nn.Linear(128, self.num_scdiffs*self.scdiff_size)
-		)
-
-		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
-		for layer2D in [self.dense2d_1, self.partialgpool_1, self.dense2d_3, self.flatten_and_gpool]:
-			layer2D.apply(_init)
-		for layer1D in [self.dense1d_4, self.partialgpool_4, self.dense1d_5, self.partialgpool_5, self.output_layers_PI, self.output_layers_V, self.output_layers_SDIFF]:
-			layer1D.apply(_init)
+		for _, layer in self.__dict__.items():
+			if isinstance(layer, nn.Module):
+				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
-		
-		x = self.dense2d_1(x)
-		x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
-		x = F.dropout(self.dense2d_3(x), p=self.args['dropout'], training=self.training)
-		x = self.flatten_and_gpool(x)
-		x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training)
-		x = F.dropout(self.partialgpool_4(x), p=self.args['dropout'], training=self.training)
-		x = F.dropout(self.dense1d_5(x)     , p=self.args['dropout'], training=self.training)
-		x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
-		
-		v = self.output_layers_V(x).squeeze(1)
-		sdiff = self.output_layers_SDIFF(x).squeeze(1)
-		pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+		if self.version in [1, 398]:
+			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
+			
+			x = self.dense2d_1(x)
+			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.dense2d_3(x), p=self.args['dropout'], training=self.training)
+			x = self.flatten_and_gpool(x)
+			x = F.dropout(self.dense1d_4(x)     , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.partialgpool_4(x), p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.dense1d_5(x)     , p=self.args['dropout'], training=self.training)
+			x = F.dropout(self.partialgpool_5(x), p=self.args['dropout'], training=self.training)
+			
+			v = self.output_layers_V(x).squeeze(1)
+			sdiff = self.output_layers_SDIFF(x).squeeze(1)
+			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
+			return F.log_softmax(pi, dim=1), torch.tanh(v)
 
-		return F.log_softmax(pi, dim=1), torch.tanh(v), F.log_softmax(sdiff.view(-1, self.num_scdiffs, self.scdiff_size).transpose(1,2), dim=1) # TODO
+		elif self.version in [80, 81, 82, 83]:
+			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
+			x = self.first_layer(x)
+			x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
+			v = self.output_layers_V(x)
+			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
+		else:
+			raise Exception(f'Unsupported NN version {self.version}')
+
+		return F.log_softmax(pi, dim=1), torch.tanh(v)
