@@ -2,6 +2,41 @@ import numpy as np
 from numba import njit
 import numba
 
+############################## BOARD DESCRIPTION ##############################
+# Board is described by a 58x2 array (1st dim is larger with 3+ players). 2nd
+# dimension stores game history (y=0 is current state, y=1 is previous state)
+# The 15 types of cards and 4 types of monuments are defined at the bottom of
+# the current file. Here is the description of each line of the board. For
+# readibility, we defined "shortcuts" that actually are views(numpy name) of
+# overal board.
+##### Index  Shortcut              	Meaning
+#####   0    self.round  			Round number
+#####   1    self.last_dice      	Value of last dice(s) roll (sum if 2 dices)
+#####   2    self.player_state		Usually 0. Is 2 if current player plays again (amusement park). Add 1 if player rolls dices again (radio tower)
+#####  3-17  self.market			Numbers of remaining cards in main deck for each of 15 card types
+##### 18-19  self.players_money		Money for each player
+##### 20-49  self.players_cards		Number of cards for each player (P0-card0, P0-card1, ... P1-card0, P1-card1, ...)
+##### 50-58  self.players_monuments	Number of monuments for each player
+# Indexes above are assuming 2 players, you can have more details in copy_state().
+# Limitations of monuments:
+#   Train station: 	always roll 2 dices, no question asked
+#   Stadium: 		choose the most expensive building from richest player, and
+#            		swap it with my cheapest card
+# 	TV channel: 	take the $5 from the richest
+
+############################## ACTION DESCRIPTION #############################
+# There are 21 actions. Here is description of each action:
+##### Index  Meaning
+#####   0    Buy a card of type 0 (CHAMPS)
+#####   1    Buy a card of type 1 (FERME)
+#####  ...
+#####  14    Buy a card of type 14 (MARCHE)
+#####  15    Buy monument of type 0 (GARE)
+#####  ...
+#####  18    Buy monument of type 4 (PARC)
+#####  19    Roll dice(s) again
+#####  20    No move
+
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
 	return (18 + 20*num_players, 2) # 2nd dimension is to keep history of previous states
@@ -226,7 +261,7 @@ class Board():
 		def _business_center():
 			# Current can swap a building with someone else
 			# Let's buy the most expensive one from the richest player
-			# Against one of my low probability card
+			# Against one of my low cost card
 			wealths = np.array([self.get_wealth(p) for p in range(self.num_players)], dtype=np.int8)
 			wealths[player_who_rolled] = 0 # Avoid swapping with yourself
 			target_player = my_random_choice_and_normalize(wealths == wealths.max())
