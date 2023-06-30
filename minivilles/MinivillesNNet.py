@@ -219,6 +219,78 @@ class MinivillesNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
+		elif self.version == 81:
+			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
+			confs  = []
+			confs += [InvertedResidual1d(self.nb_vect, int(1.5*self.nb_vect), self.nb_vect, 2, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			head_PI = [
+				InvertedResidual1d(self.nb_vect, int(1.5*self.nb_vect), self.nb_vect, 2, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*2, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(self.nb_vect, int(1.5*self.nb_vect), self.nb_vect, 2, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*2, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		elif self.version == 82:
+			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
+			confs  = []
+			confs += [InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 2, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			head_PI = [
+				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 2, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*2, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 2, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*2, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		elif self.version == 83:
+			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
+			confs  = []
+			confs += [InvertedResidual1d(self.nb_vect, 4*self.nb_vect, self.nb_vect, 2, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			head_PI = [
+				InvertedResidual1d(self.nb_vect, 4*self.nb_vect, self.nb_vect, 2, True, "HS", setype='avg'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*2, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(self.nb_vect, 4*self.nb_vect, self.nb_vect, 2, True, "HS", setype='avg'),
+				nn.Flatten(1),
+				nn.Linear(self.nb_vect*2, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
