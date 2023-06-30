@@ -73,20 +73,14 @@ class InvertedResidual1d(nn.Module):
 		self.project = LinearNormActivation(exp_channels, out_channels, activation_layer=None)
 
 	def forward(self, input):
-		# print(f'Input -> {input.shape}')
 		result = self.expand(input)
-		# print(f'Expand -> {result.shape}')
 		result = self.depthwise(result)
-		# print(f'Depthwise -> {result.shape}')
 		result = self.se(result)
-		# print(f'SqEx -> {result.shape}')
 		result = self.project(result)
-		# print(f'Project -> {result.shape}')
 
 		if self.use_res_connect:
 			result += input
 
-		# print(f'Result -> {result.shape}')
 		return result
 
 
