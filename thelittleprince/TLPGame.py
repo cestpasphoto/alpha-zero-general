@@ -6,7 +6,7 @@ from .TLPDisplay import move_to_str, print_board
 import numpy as np
 from numba import jit, njit
 
-NUMBER_PLAYERS = 4
+NUMBER_PLAYERS = 3
 
 class TLPGame(Game):
 	def __init__(self):
