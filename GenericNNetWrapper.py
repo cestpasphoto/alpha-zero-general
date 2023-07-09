@@ -411,6 +411,7 @@ if __name__ == "__main__":
 			for k in sorted(checkpoint.keys()):
 				if k not in ['state_dict', 'full_model', 'optim_state']:
 					print(f'  {k}: {checkpoint[k]}')
+			print(f'Board shape: {list(dummy_board.shape)}, valids shape: {list(dummy_valid_actions.shape)}')
 		exit()
 	with open(args.training, "rb") as f:
 		examples = pickle.load(f)
