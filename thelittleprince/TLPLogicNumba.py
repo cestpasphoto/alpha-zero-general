@@ -18,16 +18,19 @@ import random
 
 ############################## ACTION DESCRIPTION #############################
 # There are n*n actions (n being nb of players). Here is description of each action:
+# (note that definition of next player is relative to current player)
 ##### Index  Meaning
-#####   0    Take card 0, and designate player 0 as next player
-#####   1    Take card 0, and designate player 1 as next player
+#####   0    Take card 0, and designate current player      as next player
+#####   1    Take card 0, and designate player to the right as next player
 #####  ...
-#####   n    Take card 1, and designate player 0 as next player
-#####  n+1   Take card 1, and designate player 1 as next player
+#####  n-1   Take card 0, and designate player to the left  as next player
 #####  ...
-#####  n*n-1 Take card n-1, and designate player n-1 as next player
-# Next player can be current player, when selecting last card. Type of card is
-# randomly chosen by logic not by players.
+#####   n    Take card 1, and designate current player      as next player
+#####  n+1   Take card 1, and designate player to the right as next player
+#####  ...
+#####  n*n-1 Take card n-1  & designate player to the left  as next player
+# Next player can be current player when selecting last card of market. Type of
+# card is randomly chosen by logic not by players.
 
 # REPEATABLE_RANDOM like in splendor/SplendorLogicNumba.py doesn't seem to help
 # for this game, probably because too much randomness...
@@ -112,11 +115,12 @@ class Board():
 		if not np.any(who_can_play): # means end of turn, so current play will play again
 			who_can_play[player] = True
 		can_be_picked = (self.market[:, CARD_TYPE] != EMPTY)
-		for p in range(self.num_players):
+		for pdelta in range(self.num_players):
+			p = (player + pdelta) % self.num_players
 			if who_can_play[p]:
 				for i in range(self.num_players):
 					if can_be_picked[i]:
-						result[i*self.num_players + p] = True
+						result[i*self.num_players + pdelta] = True
 		return result
 
 	def make_move(self, move, player, deterministic):
