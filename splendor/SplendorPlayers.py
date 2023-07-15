@@ -7,8 +7,8 @@ class RandomPlayer():
 	def __init__(self, game):
 		self.game = game
 
-	def play(self, board, player=0):
-		valids = self.game.getValidMoves(board, player)
+	def play(self, board, nb_moves):
+		valids = self.game.getValidMoves(board, player=0)
 		action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int), k=1)[0]
 		return action
 
@@ -46,7 +46,7 @@ class HumanPlayer():
 					print(f'{i} = {move_to_str(i, short=True)}', end='   ')		
 		print('(+ to show all moves)')
 
-	def play(self, board):
+	def play(self, board, nb_moves):
 		# print_board(self.game.board)
 		valid = self.game.getValidMoves(board, 0)
 		self.show_main_moves(valid)
@@ -69,7 +69,7 @@ class GreedyPlayer():
 	def __init__(self, game):
 		self.game = game
 
-	def play(self, board):
+	def play(self, board, nb_moves):
 		valids = self.game.getValidMoves(board, 0)
 		candidates = []
 		initial_score = self.game.getScore(board, 0)

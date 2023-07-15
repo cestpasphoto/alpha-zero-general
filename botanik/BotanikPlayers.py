@@ -8,8 +8,8 @@ class RandomPlayer():
     def __init__(self, game):
         self.game = game
 
-    def play(self, board, player=0):
-        valids = self.game.getValidMoves(board, player)
+    def play(self, board, nb_moves):
+        valids = self.game.getValidMoves(board, player=0)
         action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int8), k=1)[0]
         return action
 
@@ -39,7 +39,7 @@ class HumanPlayer():
                 print(' '*11, end='')
             print() 
 
-    def play(self, board):
+    def play(self, board, nb_moves):
         # print_board(self.game.board)
         game_started = (np.abs(self.game.board.workers).sum() == 6) # check if all workers are set
         valid = self.game.getValidMoves(board, 0)
