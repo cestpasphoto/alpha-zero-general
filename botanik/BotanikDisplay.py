@@ -1,32 +1,46 @@
 import numpy as np
 from colorama import Style, Fore, Back
+# from .BotanikLogicNumba import my_unpackbits
+from .BotanikConstants import np_all_cards, MECABOT
+
+#######################
+mask = np.array([4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
+def my_unpackbits(value):
+	return (np.bitwise_and(value.astype(np.uint16), mask) != 0).astype(np.uint8)
+#######################
 
 def move_to_str(move, player):
-	return f'Move'
+	if move < 15:
+		card_i, register_slot = divmod(move, 5)
+		return f'take arrival card {card_i}, and put on player register slot {register_slot}'
+	elif move < 30:
+		card_i, middlerow_slot = divmod(move-15, 5)
+		return f'take arrival card {card_i}, and put on middle row slot {middlerow_slot}'
+	else:
+		return f'unknown move {move}'
 
 ############################# PRINT GAME ######################################
 
 #                 EMPTY        SOURCE        BLUE       YELLOW       GREEN      RED        BLACK
-print_colors  = [Fore.RESET, Fore.MAGENTA, Fore.BLUE, Fore.YELLOW, Fore.GREEN, Fore.RED, Fore.RESET]
-#                     0            1                        2                  3
-print_flowers = [Back.RESET, Back.LIGHTMAGENTA_EX, Back.LIGHTMAGENTA_EX, Back.MAGENTA]
+print_colors  = [Back.RESET, Back.MAGENTA, Back.BLUE, Back.YELLOW, Back.GREEN, Back.RED, Back.BLACK]
 directions_str = [
-  ' ', # N=0, E=0, S=0, W=0
-  '╹', # N=1, E=0, S=0, W=0
-  '╺', # N=0, E=1, S=0, W=0
-  '┗', # N=1, E=1, S=0, W=0
-  '╻', # N=0, E=0, S=1, W=0
-  '┃', # N=1, E=0, S=1, W=0
-  '┏', # N=0, E=1, S=1, W=0
-  '┣', # N=1, E=1, S=1, W=0
-  '╸', # N=0, E=0, S=0, W=1
-  '┛', # N=1, E=0, S=0, W=1
-  '╸', # N=0, E=1, S=0, W=1
-  '━', # N=1, E=1, S=0, W=1
-  '┓', # N=0, E=0, S=1, W=1
-  '┨', # N=1, E=0, S=1, W=1
-  '┳', # N=0, E=1, S=1, W=1
-  '╋', # N=1, E=1, S=1, W=1
+#  0fl  1fl  3fl
+  [' ', '?', '?'], # N=0, E=0, S=0, W=0
+  ['╵', '?', '╹'], # N=1, E=0, S=0, W=0
+  ['╶', '?', '╺'], # N=0, E=1, S=0, W=0
+  ['└', '╚', '?'], # N=1, E=1, S=0, W=0
+  ['╷', '?', '╻'], # N=0, E=0, S=1, W=0
+  ['│', '║', '?'], # N=1, E=0, S=1, W=0
+  ['┌', '╔', '?'], # N=0, E=1, S=1, W=0
+  ['├', '╠', '?'], # N=1, E=1, S=1, W=0
+  ['╴', '?', '╸'], # N=0, E=0, S=0, W=1
+  ['┘', '╝', '?'], # N=1, E=0, S=0, W=1
+  ['─', '═', '?'], # N=0, E=1, S=0, W=1
+  ['┴', '╩', '?'], # N=1, E=1, S=0, W=1
+  ['┐', '╗', '?'], # N=0, E=0, S=1, W=1
+  ['┤', '╣', '?'], # N=1, E=0, S=1, W=1
+  ['┬', '╦', '?'], # N=0, E=1, S=1, W=1
+  ['┼', '╋', '?'], # N=1, E=1, S=1, W=1
 ]
 mecabot_str = '🃟'
 
@@ -34,30 +48,49 @@ def direction_code(a):
 	return min(16, a[0] + 2*a[1] + 4*a[2] + 8*a[3])
 
 def card_to_str(card):
-	result = print_colors[card[0]]
-	if card[1] < 0:
-		result += Back.RESET + mecabot_str
+	result = Fore.WHITE + print_colors[card[0]]
+	if card[2] == MECABOT:
+		result += mecabot_str
 	else:
-		result += print_flowers[card[1]]
-		result += directions_str[direction_code(card[2:])]
+		i_flw = [0, 1, 1, 2][card[1]]
+		result += directions_str[direction_code(card[3:])][i_flw]
 	result += Fore.RESET + Back.RESET
+	return result
+
+def bitfield_to_str(bitfield):
+	result = 'Available: '
+	# Translate list of available cards to a simple format
+	for color in range(5):
+		available_cards = my_unpackbits(256*bitfield[0, color].astype(np.uint8) + bitfield[1, color].astype(np.uint8))
+		for i, b in enumerate(available_cards):
+			if b:
+				result += card_to_str(np_all_cards[color, i, :]) + ' '
+			else:
+				result += '  '
 	return result
 
 def _print_main(board):
 	print(board.misc[0,:])
+	print(bitfield_to_str(board.misc[3:,:5]))
+	print()
+	print('Arrival zone: ', end='')
+	for i in range(3):
+		print(' ' + card_to_str(board.temp_cards[i,:]), end='')
+	print()
+
 	print('P0:  ', end='')
 	for i in range(5):
-		print(' ' + card_to_str(board.p0_cards[i,:]), end='')
+		print(' ' + card_to_str(board.p0_register[i,:]), end='')
 	print()
 
 	print('     ', end='')
 	for i in range(5):
-		print(' ' + card_to_str(board.middle_row[i,:]), end='')
+		print(' ' + card_to_str(board.middle_reg[i,:]), end='')
 	print()
 
 	print('P1:  ', end='')
 	for i in range(5):
-		print(' ' + card_to_str(board.p1_cards[i,:]), end='')
+		print(' ' + card_to_str(board.p1_register[i,:]), end='')
 	print()
 
 def print_board(board):
