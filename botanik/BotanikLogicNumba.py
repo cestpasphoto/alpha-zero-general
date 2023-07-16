@@ -1,6 +1,6 @@
 import numpy as np
-# from numba import njit
-# import numba
+from numba import njit
+import numba
 
 from .BotanikConstants import *
 from .BotanikDisplay import card_to_str
@@ -69,29 +69,43 @@ from .BotanikDisplay import card_to_str
 #####  35    Use freed card 0 to expand machine
 #####  36    Use freed card 1 to expand machine
 
-
+@njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
 	return (6*5, 7) # True size is 4,5,6 but other functions expects 2-dim answer
 
+@njit(cache=True, fastmath=True, nogil=True)
 def action_size():
 	return 37
 
 mask = np.array([4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
 
+@njit(cache=True, fastmath=True, nogil=True)
 def my_packbits(array):
 	product = np.multiply(array.astype(np.uint16), mask[:len(array)])
 	return product.sum()
 
+@njit(cache=True, fastmath=True, nogil=True)
 def my_unpackbits(value):
-	return (np.bitwise_and(value.astype(np.uint16), mask) != 0).astype(np.uint8)
+	return (np.bitwise_and(value, mask) != 0).astype(np.uint8)
 
+@njit(cache=True, fastmath=True, nogil=True)
 def my_random_choice(prob):
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
 	return result
 
+spec = [
+	('state'         , numba.int8[:,:,:]),
+	('misc'          , numba.int8[:,:]),
+	('arrival_cards' , numba.int8[:,:]),
+	('p0_register'   , numba.int8[:,:]),
+	('p1_register'   , numba.int8[:,:]),
+	('middle_reg'    , numba.int8[:,:]),
+	('freed_cards'   , numba.int8[:,:]),
+]
+@numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
-		self.state = None
+		self.state = np.zeros((6,5,7), dtype=np.int8)
 		self.init_game()
 
 	def get_score(self, player):
@@ -122,9 +136,12 @@ class Board():
 		
 	def valid_moves(self, player):
 		result = np.zeros(37, dtype=np.bool_)
-		result[  :30] = self._valid_register(player)     if self.misc[0,1] == PLAYER_TO_PUT_TO_REGISTER else False
-		result[30:35] = self._valid_swap_mecabot(player) if self.misc[0,1] in [MAINPL_TO_SWAP_MECABOT, OTHERP_TO_SWAP_MECABOT] else False
-		result[35:  ] = self._valid_expand_mach(player)  if self.misc[0,1] in [MAINPL_TO_EXPAND_MACHINE, OTHERP_TO_EXPAND_MACHINE] else False
+		if self.misc[0,1] == PLAYER_TO_PUT_TO_REGISTER:
+			result[  :30] = self._valid_register(player)
+		elif self.misc[0,1] in [MAINPL_TO_SWAP_MECABOT, OTHERP_TO_SWAP_MECABOT]:
+			result[30:35] = self._valid_swap_mecabot(player)
+		elif self.misc[0,1] in [MAINPL_TO_EXPAND_MACHINE, OTHERP_TO_EXPAND_MACHINE]:
+			result[35:  ] = self._valid_expand_mach(player)
 		return result
 
 	def make_move(self, move, player, deterministic):
@@ -192,18 +209,19 @@ class Board():
 	def _draw_cards(self, how_many):
 		result = np.zeros((how_many, 7), dtype=np.int8)
 		# Translate list of available cards to a simple format
-		available_cards = np.zeros((5, 13), dtype=np.bool_) 
+		available_cards = np.zeros((5, 13), dtype=np.bool_)
+		bitfield = self.misc[3:5, :].astype(np.uint8)
 		for color in range(5):
-			available_cards[color, :] = my_unpackbits(256*self.misc[3, color].astype(np.uint8) + self.misc[4, color].astype(np.uint8))
+			available_cards[color, :] = my_unpackbits(256*bitfield[0, color] + bitfield[1, color])
 
 		for i in range(how_many):
 			if available_cards.sum() == 0:
 				if i != 0:
-					print(f'This should not happen: could take {i-1} cards to arrival but not 3')
-					breakpoint()
+					raise Exception(f'This should not happen: could take {i-1} cards to arrival but not 3')
 				return None
 			# Choose random card amongst available ones
-			choice = my_random_choice(available_cards.flat[:] / available_cards.sum())
+			available_cards_flat = available_cards.flatten()
+			choice = my_random_choice(available_cards_flat / available_cards_flat.sum())
 			choice = divmod(choice, 13)
 
 			available_cards[choice] = False
@@ -279,8 +297,7 @@ class Board():
 				elif _is_empty_card(self.freed_cards[2*p+1, :]):
 					new_slot = 1
 				else:
-					print(f'All free slots are busy for player {p}')
-					breakpoint()
+					raise Exception(f'All free slots are busy for player {p}')
 
 				# Move card
 				self.freed_cards[2*p+new_slot, :] = reg[slot, :]
@@ -310,8 +327,7 @@ class Board():
 		self.middle_reg[middlerow_slot, :] = mecabot_copy[:]
 
 		if _is_mecabot(self.freed_cards[2*player+1, :]):
-			print('Rare case I assumed never happening: player was having 2 mecabots freed')
-			breakpoint()
+			raise Exception('Rare case I assumed never happening: player was having 2 mecabots freed')
 
 		# Define new state
 		if self.misc[0,1] == MAINPL_TO_SWAP_MECABOT:
@@ -319,8 +335,7 @@ class Board():
 		elif self.misc[0,1] == OTHERP_TO_SWAP_MECABOT:
 			self.misc[0,1] = OTHERP_TO_EXPAND_MACHINE
 		else:
-			print('Initial state before moving a mecabot is unexpected')
-			breakpoint()
+			raise Exception('Initial state before moving a mecabot is unexpected')
 
 		# Checkf if it frees a card
 		self._free_card_if_needed(middlerow_slot)
@@ -339,8 +354,7 @@ class Board():
 		otherp = 1 - mainpl
 		if   _is_mecabot(self.freed_cards[2*mainpl, :]):
 			self.misc[0,1] = MAINPL_TO_SWAP_MECABOT
-			print('This situation should not happen since MECABOT has highest priority than expanding machine')
-			breakpoint()
+			raise Exception('This situation should not happen since MECABOT has highest priority than expanding machine')
 		elif not _is_empty_card(self.freed_cards[2*mainpl, :]):
 			self.misc[0,1] = MAINPL_TO_EXPAND_MACHINE
 		elif _is_mecabot(self.freed_cards[2*otherp, :]):
@@ -350,20 +364,26 @@ class Board():
 		else:
 			self.misc[0,1] = PLAYER_TO_PUT_TO_REGISTER
 
+@njit(cache=True, fastmath=True, nogil=True)
 def _is_empty_card(card):
 	return (card[0] == EMPTY)
 
+@njit(cache=True, fastmath=True, nogil=True)
 def _are_empty_cards(cards):
 	return (cards[:,0] == EMPTY)
 
+@njit(cache=True, fastmath=True, nogil=True)
 def _are_not_empty_cards(cards):
 	return (cards[:,0] != EMPTY)
 
+@njit(cache=True, fastmath=True, nogil=True)
 def _is_mecabot(card):
 	return (card[2] == MECABOT)
 
+@njit(cache=True, fastmath=True, nogil=True)
 def _are_mecabots(cards):
 	return (cards[:,2] == MECABOT)
 
+@njit(cache=True, fastmath=True, nogil=True)
 def _are_not_mecabots(cards):
 	return (cards[:,2] != MECABOT)
