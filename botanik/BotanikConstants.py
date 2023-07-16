@@ -19,6 +19,13 @@ PLANT   = 4
 VEGET   = 5
 MECABOT = 6
 
+# Status within round
+PLAYER_TO_PUT_TO_REGISTER = 0 # if a player (called main player) needs to put a card from arrival zone to register
+OTHERP_TO_EXPAND_MACHINE  = 1 # if main player is done, and other player has to use his freed card
+OTHERP_TO_SWAP_MECABOT    = 2 # if main player is done, and other player has to swap a mecabot
+MAINPL_TO_EXPAND_MACHINE  = 3 # if main player needs to put a freed card into his machine
+MAINPL_TO_SWAP_MECABOT    = 4 # if main player has to swap a mecabot with middle row
+
 cards_generic = [
 #   Col #Flo Type N  E  S  W
 	[-1,  0,  0,  0, 1, 1, 0],

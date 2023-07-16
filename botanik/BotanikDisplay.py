@@ -1,7 +1,7 @@
 import numpy as np
 from colorama import Style, Fore, Back
 # from .BotanikLogicNumba import my_unpackbits
-from .BotanikConstants import np_all_cards, MECABOT
+from .BotanikConstants import *
 
 #######################
 mask = np.array([4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
@@ -16,6 +16,12 @@ def move_to_str(move, player):
 	elif move < 30:
 		card_i, middlerow_slot = divmod(move-15, 5)
 		return f'take arrival card {card_i}, and put on middle row slot {middlerow_slot}'
+	elif move < 35:
+		middlerow_slot = move-30
+		return f'swap mecabot with slot {middlerow_slot} of middle row'
+	elif move < 37:
+		slot = move-35
+		return f'use freed card {slot} to expand the machine'
 	else:
 		return f'unknown move {move}'
 
@@ -25,7 +31,7 @@ def move_to_str(move, player):
 print_colors  = [Back.RESET, Back.MAGENTA, Back.BLUE, Back.YELLOW, Back.GREEN, Back.RED, Back.BLACK]
 directions_str = [
 #  0fl  1fl  3fl
-  [' ', '?', '?'], # N=0, E=0, S=0, W=0
+  ['·', '?', '?'], # N=0, E=0, S=0, W=0
   ['╵', '?', '╹'], # N=1, E=0, S=0, W=0
   ['╶', '?', '╺'], # N=0, E=1, S=0, W=0
   ['└', '╚', '?'], # N=1, E=1, S=0, W=0
@@ -43,6 +49,14 @@ directions_str = [
   ['┼', '╋', '?'], # N=1, E=1, S=1, W=1
 ]
 mecabot_str = '🃟'
+
+statuses_str = [
+	'main player to get card from arrival to register',
+	'other player to expand his machine',
+	'other player to swap his mecabot card',
+	'main player to expand his machine',
+	'main player to swap a mecabot card',
+]
 
 def direction_code(a):
 	return min(16, a[0] + 2*a[1] + 4*a[2] + 8*a[3])
@@ -66,16 +80,17 @@ def bitfield_to_str(bitfield):
 			if b:
 				result += card_to_str(np_all_cards[color, i, :]) + ' '
 			else:
-				result += '  '
+				result += '· '
 	return result
 
 def _print_main(board):
-	print(board.misc[0,:])
+	print('-'*60)
+	print(board.misc[0,:], statuses_str[board.misc[0, 1]], f', main player=P{board.misc[0,2]}')
 	print(bitfield_to_str(board.misc[3:,:5]))
 	print()
 	print('Arrival zone: ', end='')
 	for i in range(3):
-		print(' ' + card_to_str(board.temp_cards[i,:]), end='')
+		print(' ' + card_to_str(board.arrival_cards[i,:]), end='')
 	print()
 
 	print('P0:  ', end='')
@@ -92,6 +107,15 @@ def _print_main(board):
 	for i in range(5):
 		print(' ' + card_to_str(board.p1_register[i,:]), end='')
 	print()
+
+	print('Freed:', end='')
+	for i in range(4):
+		p, slot = divmod(i, 2)
+		if slot == 0:
+			print(f' [P{p}] ', end='')
+		print(card_to_str(board.freed_cards[i,:]), end=' ')
+	print()
+	print('-'*60)
 
 def print_board(board):
 	print()
