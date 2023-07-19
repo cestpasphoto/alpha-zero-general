@@ -26,24 +26,31 @@ OTHERP_TO_SWAP_MECABOT    = 2 # if main player is done, and other player has to 
 MAINPL_TO_EXPAND_MACHINE  = 3 # if main player needs to put a freed card into his machine
 MAINPL_TO_SWAP_MECABOT    = 4 # if main player has to swap a mecabot with middle row
 
-cards_generic = [
-#   Col #Flo Type N  E  S  W
-	[-1,  0,  0,  0, 1, 1, 0],
-	[-1,  0,  0,  0, 1, 1, 0],
-	[-1,  1,  0,  0, 1, 1, 0],
-	[-1,  0,  1,  1, 0, 1, 0],
-	[-1,  0,  1,  1, 0, 1, 0],
-	[-1,  1,  1,  1, 0, 1, 0],
-	[-1,  0,  2,  0, 1, 1, 1],
-	[-1,  0,  2,  0, 1, 1, 1],
-	[-1,  1,  2,  0, 1, 1, 1],
-	[-1,  0,  3,  1, 1, 1, 1],
-	[-1,  3,  4,  0, 0, 1, 0],
-	[-1,  3,  5,  0, 0, 1, 0],
-	[-1,  0,  6,  0, 0, 0, 0],
-]
+# Orientations
+NORTH = 0 +3
+EAST  = 1 +3
+SOUTH = 2 +3
+WEST  = 3 +3
+
+SOURCE_CARD = [SOURCE, 0, 0, 0, 0, 1, 0]
 
 def gen_all_cards():
+	cards_generic = [
+	#   Col #Flo Type N  E  S  W
+		[-1,  0,  0,  0, 1, 1, 0],
+		[-1,  0,  0,  0, 1, 1, 0],
+		[-1,  1,  0,  0, 1, 1, 0],
+		[-1,  0,  1,  1, 0, 1, 0],
+		[-1,  0,  1,  1, 0, 1, 0],
+		[-1,  1,  1,  1, 0, 1, 0],
+		[-1,  0,  2,  0, 1, 1, 1],
+		[-1,  0,  2,  0, 1, 1, 1],
+		[-1,  1,  2,  0, 1, 1, 1],
+		[-1,  0,  3,  1, 1, 1, 1],
+		[-1,  3,  4,  0, 0, 1, 0],
+		[-1,  3,  5,  0, 0, 1, 0],
+		[-1,  0,  6,  0, 0, 0, 0],
+	]
 	np_cards_generic = np.array(cards_generic, dtype=np.int8)
 	result = np.tile(np_cards_generic, (5,1,1))
 	for c in range(5):

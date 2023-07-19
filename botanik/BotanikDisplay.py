@@ -19,11 +19,12 @@ def move_to_str(move, player):
 	elif move < 35:
 		middlerow_slot = move-30
 		return f'swap mecabot with slot {middlerow_slot} of middle row'
-	elif move < 37:
-		slot = move-35
-		return f'use freed card {slot} to expand the machine'
+	elif move < 237:
+		card_i, move_ = divmod(move-35, 100)
+		slot, orient = divmod(move_, 4)
+		return f'expand machine on slot {slot} with {"first" if card_i == 0 else "second"} free card {["", "rotated 90°", "rotated 180°", "rotated -90°"][orient]}'
 	else:
-		return f'unknown move {move}'
+		return f'Unknown move {move}'
 
 ############################# PRINT GAME ######################################
 
@@ -83,11 +84,31 @@ def bitfield_to_str(bitfield):
 				result += '· '
 	return result
 
+def machine_to_str(machine):
+	result = ''
+	for y in range(5):
+		for x in range(5):
+			result += card_to_str(machine[y,x,:])
+		result += '\n'
+	return result
+
+def machines_to_str(machine0, machine1):
+	result = ''
+	for y in range(5):
+		for x in range(5):
+			result += card_to_str(machine0[y,x,:])
+		result += ' '*10
+		for x in range(5):
+			result += card_to_str(machine1[y,x,:])
+		result += '\n'
+	return result
+
 def _print_main(board):
-	print('-'*60)
-	print(board.misc[0,:], statuses_str[board.misc[0, 1]], f', main player=P{board.misc[0,2]}')
-	print(bitfield_to_str(board.misc[3:,:5]))
-	print()
+	# print('-'*60)
+	print('  ', board.misc[0,:], statuses_str[board.misc[0, 1]], f', main player=P{board.misc[0,2]}')
+	print('Scores:', board.misc[1, :2])
+	# print(bitfield_to_str(board.misc[3:,:5]))
+	# print()
 	print('Arrival zone: ', end='')
 	for i in range(3):
 		print(' ' + card_to_str(board.arrival_cards[i,:]), end='')
@@ -115,11 +136,14 @@ def _print_main(board):
 			print(f' [P{p}] ', end='')
 		print(card_to_str(board.freed_cards[i,:]), end=' ')
 	print()
-	print('-'*60)
+
+	print('P0 machine:    P1 machine:')
+	print(machines_to_str(board.p0_machine, board.p1_machine))
+
+	# print('-'*60)
 
 def print_board(board):
-	print()
-	# _print_round_and_scores(board)
+	# print()
 	_print_main(board)
 
 # def random_card():

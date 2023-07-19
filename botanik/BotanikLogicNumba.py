@@ -6,7 +6,7 @@ from .BotanikConstants import *
 from .BotanikDisplay import card_to_str
 
 ############################## BOARD DESCRIPTION ##############################
-# Board is described by a 6x5x7 array. Each card is represented using 1 line of
+# Board is described by a 16x5x7 array. Each card is represented using 1 line of
 # 6 values:
 #####   0      1      2      3     4      5     6
 ##### color #flowers type  north  east  south   west
@@ -18,12 +18,18 @@ from .BotanikDisplay import card_to_str
 # Special cards:
 # Empty card is    0 0 0 0 0 0 0
 # Mecabot is       C 0 6 0 0 0 0
-# Source card is   1 0 0 0 0 0 0
+# Source card is   1 0 0 0 0 1 0
 #
 # Here is the description of each line of the board. For readibility, we defined
 # "shortcuts" that actually are views (numpy name) of overal board.
 ##### Index  Shortcut              Subindex	 Meaning
-#####   0    self.misc                0      Round on z=0, status within round on z=1, main player on z=2
+#####   0    self.misc                0      z=0: Round
+#####                                        z=1: Status within round
+#####                                        z=2: Main player
+#####                                        z=3: Nb of open pipes in P0 machine
+#####                                        z=4: Nb of open pipes in P1 machine
+#####                                 1      z=0: P0 score
+#####                                        z=1: P1 score
 #####                                3,4     Bitfield of available cards, see below
 #####   1    self.arrival_cards      0-2     Cards in arrival zone
 #####   2    self.p0_register        0-4     Cards of player 0's register
@@ -31,13 +37,19 @@ from .BotanikDisplay import card_to_str
 #####   4    self.middle_reg         0-4     Visible cards on middle row
 #####   5    self.freed_cards        0,1     Player 0's cards to complete the machine (mecabot always on first slot)
 #####                                2,3     Player 1's cards to complete the machine
+#####  6-11  self.p0_machine                 25 slots of P0 machine (y is 1st coord, x is 2nd)
+##### 11-16  self.p1_machine                 25 slots of P1 machine
+##### 16-21  self.p0_optim_neighbors         Not for NN - Same size as machine, stating if cell has neighbors
+##### 21-26  self.p1_optim_neighbors         Not for NN - Same size as machine, stating if cell has neighbors
+##### 26-31  self.p0_optim_needpipes         Not for NN - Same size as machine, stating if card needs to have pipe
+##### 31-36  self.p1_optim_needpipes         Not for NN - Same size as machine, stating if card needs to have pipe
 #
-# "Main player" refers to the last player who put a card from arrival to
-# register. And "other player" is the other player :)
 # Status in self.misc[0,1] is one of the following values, see comments in
 # BotanikConstants.py file:
 # PLAYER_TO_PUT_TO_REGISTER, OTHERP_TO_EXPAND_MACHINE, OTHERP_TO_SWAP_MECABOT,
 # MAINPL_TO_EXPAND_MACHINE, MAINPL_TO_SWAP_MECABOT
+# "Main player" refers to the last player who put a card from arrival to
+# register. And "other player" is the other player :)
 #
 # Bitfield of available cards is size 2*7 of bytes:
 #           COL 0    COL 1    COL 2    COL 3    COL 4    COL 5    COL 6
@@ -49,7 +61,7 @@ from .BotanikDisplay import card_to_str
 # Columns 5 and 6 are unused
 
 ############################## ACTION DESCRIPTION #############################
-# We coded 37 actions, taking some shortcuts ...
+# We coded 236 actions, taking some shortcuts ...
 # Here is description of each action:
 ##### Index  Meaning
 #####   0    Move card 0 from arrival zone to slot 0 of player register
@@ -66,16 +78,25 @@ from .BotanikDisplay import card_to_str
 #####  30    Swap mecabot with card on slot 0 of middle row
 #####  ...   
 #####  34    Swap mecabot with card on slot 4 of middle row
-#####  35    Use freed card 0 to expand machine
-#####  36    Use freed card 1 to expand machine
+#####  35    Use freed card 0 to expand machine on slot 0
+#####  36    Use freed card 0 to expand machine on slot 0, turned 90°
+#####  37    Use freed card 0 to expand machine on slot 0, turned 180°
+#####  38    Use freed card 0 to expand machine on slot 0, turned 270°
+#####  39    Use freed card 0 to expand machine on slot 1
+#####  ...
+##### 134    Use freed card 0 to expand machine on slot 24, turned 270°
+##### 135    Use freed card 1 to expand machine on slot 0
+#####  ...
+##### 234    Use freed card 1 to expand machine on slot 24, turned 270°
+##### 235    Throw away freed cards (nowhere to put on machine)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (6*5, 7) # True size is 4,5,6 but other functions expects 2-dim answer
+	return (36*5, 7) # True size is 4,5,6 but other functions expects 2-dim answer
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
-	return 37
+	return 236
 
 mask = np.array([4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
 
@@ -105,14 +126,14 @@ spec = [
 @numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
-		self.state = np.zeros((6,5,7), dtype=np.int8)
+		self.state = np.zeros((36,5,7), dtype=np.int8)
 		self.init_game()
 
 	def get_score(self, player):
-		return 0
+		return self.misc[1, player]
 
 	def init_game(self):
-		self.copy_state(np.zeros((6,5,7), dtype=np.int8), copy_or_not=False)
+		self.copy_state(np.zeros((36,5,7), dtype=np.int8), copy_or_not=False)
 		# Set all cards as available
 		enable_all_cards = divmod(my_packbits(np.ones(len(mask), dtype=np.int8)), 256)
 		for color in range(5):
@@ -121,27 +142,37 @@ class Board():
 		for i in range(5):
 			self.middle_reg[i,:] = self._draw_cards(1)[0,:]
 		self._draw_cards_to_arrival_zone()
+		# Init machines with a source card
+		self._init_machines()
 	
 	def copy_state(self, state, copy_or_not):
 		if self.state is state and not copy_or_not:
 			return
 		self.state = state.copy() if copy_or_not else state
 
-		self.misc          = self.state[0 ,:,:]
-		self.arrival_cards = self.state[1 ,:,:]
-		self.p0_register   = self.state[2 ,:,:]
-		self.p1_register   = self.state[3 ,:,:]
-		self.middle_reg    = self.state[4 ,:,:]
-		self.freed_cards   = self.state[5 ,:,:]
-		
+		self.misc          = self.state[0    ,:,:]
+		self.arrival_cards = self.state[1    ,:,:]
+		self.p0_register   = self.state[2    ,:,:]
+		self.p1_register   = self.state[3    ,:,:]
+		self.middle_reg    = self.state[4    ,:,:]
+		self.freed_cards   = self.state[5    ,:,:]
+		self.p0_machine    = self.state[6 :11,:,:]
+		self.p1_machine    = self.state[11:16,:,:]
+		self.p0_optim_neighbors = self.state[16:21,:,:]
+		self.p1_optim_neighbors = self.state[21:26,:,:]
+		self.p0_optim_needpipes = self.state[26:31,:,:]
+		self.p1_optim_needpipes = self.state[31:36,:,:]
+
 	def valid_moves(self, player):
-		result = np.zeros(37, dtype=np.bool_)
+		result = np.zeros(236, dtype=np.bool_)
 		if self.misc[0,1] == PLAYER_TO_PUT_TO_REGISTER:
 			result[  :30] = self._valid_register(player)
 		elif self.misc[0,1] in [MAINPL_TO_SWAP_MECABOT, OTHERP_TO_SWAP_MECABOT]:
 			result[30:35] = self._valid_swap_mecabot(player)
 		elif self.misc[0,1] in [MAINPL_TO_EXPAND_MACHINE, OTHERP_TO_EXPAND_MACHINE]:
-			result[35:  ] = self._valid_expand_mach(player)
+			result[35:235] = self._valid_expand_mach(player)
+			if not any(result[35:235]):
+				result[235] = True # If no other move possible, allow to throw cards away
 		return result
 
 	def make_move(self, move, player, deterministic):
@@ -151,8 +182,10 @@ class Board():
 			self._move_to_middle_row_and_unlink(move, player)
 		elif move < 35:
 			self._swap_mecabot(move, player)
-		elif move < 37:
+		elif move < 236:
 			self._expand_machine(move, player)
+		elif move < 237:
+			self._throw_cards_away(move, player)
 		
 		new_state, main_player = self.misc[0,1], self.misc[0,2]
 		# Update arrival zone if needed
@@ -199,6 +232,17 @@ class Board():
 		if self.misc[0,1] > PLAYER_TO_PUT_TO_REGISTER:
 			self.misc[0,1] = (self.misc[0,1]+1)%4 + 1
 		self.misc[0,2] = 1 - self.misc[0,2]
+
+		# Swap machines
+		machine_copy = self.p0_machine.copy()
+		self.p0_machine[:] = self.p1_machine[:]
+		self.p1_machine[:] = machine_copy[:]
+		machine_copy = self.p0_optim_neighbors.copy()
+		self.p0_optim_neighbors[:] = self.p1_optim_neighbors[:]
+		self.p1_optim_neighbors[:] = machine_copy[:]
+		machine_copy = self.p0_optim_needpipes.copy()
+		self.p0_optim_needpipes[:] = self.p1_optim_needpipes[:]
+		self.p1_optim_needpipes[:] = machine_copy[:]
 
 	def get_symmetries(self, policy, valid_actions):
 		pass
@@ -264,10 +308,23 @@ class Board():
 		return result
 
 	def _valid_expand_mach(self, player):
-		freed_cards = self.freed_cards[2*player:2*(player+1),:]
-		result = np.logical_and(_are_not_empty_cards(freed_cards), _are_not_mecabots(freed_cards))
-		return result
+		result = np.zeros(200, dtype=np.bool_)
+		machine = self.p0_machine if player == 0 else self.p1_machine
+		optim_neighbors = self.p0_optim_neighbors if player == 0 else self.p1_optim_neighbors
+		optim_needpipes = self.p0_optim_needpipes if player == 0 else self.p1_optim_needpipes
+		
+		admissible_cells = np.argwhere(optim_neighbors[:,:,0])
+		nb_open_pipes = _compute_open_pipes(machine)
 
+		for freed_card_slot in range(2):
+			freed_card = self.freed_cards[2*player+freed_card_slot]
+			if not _is_empty_card(freed_card):
+				for y,x in admissible_cells:
+					 result_4orient = _check_card_on_machine(freed_card, y, x, optim_needpipes[y,x,:], optim_neighbors[y,x,:], nb_open_pipes)
+					 result[(x+y*5+freed_card_slot*25)*4:(x+y*5+freed_card_slot*25+1)*4] = result_4orient
+
+		return result
+	
 	def _move_to_register(self, move, player):
 		card_i, register_slot = divmod(move, 5)
 		# Move card from arrival to player register
@@ -341,13 +398,67 @@ class Board():
 		self._free_card_if_needed(middlerow_slot)
 
 	def _expand_machine(self, move, player):
-		slot = (move-35)
-		self.freed_cards[2*player + slot, :] = 0 # Just cancel the card for now
+		card_i, move_ = divmod(move-35, 100)
+		slot, orient = divmod(move_, 4)
+		slot_y, slot_x = divmod(slot, 5)
+		machine = self.p0_machine if player == 0 else self.p1_machine
+		optim_neighbors = self.p0_optim_neighbors if player == 0 else self.p1_optim_neighbors
+		optim_needpipes = self.p0_optim_needpipes if player == 0 else self.p1_optim_needpipes
+		
+		# Put oriented card in machine, and update internals
+		machine[slot_y, slot_x, :] = self.freed_cards[2*player + card_i, :]
+		machine[slot_y, slot_x, NORTH:] = np.roll(machine[slot_y, slot_x, NORTH:], orient)
+		self.freed_cards[2*player + card_i, :] = 0
+		self._update_optims(slot_y, slot_x, machine, optim_neighbors, optim_needpipes)
 
-		# Shift other freed card if any
-		if slot == 0 and not _is_empty_card(self.freed_cards[2*player+1, :]):
+		# Shift other freed card to 1st slot if needed
+		if card_i == 0 and not _is_empty_card(self.freed_cards[2*player+1, :]):
 			self.freed_cards[2*player, :] = self.freed_cards[2*player+1, :]
 			self.freed_cards[2*player+1, :] = 0
+
+		# Update score
+		self.misc[1, player] = _compute_score(machine)
+
+		# Decide next state
+		mainpl = self.misc[0,2]
+		otherp = 1 - mainpl
+		if   _is_mecabot(self.freed_cards[2*mainpl, :]):
+			self.misc[0,1] = MAINPL_TO_SWAP_MECABOT
+			raise Exception('This situation should not happen since MECABOT has highest priority than expanding machine')
+		elif not _is_empty_card(self.freed_cards[2*mainpl, :]):
+			self.misc[0,1] = MAINPL_TO_EXPAND_MACHINE
+		elif _is_mecabot(self.freed_cards[2*otherp, :]):
+			self.misc[0,1] = OTHERP_TO_SWAP_MECABOT
+		elif not _is_empty_card(self.freed_cards[2*otherp, :]):
+			self.misc[0,1] = OTHERP_TO_EXPAND_MACHINE
+		else:
+			self.misc[0,1] = PLAYER_TO_PUT_TO_REGISTER
+
+	def _init_machines(self):
+		src_y, src_x = 1, 2
+		# Init machines with a source card
+		self.p0_machine[src_y,src_x,:], self.p1_machine[src_y,src_x,:] = SOURCE_CARD, SOURCE_CARD
+		self.misc[0,3], self.misc[0,4] = 1, 1
+		# Init optim arrays
+		self._update_optims(src_y, src_x, self.p0_machine, self.p0_optim_neighbors, self.p0_optim_needpipes)
+		self._update_optims(src_y, src_x, self.p1_machine, self.p1_optim_neighbors, self.p1_optim_needpipes)
+
+	def _update_optims(self, y, x, machine, optim_neighbors, optim_needpipes):
+		for orient, (dy, dx) in zip(range(NORTH, WEST+1), [(-1,0), (0,1), (1,0), (0,-1)]):
+			if 0<=y+dy<5 and 0<=x+dx<5:
+				opposite_orient = (orient-3 + 2) % 4 +3
+				# Neighbor cells (if empty) are new candidates for next cards
+				optim_neighbors[y+dy, x+dx, 0] = _is_empty_card(machine[y+dy, x+dx, :])
+				# Neighbor cells have me as new neighbor
+				optim_neighbors[y+dy, x+dx, opposite_orient] = 1
+				# Future neighbors need to have pipe if I have one (or need not have if I don't)
+				optim_needpipes[y+dy, x+dx, opposite_orient] = (machine[y, x, orient] > 0)
+		# And I am not a candidate anymore (code could be less overkill but easier for debug)
+		optim_neighbors[y, x, :] = 0
+		optim_needpipes[y, x, :] = 0
+
+	def _throw_cards_away(self, move, player):
+		self.freed_cards[2*player:2*player+2, :] = 0
 
 		# Decide next state
 		mainpl = self.misc[0,2]
@@ -387,3 +498,116 @@ def _are_mecabots(cards):
 @njit(cache=True, fastmath=True, nogil=True)
 def _are_not_mecabots(cards):
 	return (cards[:,2] != MECABOT)
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _compute_open_pipes(machine):
+	nb_open_pipes = 0
+	for y in range(5):
+		for x in range(5):
+			if not _is_empty_card(machine[y, x, :]):
+				if y>0 and _is_empty_card(machine[y-1, x, :]) and machine[y, x, NORTH] > 0:
+					nb_open_pipes += 1
+				if x<4 and _is_empty_card(machine[y, x+1, :]) and machine[y, x, EAST] > 0:
+					nb_open_pipes += 1
+				if y<4 and _is_empty_card(machine[y+1, x, :]) and machine[y, x, SOUTH] > 0:
+					nb_open_pipes += 1
+				if x>0 and _is_empty_card(machine[y, x-1, :]) and machine[y, x, WEST] > 0:
+					nb_open_pipes += 1
+	return nb_open_pipes
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial_open_pipes):
+	result = np.zeros(4, dtype=np.bool_)
+	orient_range = range(4)
+	if card[2] == PIPE2_STRAIGHT:
+		orient_range = range(2)
+	elif card[2] == PIPE4:
+		orient_range = range(1)
+
+	for orient in orient_range:
+		oriented_card = np.roll(card[NORTH:], orient)
+		# Check discontinuity of pipes of new card with its neighbours
+		pipes                = np.multiply(oriented_card, [y>0, x<4, y<4, x>0]) # Do not count pipes out of bounds
+		pipes_with_neighbors = np.multiply(oriented_card, optim_neighbors[NORTH:])
+		matching_pipes = np.all(pipes_with_neighbors == optim_needpipes[NORTH:])
+		if matching_pipes:
+			# Check if there still are open pipes
+			card_pipes = pipes.sum() 
+			closed_pipes = pipes_with_neighbors.sum()
+			open_pipes = card_pipes - closed_pipes
+			if initial_open_pipes - closed_pipes + open_pipes > 0:
+				result[orient] = True
+			# else False
+		# else False
+	return result
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _compute_score(machine):
+	visited = np.zeros((machine.shape[0], machine.shape[1]), dtype=np.bool_)
+	labels  = np.ones((machine.shape[0], machine.shape[1]), dtype=np.int8) * 99
+	equivalencies = []
+	_dfs(machine, 1, 2, visited, labels, equivalencies)
+
+	print(labels)
+	print(equivalencies)
+
+	total_score = 0
+	visited_1d = np.zeros(len(equivalencies), dtype=np.bool_)
+	for connex_area in range(1, len(equivalencies)):
+		nb_cards, nb_flowers = _score_sum(equivalencies, visited_1d, [connex_area])
+		total_score += nb_cards+nb_flowers if nb_cards >= 3 else nb_flowers
+		print(f'{nb_cards} {nb_flowers} -> {nb_cards if nb_cards >= 3 else 0} {nb_flowers}   - {total_score=}')
+	return total_score
+
+# Implement the "faster scanning version" in
+# https://en.wikipedia.org/wiki/Connected-component_labeling#Two-pass
+@njit(cache=True, fastmath=True, nogil=True)
+def _dfs(machine, y, x, visited, labels, equivalencies):
+	visited[y, x] = True
+	neighbors = []
+	if y>0 and machine[y, x, NORTH] > 0:
+		neighbors.append((y-1, x))
+	if x<4 and machine[y, x, EAST] > 0:
+		neighbors.append((y, x+1))
+	if y<4 and machine[y, x, SOUTH] > 0:
+		neighbors.append((y+1, x))
+	if x>0 and machine[y, x, WEST] > 0:
+		neighbors.append((y, x-1))
+	nb_flowers = machine[y, x, 1]
+
+	# First pass: Find the neighbor (of same color) with the smallest label and
+	# assign it to the current element If there are no neighbors (of same
+	# color), uniquely label the current element
+	neighbors_labels = [labels[ny,nx] for ny, nx in neighbors if machine[ny, nx, 0] == machine[y, x, 0]]
+	new_label = min(neighbors_labels + [99])
+	if new_label == 99:
+		new_label = len(equivalencies)
+		# 0: equivalent labels, 1: nb cards within label, 2: nb flowers within label
+		equivalencies.append( [set([new_label]), 1, nb_flowers] )
+	else:
+		for i in neighbors_labels:
+			if i != 99:
+				equivalencies[i][0].add(new_label)
+		equivalencies[new_label][1] += 1
+		equivalencies[new_label][2] += nb_flowers
+	labels[y, x] = new_label
+
+	# Second pass: recurrence with neighbors, whatever their colors
+	for ny, nx in neighbors:
+		if not _is_empty_card(machine[ny, nx, :]) and not visited[ny, nx]:
+			_dfs(machine, ny, nx, visited, labels, equivalencies)
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _score_sum(equivalencies, visited, to_visit):
+	nb_cards, nb_flowers = 0, 0
+	for i in to_visit:
+		if not visited[i]:
+			nb_cards, nb_flowers = nb_cards+equivalencies[i][1], nb_flowers+equivalencies[i][2]
+			visited[i] = True
+			# Recurrence
+			deeper_result = _score_sum(equivalencies, visited, equivalencies[i][0])
+			nb_cards, nb_flowers = nb_cards+deeper_result[0], nb_flowers+deeper_result[1]
+
+	return (nb_cards, nb_flowers)
+	
+	
