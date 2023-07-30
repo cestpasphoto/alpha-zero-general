@@ -32,7 +32,7 @@ EAST  = 1 +3
 SOUTH = 2 +3
 WEST  = 3 +3
 
-SOURCE_CARD = [SOURCE, 0, 0, 0, 0, 1, 0]
+SOURCE_CARD = np.array([SOURCE, 0, 0, 0, 0, 1, 0], dtype=np.int8)
 
 def gen_all_cards():
 	cards_generic = [

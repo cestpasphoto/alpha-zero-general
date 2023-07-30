@@ -115,13 +115,19 @@ def my_random_choice(prob):
 	return result
 
 spec = [
-	('state'         , numba.int8[:,:,:]),
-	('misc'          , numba.int8[:,:]),
-	('arrival_cards' , numba.int8[:,:]),
-	('p0_register'   , numba.int8[:,:]),
-	('p1_register'   , numba.int8[:,:]),
-	('middle_reg'    , numba.int8[:,:]),
-	('freed_cards'   , numba.int8[:,:]),
+	('state'         		, numba.int8[:,:,:]),
+	('misc'          		, numba.int8[:,:]),
+	('arrival_cards' 		, numba.int8[:,:]),
+	('p0_register'   		, numba.int8[:,:]),
+	('p1_register'   		, numba.int8[:,:]),
+	('middle_reg'    		, numba.int8[:,:]),
+	('freed_cards'   		, numba.int8[:,:]),
+	('p0_machine'    		, numba.int8[:,:,:]),
+	('p0_optim_neighbors'	, numba.int8[:,:,:]),
+	('p0_optim_needpipes'	, numba.int8[:,:,:]),
+	('p1_machine'    		, numba.int8[:,:,:]),
+	('p1_optim_neighbors'	, numba.int8[:,:,:]),
+	('p1_optim_needpipes'	, numba.int8[:,:,:]),
 ]
 @numba.experimental.jitclass(spec)
 class Board():
@@ -171,7 +177,7 @@ class Board():
 			result[30:35] = self._valid_swap_mecabot(player)
 		elif self.misc[0,1] in [MAINPL_TO_EXPAND_MACHINE, OTHERP_TO_EXPAND_MACHINE]:
 			result[35:235] = self._valid_expand_mach(player)
-			if not any(result[35:235]):
+			if not np.any(result[35:235]):
 				result[235] = True # If no other move possible, allow to throw cards away
 		return result
 
@@ -232,6 +238,7 @@ class Board():
 		if self.misc[0,1] > PLAYER_TO_PUT_TO_REGISTER:
 			self.misc[0,1] = (self.misc[0,1]+1)%4 + 1
 		self.misc[0,2] = 1 - self.misc[0,2]
+		self.misc[1,0], self.misc[1,1] = self.misc[1,1], self.misc[1,0]
 
 		# Swap machines
 		machine_copy = self.p0_machine.copy()
@@ -245,7 +252,17 @@ class Board():
 		self.p1_optim_needpipes[:] = machine_copy[:]
 
 	def get_symmetries(self, policy, valid_actions):
-		pass
+		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
+		state_backup = self.state.copy()
+
+		# LEFT/RIGHT SYMMETRIES OF MACHINE 0
+		# LEFT/RIGHT SYMMETRIES OF MACHINE 1
+
+		# ROLL COLORS if not heavy (no need change bitfield)
+
+		# 3 RANDOM PERMUTATIONS on ARRIVAL ZONE
+
+		return symmetries
 
 	def get_round(self):
 		return self.misc[0,0]
@@ -527,7 +544,7 @@ def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial
 	for orient in orient_range:
 		oriented_card = np.roll(card[NORTH:], orient)
 		# Check discontinuity of pipes of new card with its neighbours
-		pipes                = np.multiply(oriented_card, [y>0, x<4, y<4, x>0]) # Do not count pipes out of bounds
+		pipes                = np.multiply(oriented_card, np.array([y>0, x<4, y<4, x>0])) # Do not count pipes out of bounds
 		pipes_with_neighbors = np.multiply(oriented_card, optim_neighbors[NORTH:])
 		matching_pipes = np.all(pipes_with_neighbors == optim_needpipes[NORTH:])
 		if matching_pipes:
@@ -545,8 +562,10 @@ def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial
 def _compute_score(machine):
 	visited = np.zeros((machine.shape[0], machine.shape[1]), dtype=np.bool_)
 	labels  = np.ones((machine.shape[0], machine.shape[1]), dtype=np.int8) * 99
-	equivalencies = []
-	_dfs(machine, 1, 2, visited, labels, equivalencies)
+	equivalencies = [set([0]) for i in range(0)] # Empty list but with inferrable type
+	nb_cards_per_label = [0 for i in range(0)] # Empty list but with inferrable type
+	nb_flowers_per_label = [0 for i in range(0)] # Empty list but with inferrable type
+	_dfs(machine, 1, 2, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label)
 
 	print(labels)
 	print(equivalencies)
@@ -554,15 +573,15 @@ def _compute_score(machine):
 	total_score = 0
 	visited_1d = np.zeros(len(equivalencies), dtype=np.bool_)
 	for connex_area in range(1, len(equivalencies)):
-		nb_cards, nb_flowers = _score_sum(equivalencies, visited_1d, [connex_area])
+		nb_cards, nb_flowers = _score_sum(equivalencies, nb_cards_per_label, nb_flowers_per_label, visited_1d, set([connex_area]))
 		total_score += nb_cards+nb_flowers if nb_cards >= 3 else nb_flowers
-		print(f'{nb_cards} {nb_flowers} -> {nb_cards if nb_cards >= 3 else 0} {nb_flowers}   - {total_score=}')
+		# print(f'{nb_cards} {nb_flowers} -> {nb_cards if nb_cards >= 3 else 0} {nb_flowers}   - {total_score=}')
 	return total_score
 
 # Implement the "faster scanning version" in
 # https://en.wikipedia.org/wiki/Connected-component_labeling#Two-pass
 @njit(cache=True, fastmath=True, nogil=True)
-def _dfs(machine, y, x, visited, labels, equivalencies):
+def _dfs(machine, y, x, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label):
 	visited[y, x] = True
 	neighbors = []
 	if y>0 and machine[y, x, NORTH] > 0:
@@ -582,30 +601,31 @@ def _dfs(machine, y, x, visited, labels, equivalencies):
 	new_label = min(neighbors_labels + [99])
 	if new_label == 99:
 		new_label = len(equivalencies)
-		# 0: equivalent labels, 1: nb cards within label, 2: nb flowers within label
-		equivalencies.append( [set([new_label]), 1, nb_flowers] )
+		equivalencies.append(set([new_label]))
+		nb_cards_per_label.append(1)
+		nb_flowers_per_label.append(nb_flowers)
 	else:
 		for i in neighbors_labels:
 			if i != 99:
-				equivalencies[i][0].add(new_label)
-		equivalencies[new_label][1] += 1
-		equivalencies[new_label][2] += nb_flowers
+				equivalencies[i].add(new_label)
+		nb_cards_per_label[new_label] += 1
+		nb_flowers_per_label[new_label] += nb_flowers
 	labels[y, x] = new_label
 
 	# Second pass: recurrence with neighbors, whatever their colors
 	for ny, nx in neighbors:
 		if not _is_empty_card(machine[ny, nx, :]) and not visited[ny, nx]:
-			_dfs(machine, ny, nx, visited, labels, equivalencies)
+			_dfs(machine, ny, nx, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label)
 
 @njit(cache=True, fastmath=True, nogil=True)
-def _score_sum(equivalencies, visited, to_visit):
+def _score_sum(equivalencies, nb_cards_per_label, nb_flowers_per_label, visited, to_visit):
 	nb_cards, nb_flowers = 0, 0
 	for i in to_visit:
 		if not visited[i]:
-			nb_cards, nb_flowers = nb_cards+equivalencies[i][1], nb_flowers+equivalencies[i][2]
+			nb_cards, nb_flowers = nb_cards+nb_cards_per_label[i], nb_flowers+nb_flowers_per_label[i]
 			visited[i] = True
 			# Recurrence
-			deeper_result = _score_sum(equivalencies, visited, equivalencies[i][0])
+			deeper_result = _score_sum(equivalencies, nb_cards_per_label, nb_flowers_per_label, visited, equivalencies[i])
 			nb_cards, nb_flowers = nb_cards+deeper_result[0], nb_flowers+deeper_result[1]
 
 	return (nb_cards, nb_flowers)
