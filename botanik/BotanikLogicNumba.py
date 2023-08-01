@@ -37,12 +37,12 @@ from .BotanikDisplay import card_to_str
 #####   4    self.middle_reg         0-4     Visible cards on middle row
 #####   5    self.freed_cards        0,1     Player 0's cards to complete the machine (mecabot always on first slot)
 #####                                2,3     Player 1's cards to complete the machine
-#####  6-11  self.p0_machine                 25 slots of P0 machine (y is 1st coord, x is 2nd)
-##### 11-16  self.p1_machine                 25 slots of P1 machine
-##### 16-21  self.p0_optim_neighbors         Not for NN - Same size as machine, stating if cell has neighbors
-##### 21-26  self.p1_optim_neighbors         Not for NN - Same size as machine, stating if cell has neighbors
-##### 26-31  self.p0_optim_needpipes         Not for NN - Same size as machine, stating if card needs to have pipe
-##### 31-36  self.p1_optim_needpipes         Not for NN - Same size as machine, stating if card needs to have pipe
+#####  6-10  self.p0_machine                 25 slots of P0 machine (y is 1st coord, x is 2nd)
+##### 11-15  self.p1_machine                 25 slots of P1 machine
+##### 16-20  self.p0_optim_neighbors         Not for NN - Same size as machine, stating if cell has neighbors
+##### 21-25  self.p1_optim_neighbors         Not for NN - Same size as machine, stating if cell has neighbors
+##### 26-30  self.p0_optim_needpipes         Not for NN - Same size as machine, stating if card needs to have pipe
+##### 31-35  self.p1_optim_needpipes         Not for NN - Same size as machine, stating if card needs to have pipe
 #
 # Status in self.misc[0,1] is one of the following values, see comments in
 # BotanikConstants.py file:
@@ -217,7 +217,13 @@ class Board():
 		# Check there still are any available cards in bitfield, or any freed card to use
 		if np.any(self.misc[3:5, :] != 0) or np.any(_are_not_empty_cards(self.arrival_cards[:3,:])) or np.any(_are_not_empty_cards(self.freed_cards[:4,:])):
 			return np.array([0, 0], dtype=np.float32) # No winner yet
-		return np.array([0.01, 0.01], dtype=np.float32) # Ex aequo for this draft implementation
+
+		if   self.misc[1,0] > self.misc[1,1]:
+			return np.array([1, 0], dtype=np.float32)
+		elif self.misc[1,0] < self.misc[1,1]:
+			return np.array([0, 1], dtype=np.float32)
+		else:
+			return np.array([0.01, 0.01], dtype=np.float32)
 
 	def swap_players(self, nb_swaps):
 		if nb_swaps != 1:
@@ -376,7 +382,7 @@ class Board():
 				# Move card
 				self.freed_cards[2*p+new_slot, :] = reg[slot, :]
 				reg[slot, :] = 0
-				print(f'=== Card {slot} of P{p} was unlinked, moved to {new_slot} - {player_color},{middle_color} - {player_type},{middle_type}')
+				# print(f'=== Card {slot} of P{p} was unlinked, moved to {new_slot} - {player_color},{middle_color} - {player_type},{middle_type}')
 
 				# Update state
 				is_p_the_main_player = (p == self.misc[0,2])
@@ -384,12 +390,13 @@ class Board():
 					new_status = MAINPL_TO_SWAP_MECABOT if is_p_the_main_player else OTHERP_TO_SWAP_MECABOT
 					# Mecabot needs to be the 1st freed card
 					if new_slot != 0:
-						print('🎁 Plus this card is a mecabot and I need to swap with other free cards 🎁')
+						# print('🎁 Plus this card is a mecabot and I need to swap with other free cards 🎁')
 						mecabot_copy = self.freed_cards[2*p+new_slot, :].copy()
 						self.freed_cards[2*p+new_slot, :] = self.freed_cards[2*p, :]
 						self.freed_cards[2*p, :] = mecabot_copy[:]
 					else:
-						print('🎁 Plus this card is a mecabot 🎁')
+						# print('🎁 Plus this card is a mecabot 🎁')
+						pass
 				else:
 					new_status = MAINPL_TO_EXPAND_MACHINE if is_p_the_main_player else OTHERP_TO_EXPAND_MACHINE
 				self.misc[0,1] = max(self.misc[0,1], new_status) # Higher values have higher priority
@@ -562,13 +569,13 @@ def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial
 def _compute_score(machine):
 	visited = np.zeros((machine.shape[0], machine.shape[1]), dtype=np.bool_)
 	labels  = np.ones((machine.shape[0], machine.shape[1]), dtype=np.int8) * 99
-	equivalencies = [set([0]) for i in range(0)] # Empty list but with inferrable type
-	nb_cards_per_label = [0 for i in range(0)] # Empty list but with inferrable type
-	nb_flowers_per_label = [0 for i in range(0)] # Empty list but with inferrable type
+	equivalencies        = [set([0]) for i in range(0)] # Empty list but with inferrable type
+	nb_cards_per_label   = [0 for i in range(0)]        # Empty list but with inferrable type
+	nb_flowers_per_label = [0 for i in range(0)]        # Empty list but with inferrable type
 	_dfs(machine, 1, 2, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label)
 
-	print(labels)
-	print(equivalencies)
+	# print(labels)
+	# print(equivalencies)
 
 	total_score = 0
 	visited_1d = np.zeros(len(equivalencies), dtype=np.bool_)
