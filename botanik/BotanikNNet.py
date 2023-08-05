@@ -120,16 +120,11 @@ class BotanikNNet(nn.Module):
 
 			### NN working on current player's machine (2d)
 			n_filters = 32
-			n_filters_first = n_filters//2
-			n_filters_begin = n_filters_first
-			n_filters_end = n_filters
-			n_exp_begin, n_exp_end = n_filters_begin*3, n_filters_end*3
-			depth = 12 - 2
+			n_exp_end = n_filters*3
+			depth = 6 - 2
 
-			self.first_layer_mach0 = nn.Conv2d(  7, n_filters_first, 3, padding=1, bias=False)
-			confs  = [inverted_residual(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, False, "RE") for i in range(depth//2)]
-			confs += [inverted_residual(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , True , "HS") for i in range(depth//2)]
-			confs += [inverted_residual(n_filters_end                               , n_exp_end  , n_filters      , True , "HS")]
+			self.first_layer_mach0 = nn.Conv2d(  7, n_filters, 3, padding=1, bias=False)
+			confs  = [inverted_residual(n_filters, n_exp_end, n_filters, False, "RE") for i in range(depth//2)]
 			self.trunk_mach0 = nn.Sequential(*confs)
 
 			head_depth = 3
@@ -147,16 +142,11 @@ class BotanikNNet(nn.Module):
 
 			### NN working on other player's machine (2d)
 			n_filters = 32
-			n_filters_first = n_filters//2
-			n_filters_begin = n_filters_first
-			n_filters_end = n_filters
-			n_exp_begin, n_exp_end = n_filters_begin*3, n_filters_end*3
-			depth = 12 - 2
+			n_exp_end = n_filters*3
+			depth = 6 - 2
 
-			self.first_layer_mach1 = nn.Conv2d(  7, n_filters_first, 3, padding=1, bias=False)
-			confs  = [inverted_residual(n_filters_first if i==0 else n_filters_begin, n_exp_begin, n_filters_begin, False, "RE") for i in range(depth//2)]
-			confs += [inverted_residual(n_filters_begin if i==0 else n_filters_end  , n_exp_end  , n_filters_end  , True , "HS") for i in range(depth//2)]
-			confs += [inverted_residual(n_filters_end                               , n_exp_end  , n_filters      , True , "HS")]
+			self.first_layer_mach1 = nn.Conv2d(  7, n_filters, 3, padding=1, bias=False)
+			confs  = [inverted_residual(n_filters, n_exp_end, n_filters, False, "RE") for i in range(depth//2)]
 			self.trunk_mach1 = nn.Sequential(*confs)
 
 			head_depth = 3

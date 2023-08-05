@@ -79,7 +79,7 @@ from .BotanikDisplay import card_to_str
 #####  ...   
 #####  34    Swap mecabot with card on slot 4 of middle row
 #####  35    Use freed card 0 to expand machine on slot 0
-#####  36    Use freed card 0 to expand machine on slot 0, turned 90°
+#####  36    Use freed card 0 to expand machine on slot 0, turned 90° clockwise
 #####  37    Use freed card 0 to expand machine on slot 0, turned 180°
 #####  38    Use freed card 0 to expand machine on slot 0, turned 270°
 #####  39    Use freed card 0 to expand machine on slot 1
@@ -188,9 +188,9 @@ class Board():
 			self._move_to_middle_row_and_unlink(move, player)
 		elif move < 35:
 			self._swap_mecabot(move, player)
-		elif move < 236:
+		elif move < 235:
 			self._expand_machine(move, player)
-		elif move < 237:
+		elif move < 236:
 			self._throw_cards_away(move, player)
 		
 		new_state, main_player = self.misc[0,1], self.misc[0,2]
@@ -257,16 +257,124 @@ class Board():
 		self.p0_optim_needpipes[:] = self.p1_optim_needpipes[:]
 		self.p1_optim_needpipes[:] = machine_copy[:]
 
-	def get_symmetries(self, policy, valid_actions):
-		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
-		state_backup = self.state.copy()
+	def get_symmetries(self, policy, valids):
+		symmetries = [(self.state.copy(), policy.copy(), valids.copy())]
+		state_backup, policy_backup, valids_backup = symmetries[0]
+		# In all symmetries, no need to update the "optim" vectors as they are not used by NN
 
-		# LEFT/RIGHT SYMMETRIES OF MACHINE 0
-		# LEFT/RIGHT SYMMETRIES OF MACHINE 1
+		# Apply horizontal symmetry on a machine (swap cells and change directions)
+		def _horizontal_symmetry_machine(machine):
+			for y in range(5):
+				for x in range((5+1)//2):
+					if 4-x != x:
+						# Swap cells
+						machine[y,x,:], machine[y,4-x,:] = machine[y,4-x,:], machine[y,x,:].copy()
+						# Change directions
+						machine[y, 4-x, EAST], machine[y, 4-x, WEST] = machine[y, 4-x, WEST], machine[y, 4-x, EAST]
+						machine[y,   x, EAST], machine[y,   x, WEST] = machine[y,   x, WEST], machine[y,   x, EAST]
+					else:
+						machine[y,   x, EAST], machine[y,   x, WEST] = machine[y,   x, WEST], machine[y,   x, EAST]
+					
+		# Apply horizontal symmetry on policy+valids (swap value while taking care of new directions)
+		def _horizontal_symmetry_polval(policy, valids, freed_cards):
+			for y in range(5):
+				for x in range((5+1)//2):
+					for card_i in range(2):
+						card_type = freed_cards[card_i, 2]
+						for orient in range(4):
+							# equivalent orientation after mirroring depends on card's type
+							new_orient = ([1,0,3,2] if card_type == PIPE2_ANGLE else [0,3,2,1])[orient]
+							action1 = 35 + 100*card_i + 4 * (5*y + x)
+							action2 = 35 + 100*card_i + 4 * (5*y + 4-x)
+							if 4-x != x:
+								policy[action2+new_orient], policy[action1+new_orient] = policy[action1+orient], policy[action2+orient]
+								valids[action2+new_orient], valids[action1+new_orient] = valids[action1+orient], valids[action2+orient]
+							else:
+								policy[action1+new_orient] = policy[action1+orient]
+								valids[action1+new_orient] = valids[action1+orient]
 
-		# ROLL COLORS if not heavy (no need change bitfield)
+		# Swap freedcard 0 and 1 (assuming not empty)
+		def _swap_freed(freed_cards, policy, valids):
+			# Update policy and valids
+			for yx in range(25):
+				for orient in range(4):
+					action1 = 35 + 100*0 + 4 * yx + orient
+					action2 = 35 + 100*1 + 4 * yx + orient
+					policy[action2], policy[action1] = policy[action1], policy[action2]
+					valids[action2], valids[action1] = valids[action1], valids[action2]
+			# Update freed_cards
+			freed_cards[0,:], freed_cards[1,:] = freed_cards[1,:], freed_cards[0,:].copy()
 
-		# 3 RANDOM PERMUTATIONS on ARRIVAL ZONE
+		# Permutation is a list ([0,2,1] for instance to swap last 2 items)
+		def _permute_arrival(permutation, arrival_cards, policy, valids):
+			arrival_init = arrival_cards.copy()
+			for i, new_i in enumerate(permutation):
+				arrival_cards[new_i] = arrival_init[i]
+				policy[5*new_i:5*new_i+5], policy[5*new_i+15:5*new_i+15+5] = policy_backup[5*i:5*i+5], policy_backup[5*i+15:5*i+15+5]
+				valids[5*new_i:5*new_i+5], valids[5*new_i+15:5*new_i+15+5] = valids_backup[5*i:5*i+5], valids_backup[5*i+15:5*i+15+5]
+
+		# Permutation is a list ([1,2,3,4,0] for instance to move all items to the right)
+		def _permute_registers(permutation, r0, r1, rM, policy, valids):
+			r0_init, r1_init, rM_init = r0.copy(), r1.copy(), rM.copy()
+			for i, new_i in enumerate(permutation):
+				r0[new_i], r1[new_i], rM[new_i] = r0_init[i], r1_init[i], rM_init[i]
+				for z in range(7):
+					policy[z*5+new_i] = policy_backup[z*5+i]
+					valids[z*5+new_i] = valids_backup[z*5+i]
+
+		# Change colors in all cards of array, except if empty card or source card
+		def _roll_colors_1d(array, nroll):
+			for i in range(array.shape[0]):
+				color = array[i,0]
+				if color != EMPTY and color != SOURCE:
+					array[i,0] = ((color - 2) + nroll) % 5 + 2
+		def _roll_colors_2d(array, nroll):
+			for i in range(array.shape[0]):
+				for j in range(array.shape[1]):
+					color = array[i,j,0]
+					if color != EMPTY and color != SOURCE:
+						array[i,j,0] = ((color - 2) + nroll) % 5 + 2
+
+		# Left/right symmetries of machine 0, and policy/valids
+		_horizontal_symmetry_machine(self.p0_machine)
+		_horizontal_symmetry_polval(policy, valids, self.freed_cards)
+		symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+		self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+		# Left/right symmetries of machine 1, no change on policy/valids
+		_horizontal_symmetry_machine(self.p1_machine)
+		symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+		self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+		# Swap 2 freed cards
+		if np.all(_are_not_empty_cards(self.freed_cards[:2])):
+			_swap_freed(self.freed_cards, policy, valids)
+			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+		# Permutations on arrival zone
+		for permut in permutations_arrival:
+			_permute_arrival(permut, self.arrival_cards, policy, valids)
+			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+		# Some permutations on registers
+		for permut in permutations_registers:
+			_permute_registers(permut, self.p0_register, self.p1_register, self.middle_reg, policy, valids)
+			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+		# Swap colors (no need change bitfield)
+		for color_roll in [2, 4]:
+			_roll_colors_1d(self.arrival_cards, color_roll)
+			_roll_colors_1d(self.p0_register, color_roll)
+			_roll_colors_1d(self.p1_register, color_roll)
+			_roll_colors_1d(self.middle_reg, color_roll)
+			_roll_colors_1d(self.freed_cards, color_roll)
+			_roll_colors_2d(self.p0_machine, color_roll)
+			_roll_colors_2d(self.p1_machine, color_roll)
+			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
 		return symmetries
 
@@ -311,9 +419,7 @@ class Board():
 
 		# Actual computation for player side of register
 		for i in range(3):
-			if not arrivalcard_is_not_empty[i]:
-				result[5*i:5*(i+1)] = False
-			else:
+			if arrivalcard_is_not_empty[i]:
 				card = self.arrival_cards[i,:]
 				match_color = (self.middle_reg[:,0] == card[0])
 				match_type  = (self.middle_reg[:,2] == card[2])
@@ -377,7 +483,15 @@ class Board():
 				elif _is_empty_card(self.freed_cards[2*p+1, :]):
 					new_slot = 1
 				else:
-					raise Exception(f'All free slots are busy for player {p}')
+					# Super rare case, for instance
+					# 1. P0 put a card that frees a mecabot for P0 and another one for P1
+					# 2. P0 swaps its mecabot with a card that frees a normal card for P0 and P1
+					# 3. P1 swaps its mecabot (step 0) with a card that frees a normal card for P1
+					# At the end, P1 freed 1 card at step 2, and swapped 1 + freed 1 at step 3
+					# 3 cards for P1 whereas there are 2 slots... While this issue is being fixed,
+					# let's use slot 1
+					new_slot = 1
+					#raise Exception(f'All free slots are busy for player {p}')
 
 				# Move card
 				self.freed_cards[2*p+new_slot, :] = reg[slot, :]
@@ -610,13 +724,13 @@ def _dfs(machine, y, x, visited, labels, equivalencies, nb_cards_per_label, nb_f
 		new_label = len(equivalencies)
 		equivalencies.append(set([new_label]))
 		nb_cards_per_label.append(1)
-		nb_flowers_per_label.append(nb_flowers)
+		nb_flowers_per_label.append(int(nb_flowers))
 	else:
 		for i in neighbors_labels:
 			if i != 99:
 				equivalencies[i].add(new_label)
 		nb_cards_per_label[new_label] += 1
-		nb_flowers_per_label[new_label] += nb_flowers
+		nb_flowers_per_label[new_label] += int(nb_flowers)
 	labels[y, x] = new_label
 
 	# Second pass: recurrence with neighbors, whatever their colors

@@ -34,6 +34,22 @@ WEST  = 3 +3
 
 SOURCE_CARD = np.array([SOURCE, 0, 0, 0, 0, 1, 0], dtype=np.int8)
 
+# Not all 6 permutations (on purpose)
+permutations_arrival = np.array([
+	[0, 2, 1],
+	[1, 0, 2],
+	[2, 1, 0],
+], dtype=np.int8)
+
+# Not all 120 permutations (on purpose)
+permutations_registers = np.array([
+	[0, 3, 2, 4, 1],
+	[1, 0, 3, 2, 4],
+	[2, 4, 1, 0, 3],
+	[3, 2, 4, 1, 0],
+	[4, 1, 0, 3, 2],
+], dtype=np.int8)
+
 def gen_all_cards():
 	cards_generic = [
 	#   Col #Flo Type N  E  S  W
