@@ -146,15 +146,59 @@ def print_board(board):
 	# print()
 	_print_main(board)
 
-# def random_card():
-# 	color = np.random.randint(0,7)
-# 	nbflw = np.random.choice([-1, 0, 1, 3])
-# 	direc = np.random.randint(0,2, size=4)
-# 	card = np.array([color, nbflw, direc[0], direc[1], direc[2], direc[3]])
-# 	return card
+# Used for debug purposes
+def print_valids(valids, freed_cards_of_player):
+	result = ''
+	cardinals = ['1st', '2nd', '3rd', '4th']
+	orient_str = ['0°', '90°', '180°', '-90°']
 
-# for _ in range(10):
-# 	c = random_card()
-# 	print(c)
-# 	print(card_to_str(c))
-# 	print()
+	if np.any(valids[:30]):
+		# List arrival card to be moved to player register
+		for card_i in range(3):
+			if np.any(valids[card_i*5:card_i*5+5]):
+				result += f'{cardinals[card_i]} arrival on'
+				for i in range(5):
+					if valids[card_i*5+i]:
+						result += f' R{i}'
+				result += '. '
+		# List where cards can NOT be put on middle register
+		result += 'All cards on whole middle row'
+		for card_i in range(3):
+			if not np.any(valids[15+card_i*5:15+card_i*5+5]):
+				result += f' except {cardinals[card_i]} '
+			elif not np.all(valids[15+card_i*5:15+card_i*5+5]):
+				result += f' except {cardinals[card_i]} on'
+				for i in range(5):
+					if not valids[15+card_i*5+i]:
+						result += f' M{i}'
+		result += '.'
+	elif np.any(valids[30:35]):
+		result = 'Swap mecabot with '
+		for i in range(5):
+			if valids[30+i]:
+				result += f' M{i}'
+		result += '.'
+	elif np.any(valids[35:236]):
+		for card_i in range(2):
+			if np.any(valids[35+100*card_i:35+100*card_i+100]):
+				result += f'Expand using {cardinals[card_i]} card on slots Y,X'
+				for slot in range(25):
+					index = 35 + 100*card_i + 4*slot
+					if np.any(valids[index:index+4]):
+						result += f' {divmod(slot,5)} ('
+						if np.all(valids[index:index+4]):
+							result += 'all'
+						else:
+							for orient in range(4):
+								if valids[index+orient]:
+									card = freed_cards_of_player[card_i, :].copy()
+									card[NORTH:] = np.roll(card[NORTH:], orient)
+									result += card_to_str(card) + ' '
+						result += ')'
+		if valids[235]:
+				result += f'Throw away 1st card, cant expand machine'
+	else:
+		result = 'No action possible'
+	
+	result += '\n' + '-' * 80
+	print(result)

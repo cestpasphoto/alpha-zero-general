@@ -258,9 +258,10 @@ class Board():
 		self.p1_optim_needpipes[:] = machine_copy[:]
 
 	def get_symmetries(self, policy, valids):
+		# Always called on canonical board, meaning player = 0
+		# In all symmetries, no need to update the "optim" vectors as they are not used by NN
 		symmetries = [(self.state.copy(), policy.copy(), valids.copy())]
 		state_backup, policy_backup, valids_backup = symmetries[0]
-		# In all symmetries, no need to update the "optim" vectors as they are not used by NN
 
 		# Apply horizontal symmetry on a machine (swap cells and change directions)
 		def _horizontal_symmetry_machine(machine):
@@ -287,11 +288,11 @@ class Board():
 							action1 = 35 + 100*card_i + 4 * (5*y + x)
 							action2 = 35 + 100*card_i + 4 * (5*y + 4-x)
 							if 4-x != x:
-								policy[action2+new_orient], policy[action1+new_orient] = policy[action1+orient], policy[action2+orient]
-								valids[action2+new_orient], valids[action1+new_orient] = valids[action1+orient], valids[action2+orient]
+								policy[action2+new_orient], policy[action1+new_orient] = policy_backup[action1+orient], policy_backup[action2+orient]
+								valids[action2+new_orient], valids[action1+new_orient] = valids_backup[action1+orient], valids_backup[action2+orient]
 							else:
-								policy[action1+new_orient] = policy[action1+orient]
-								valids[action1+new_orient] = valids[action1+orient]
+								policy[action1+new_orient] = policy_backup[action1+orient]
+								valids[action1+new_orient] = valids_backup[action1+orient]
 
 		# Swap freedcard 0 and 1 (assuming not empty)
 		def _swap_freed(freed_cards, policy, valids):
@@ -300,8 +301,8 @@ class Board():
 				for orient in range(4):
 					action1 = 35 + 100*0 + 4 * yx + orient
 					action2 = 35 + 100*1 + 4 * yx + orient
-					policy[action2], policy[action1] = policy[action1], policy[action2]
-					valids[action2], valids[action1] = valids[action1], valids[action2]
+					policy[action2], policy[action1] = policy_backup[action1], policy_backup[action2]
+					valids[action2], valids[action1] = valids_backup[action1], valids_backup[action2]
 			# Update freed_cards
 			freed_cards[0,:], freed_cards[1,:] = freed_cards[1,:], freed_cards[0,:].copy()
 
