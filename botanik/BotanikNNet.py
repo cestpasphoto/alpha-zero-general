@@ -119,9 +119,9 @@ class BotanikNNet(nn.Module):
 			self.output_layers_V_1d = nn.Sequential(*head_V_1d)
 
 			### NN working on current player's machine (2d)
-			n_filters = 32
-			n_exp_end = n_filters*3
-			depth = 6 - 2
+			n_filters = 16
+			n_exp_end = n_filters*2
+			depth = 4 - 2
 
 			self.first_layer_mach0 = nn.Conv2d(  7, n_filters, 3, padding=1, bias=False)
 			confs  = [inverted_residual(n_filters, n_exp_end, n_filters, False, "RE") for i in range(depth//2)]
@@ -140,10 +140,67 @@ class BotanikNNet(nn.Module):
 			]
 			self.output_layers_V_mach0 = nn.Sequential(*head_V_mach0)
 
-			### NN working on other player's machine (2d)
-			n_filters = 32
-			n_exp_end = n_filters*3
-			depth = 6 - 2
+			### Not working on other player's machine
+
+			# Final output layers
+			self.final_layers_PI = nn.Sequential(
+				nn.Linear(self.action_size, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			)
+			self.final_layers_V = nn.Sequential(
+				nn.Linear(self.num_players, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			)
+
+
+		elif self.version == 11: # Similar but with both machines
+			### NN working on 1d data
+			self.first_layer_1d = LinearNormActivation(self.vect_dim, self.vect_dim, None)
+			confs = [InvertedResidual1d(self.vect_dim, 3*self.vect_dim, self.vect_dim, self.nb_vect_1d, False, "RE")]
+			self.trunk_1d = nn.Sequential(*confs)
+
+			head_PI_1d = [
+				InvertedResidual1d(self.vect_dim, 3*self.vect_dim, self.vect_dim, self.nb_vect_1d, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.vect_dim*self.nb_vect_1d, self.action_size),
+			]
+			self.output_layers_PI_1d = nn.Sequential(*head_PI_1d)
+			
+			head_V_1d = [
+				InvertedResidual1d(self.vect_dim, 3*self.vect_dim, self.vect_dim, self.nb_vect_1d, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(self.vect_dim*self.nb_vect_1d, self.num_players),
+			]
+			self.output_layers_V_1d = nn.Sequential(*head_V_1d)
+
+			### NN working on current player's machine (2d)
+			n_filters = 16
+			n_exp_end = n_filters*2
+			depth = 4 - 2
+
+			self.first_layer_mach0 = nn.Conv2d(  7, n_filters, 3, padding=1, bias=False)
+			confs  = [inverted_residual(n_filters, n_exp_end, n_filters, False, "RE") for i in range(depth//2)]
+			self.trunk_mach0 = nn.Sequential(*confs)
+
+			head_depth = 3
+			n_exp_head = n_filters * 3
+			head_PI_mach0 = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.action_size),
+			]
+			self.output_layers_PI_mach0 = nn.Sequential(*head_PI_mach0)
+			head_V_mach0 = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
+				nn.Flatten(1),
+				nn.Linear(n_filters *5*5, self.num_players),
+			]
+			self.output_layers_V_mach0 = nn.Sequential(*head_V_mach0)
+
+			### NN working on other machine (2d)
+			n_filters = 16
+			n_exp_end = n_filters*2
+			depth = 4 - 2
 
 			self.first_layer_mach1 = nn.Conv2d(  7, n_filters, 3, padding=1, bias=False)
 			confs  = [inverted_residual(n_filters, n_exp_end, n_filters, False, "RE") for i in range(depth//2)]
@@ -174,6 +231,7 @@ class BotanikNNet(nn.Module):
 				nn.Linear(self.num_players, self.num_players),
 			)
 
+			
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -194,7 +252,18 @@ class BotanikNNet(nn.Module):
 		x_mach0 = x_mach0.view(-1, self.vect_dim, 5, 5)
 		x_mach1 = x_mach1.view(-1, self.vect_dim, 5, 5)
 
-		if self.version in [10, 11]:
+		if self.version in [10]: # No use of x_mach1
+			x_1d = self.first_layer_1d(x_1d)
+			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training)
+			pi_1d, v_1d = self.output_layers_PI_1d(x_1d), self.output_layers_V_1d(x_1d)
+
+			x_mach0 = self.first_layer_mach0(x_mach0)
+			x_mach0 = self.trunk_mach0(x_mach0)
+			pi_mach0, v_mach0 = self.output_layers_PI_mach0(x_mach0), self.output_layers_V_mach0(x_mach0)
+
+			v = self.final_layers_V(v_1d + v_mach0)
+			pi = torch.where(valid_actions, self.final_layers_PI(pi_1d + pi_mach0), self.lowvalue)
+		elif self.version in [11]: # use x_mach1
 			x_1d = self.first_layer_1d(x_1d)
 			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training)
 			pi_1d, v_1d = self.output_layers_PI_1d(x_1d), self.output_layers_V_1d(x_1d)
@@ -206,10 +275,9 @@ class BotanikNNet(nn.Module):
 			x_mach1 = self.first_layer_mach1(x_mach1)
 			x_mach1 = self.trunk_mach1(x_mach1)
 			pi_mach1, v_mach1 = self.output_layers_PI_mach1(x_mach1), self.output_layers_V_mach1(x_mach1)
-
+			
 			v = self.final_layers_V(v_1d + v_mach0 + v_mach1)
 			pi = torch.where(valid_actions, self.final_layers_PI(pi_1d + pi_mach0 + pi_mach1), self.lowvalue)
-
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
 
