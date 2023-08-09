@@ -223,6 +223,13 @@ class Board():
 		elif self.misc[1,0] < self.misc[1,1]:
 			return np.array([0, 1], dtype=np.float32)
 		else:
+			# Same score, look at nb of cards in machines
+			nb_cards_p0 = np.count_nonzero(self.p0_machine[:,:,0])
+			nb_cards_p1 = np.count_nonzero(self.p1_machine[:,:,0])
+			if   nb_cards_p0 > nb_cards_p1:
+				return np.array([1, 0], dtype=np.float32)
+			elif nb_cards_p0 < nb_cards_p1:
+				return np.array([0, 1], dtype=np.float32)
 			return np.array([0.01, 0.01], dtype=np.float32)
 
 	def swap_players(self, nb_swaps):
