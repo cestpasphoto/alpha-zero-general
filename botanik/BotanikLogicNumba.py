@@ -687,7 +687,7 @@ def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial
 		# else False
 	return result
 
-@njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=False, fastmath=True, nogil=True)
 def _compute_score(machine):
 	visited = np.zeros((machine.shape[0], machine.shape[1]), dtype=np.bool_)
 	labels  = np.ones((machine.shape[0], machine.shape[1]), dtype=np.int8) * 99
@@ -709,7 +709,7 @@ def _compute_score(machine):
 
 # Implement the "faster scanning version" in
 # https://en.wikipedia.org/wiki/Connected-component_labeling#Two-pass
-@njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=False, fastmath=True, nogil=True)
 def _dfs(machine, y, x, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label):
 	visited[y, x] = True
 	neighbors = []

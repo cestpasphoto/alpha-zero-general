@@ -82,6 +82,10 @@ Compared to initial version, I target a smaller network but more MCTS simulation
 
 Of course you need to tune parameters depending on the game, especially cpuct, FPU, dirichlet noise. The option `-V` allows you to switch between different NN architectures. If you specify a previous checkpoint using a different architecture, it will still try loading weights as much as possible. It allows me starting first steps of training with small/fast networks and then I experiment larger networks.
 
+#### To debug
+
+To debug add `NUMBA_DISABLE_JIT=1` as a prefix before main.py, and the option `--parallel-inferences 1`.
+
 #### Multithreading
 
 I also usually execute several trainings in parallel; you can evaluate the results obtained in the last 24 hours by using this command (execute as many times as threads): `./pit.py -A 24 -T 8`
