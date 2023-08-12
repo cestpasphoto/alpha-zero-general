@@ -1,10 +1,7 @@
 # CPU-optimized Alpha Zero General (any game, any framework!)
 
 Based on the superb repo https://github.com/suragnair/alpha-zero-general but with higher strength, optimized for CPU-only 25-100x speed improvement, and supporting 2+ players games. You can play with it on your browser https://github.com/cestpasphoto/cestpasphoto.github.io.
-Games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (with basic gods)
-
-
-Warning: refactoring of AlphaZero code in-progress, only Splendor and Santorini have been fully updated and tuned. The 2 others games are broken.
+Games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (with basic gods), Botanik
 
 ### Splendor
 
@@ -41,6 +38,15 @@ The AI engine doesn't know which cards will be drawn. There is one limitation: i
 ![Sample game of Santorini](santorini/sample_game_with_random_init.gif)
 
 About 90+% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/) and 95+% win rate against [BoardSpace AI](https://www.boardspace.net/english/index.shtml). See [more details here](santorini/README.md)
+
+
+### Botanik
+
+_Need to insert a sample game_
+
+* [x] Support of [Botanik](https://boardgamegeek.com/boardgame/271529/botanik) with 2 players
+* [ ] Need to tune training settings
+
 
 ---
 

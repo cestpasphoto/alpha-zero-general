@@ -3,18 +3,6 @@ import numpy as np
 from numba import njit
 import numba
 
-# Full random actions "breaks" exploration of MCTS tree (same action applied to
-# same state may lead to different state). By having repeatable behavior but
-# still kind of random (that I called "repeatable randomness"), the exploration
-# of MCTS tree go deeper and training data is more relevant. Even on truly
-# random pit, the training result behaves better than before.
-# Enable it ONLY FOR TRAINING.
-REPEATABLE_RANDOM = False
-
-idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
-mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
-mask2 = 2**(5*np.arange(idx_gold))
-
 ############################## BOARD DESCRIPTION ##############################
 # Board is described by a 56x7 array (1st dim is larger with 3-4 players)
 # Gems and Nobles are represented using 1 line. Each is described by 7 values
@@ -95,6 +83,17 @@ mask2 = 2**(5*np.arange(idx_gold))
 # List of combinations of gems for actions 30-79 are in variables
 # list_different_gems_up_to_2 and list_different_gems_up_to_3 in file SplendorLogic
 
+# Full random actions "breaks" exploration of MCTS tree (same action applied to
+# same state may lead to different state). By having repeatable behavior but
+# still kind of random (that I called "repeatable randomness"), the exploration
+# of MCTS tree go deeper and training data is more relevant. Even on truly
+# random pit, the training result behaves better than before.
+# Enable it ONLY FOR TRAINING.
+REPEATABLE_RANDOM = False
+
+idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
+mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
+mask2 = 2**(5*np.arange(idx_gold))
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
