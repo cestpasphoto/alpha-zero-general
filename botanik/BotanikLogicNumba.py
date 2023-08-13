@@ -3,7 +3,6 @@ from numba import njit
 import numba
 
 from .BotanikConstants import *
-from .BotanikDisplay import card_to_str
 
 ############################## BOARD DESCRIPTION ##############################
 # Board is described by a 16x5x7 array. Each card is represented using 1 line of

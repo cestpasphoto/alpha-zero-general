@@ -1,13 +1,6 @@
 import numpy as np
 from colorama import Style, Fore, Back
-# from .BotanikLogicNumba import my_unpackbits
 from .BotanikConstants import *
-
-#######################
-mask = np.array([4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
-def my_unpackbits(value):
-	return (np.bitwise_and(value.astype(np.uint16), mask) != 0).astype(np.uint8)
-#######################
 
 def move_to_str(move, player):
 	if move < 15:
@@ -72,18 +65,6 @@ def card_to_str(card):
 	result += Fore.RESET + Back.RESET
 	return result
 
-def bitfield_to_str(bitfield):
-	result = 'Available: '
-	# Translate list of available cards to a simple format
-	for color in range(5):
-		available_cards = my_unpackbits(256*bitfield[0, color].astype(np.uint8) + bitfield[1, color].astype(np.uint8))
-		for i, b in enumerate(available_cards):
-			if b:
-				result += card_to_str(np_all_cards[color, i, :]) + ' '
-			else:
-				result += '· '
-	return result
-
 def machine_to_str(machine):
 	result = ''
 	for y in range(5):
@@ -107,8 +88,6 @@ def _print_main(board):
 	# print('-'*60)
 	print('  ', board.misc[0,:], statuses_str[board.misc[0, 1]], f', main player=P{board.misc[0,2]}')
 	print('Scores:', board.misc[1, :2])
-	# print(bitfield_to_str(board.misc[3:,:5]))
-	# print()
 	print('Arrival zone: ', end='')
 	for i in range(3):
 		print(' ' + card_to_str(board.arrival_cards[i,:]), end='')
