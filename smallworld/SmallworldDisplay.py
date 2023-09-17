@@ -16,8 +16,8 @@ terrains_str = [
 	[Back.LIGHTGREEN_EX , Fore.BLACK], # MEADOW
 ]
 powers_str = [' ', '⍎', '⅏']
-ppl_str = [' ', 'p', 'O', 'D', 'H', 'G']
-ppl_decl_str = [' ', '🄟', '🄞 ', '🄓', '🄗', '🄖']
+ppl_str      = [' ', 'p' , 'O' , 'D' , 'H' , 'G' , 'A', 'S' , 'R' , 'S' , 'T']
+ppl_decl_str = [' ', '🄟', '🄞 ', '🄓', '🄗', '🄖', '🄐', '🄢', '🄡', '🄢', '🄣']
 status_str = [
 	'NOT GOOD',
 	'starts new turn',
@@ -124,7 +124,7 @@ def print_board(b):
 	print(display_str)
 
 # Used for debug purposes
-def print_valids(p, valids_attack, valids_abandon, valids_redeploy, valid_choose, valid_decline):
+def print_valids(p, valids_attack, valids_abandon, valids_redeploy, valids_choose, valid_decline):
 	print(f'Valids: P{p} can', end='')
 	if valids_attack.any():
 		print(f' attack area', end='')
@@ -141,15 +141,23 @@ def print_valids(p, valids_attack, valids_abandon, valids_redeploy, valid_choose
 	if valids_redeploy.any():
 		valids_on_each = valids_redeploy[:MAX_REDEPLOY]
 		if valids_on_each.any():
-			print(f' redeploy up to {valids_on_each.nonzero()[0].max()}ppl on each area', end='')
+			maxi = valids_on_each.nonzero()[0].max()
+			if maxi > 0:
+				print(f' redeploy up to {maxi}ppl on each area', end='')
+			else:
+				print(f' skip redeploy', end='')
 		else:
 			print(f' redeploy on area', end='')
 			for i in valids_redeploy.nonzero()[0]:
 				print(f' {i-MAX_REDEPLOY}', end='')
 		print(', or', end='')
 
-	if valid_choose:
-		print(f' chose a new people, or', end='')
+	if valids_choose.any():
+		print(f' chose a new people', end='')
+		if valids_choose.count_nonzero() < 6:
+			for i in valids_choose.nonzero()[0]:
+				print(f' {i}', end='')
+		print(', or', end='')
 
 	if valid_decline:
 		print(f' decline current people, or', end='')

@@ -29,22 +29,43 @@ from SmallworldDisplay import print_board, print_valids
 #  [10,   0    , 0  ,   0 ], # Score of player 0
 #  [9 ,   0    , 0  ,   0 ], # Score of player 1
 
+# nbPPL TypePPL   cost   ?
+# [ 5,   HUMAN,   1  ,   0 ]
+# [ 5,   TYPE2,   2  ,   0 ]
+# [ 5,   TYPE3,   3  ,   0 ]
+# [ 5,   TYPE4,   4  ,   0 ]
+# [ 5,   TYPE5,   5  ,   0 ]
+# [ 5,   TYPE6,   6  ,   0 ]
+# [ bitfieldPPL, bitfieldPPL, 0, 0 ] 14 ppl (2octets) + 20 pouvoirs (3octets)
+
 # ]
 
 
 # @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (NB_AREAS+3*NUMBER_PLAYERS, 4)
+	return (NB_AREAS + 3*NUMBER_PLAYERS + DECK_SIZE+1, 4)
 
 # @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
 	return 10
 
 
+mask = np.array([4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
+
+# @njit(cache=True, fastmath=True, nogil=True)
+def my_packbits(array):
+	product = np.multiply(array.astype(np.uint16), mask[:len(array)])
+	return product.sum()
+
+# @njit(cache=True, fastmath=True, nogil=True)
+def my_unpackbits(value):
+	return (np.bitwise_and(value, mask) != 0).astype(np.uint8)
+
 # @njit(cache=True, fastmath=True, nogil=True)
 def my_random_choice(prob):
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
 	return result
+
 
 spec = [
 	('state'         , numba.int8[:,:]),
@@ -52,6 +73,7 @@ spec = [
 	('active_ppl'    , numba.int8[:,:]),
 	('declined_ppl'  , numba.int8[:,:]),
 	('scores'    	 , numba.int8[:,:]),
+	('people_deck'	 , numba.int8[:,:]),
 ]
 # @numba.experimental.jitclass(spec)
 class Board():
@@ -72,10 +94,19 @@ class Board():
 			if descr[i][0] == MOUNTAIN:
 				self.territories[i,2] += 1
 
-		self.active_ppl[0,:]   = [7, OGRE  , NEW_TURN_STARTED , 0]
+		# Init deck of people and draw for P0 and P1
+		self._init_deck()
+		chosen_ppl = self.people_deck[0, :]
+		self.active_ppl[0,:]   = [chosen_ppl[0], chosen_ppl[1], NEW_TURN_STARTED , 0]
+		self._update_deck_after_chose(0)
+		chosen_ppl = self.people_deck[0, :]
+		self.active_ppl[1,:]   = [chosen_ppl[0], chosen_ppl[1], WAITING_OTHER_PL , 0]
+		self._update_deck_after_chose(0)
+
 		self.declined_ppl[0,:] = [0, NOPPL , 0                , 0]
-		self.active_ppl[1,:]   = [9, DWARF , WAITING_OTHER_PL , 0]
 		self.declined_ppl[1,:] = [0, NOPPL , 0                , 0]
+
+		# First round is round #1
 		self._update_round()
 	
 	def copy_state(self, state, copy_or_not):
@@ -87,6 +118,7 @@ class Board():
 		self.active_ppl   = self.state[NB_AREAS                 :NB_AREAS+  NUMBER_PLAYERS,:]
 		self.declined_ppl = self.state[NB_AREAS+  NUMBER_PLAYERS:NB_AREAS+2*NUMBER_PLAYERS,:]
 		self.scores       = self.state[NB_AREAS+2*NUMBER_PLAYERS:NB_AREAS+3*NUMBER_PLAYERS,:]
+		self.people_deck  = self.state[NB_AREAS+3*NUMBER_PLAYERS:NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE+1,:]
 
 	def valid_moves(self, player):
 		result = np.zeros(10, dtype=np.bool_)
@@ -222,6 +254,8 @@ class Board():
 		territories = self._are_owned_by_player(player, active_ppl_only=True)
 		nb_territories = np.count_nonzero(territories)
 		if nb_territories == 0:
+			# If no other option, then allow to skip redeploy
+			valids[0] = True
 			return valids
 
 		# Check that player has still some ppl to deploy
@@ -230,6 +264,8 @@ class Board():
 		else:
 			how_many_ppl_available = self._ppl_virtually_available(player, territories)
 		if how_many_ppl_available <= 0:
+			# If no other option, then allow to skip redeploy
+			valids[0] = True
 			return valids
 
 		for ppl_to_deploy in range(1, MAX_REDEPLOY):
@@ -257,9 +293,8 @@ class Board():
 	def _do_redeploy(self, player, param):
 		if param == 0:
 			# Special case, skip redeploy
-			if how_many_to_deploy == 0:
-				self._score_and_switch_to_next_player(player)
-				return
+			self._score_and_switch_to_next_player(player)
+			return
 
 		if self.active_ppl[player, 2] != TO_REDEPLOY:
 			self._gather_active_ppl_but_one(player)
@@ -316,21 +351,26 @@ class Board():
 		self.active_ppl[player, :] = [0, NOPPL, WAITING_OTHER_PL, 0]
 		self._score_and_switch_to_next_player(player)
 
-	def _valid_choose_ppl(self, player):
+	def _valids_choose_ppl(self, player):
+		valids = np.zeros(DECK_SIZE, dtype=np.bool_)
+
 		# Check that it is time
 		if self.active_ppl[player, 2] != NEW_TURN_STARTED:
-			return False
+			return valids
 		# Check that player hasn't a player yet
 		if self.active_ppl[player, 1] != NOPPL:
-			return False
-		return True
+			return valids
 
-	def _do_choose_ppl(self, player):
-		# Give player a random active ppl
-		if player == 0:
-			self.active_ppl[player, :] = [4, HUMAN  , NEW_TURN_STARTED, 0]
-		else:
-			self.active_ppl[player, :] = [4, GIANT  , NEW_TURN_STARTED, 0]
+		for index in range(DECK_SIZE):
+			# Check that index is valid
+		 	valids[index] = (self.people_deck[index, 1] != NOPPL)
+
+		return valids
+
+	def _do_choose_ppl(self, player, index):
+		chosen_ppl = self.people_deck[index, :]
+		self.active_ppl[player,:] = [chosen_ppl[0], chosen_ppl[1], NEW_TURN_STARTED , 0]
+		self._update_deck_after_chose(index)
 
 	def _valids_abandon(self, player):
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
@@ -450,6 +490,34 @@ class Board():
 	def _update_round(self):
 		self.scores[:,1] += 1
 
+	def _init_deck(self):
+		# All people available except NOPPL and PRIMIT
+		available_people = np.ones(TROLL+1, dtype=np.int8)
+		available_people[NOPPL], available_people[PRIMIT] = False, False
+
+		# Draw 6 ppl randomly
+		for i in range(DECK_SIZE):
+			chosen_ppl = my_random_choice(available_people / available_people.sum())
+			self.people_deck[i, :] = [6, chosen_ppl, 0, 0]
+			available_people[chosen_ppl] = False
+
+		# Update bitfield
+		self.people_deck[DECK_SIZE, :2] = divmod(my_packbits(available_people), 256)
+
+	def _update_deck_after_chose(self, index):
+		# Read bitfield
+		available_people = my_unpackbits(256*self.people_deck[DECK_SIZE, 0] + self.people_deck[DECK_SIZE, 1])
+
+		# Delete people #item and shift others upwards
+		self.people_deck[index:DECK_SIZE-1, :] = self.people_deck[index+1:DECK_SIZE, :]
+		# Draw a new people for last combination
+		chosen_ppl = my_random_choice(available_people / available_people.sum())
+		self.people_deck[DECK_SIZE-1, :] = [6, chosen_ppl, 0, 0]
+		available_people[chosen_ppl] = False
+
+		# Update back the bitfield
+		self.people_deck[DECK_SIZE, :2] = divmod(my_packbits(available_people), 256)
+
 ###############################################################################
 import random
 
@@ -462,12 +530,12 @@ def play_one_turn():
 	print(f'Player is now P{p}')
 
 	while b.active_ppl[p, 2] < WAITING_OTHER_PL:
-		valids_attack           = b._valids_attack(player=p)
-		valids_abandon          = b._valids_abandon(player=p)
-		valids_redeploy         = b._valids_redeploy(player=p)
-		valid_choose            = b._valid_choose_ppl(player=p)
-		valid_decline           = b._valid_decline(player=p)
-		print_valids(p, valids_attack, valids_abandon, valids_redeploy, valid_choose, valid_decline)
+		valids_attack    = b._valids_attack(player=p)
+		valids_abandon   = b._valids_abandon(player=p)
+		valids_redeploy  = b._valids_redeploy(player=p)
+		valids_choose    = b._valids_choose_ppl(player=p)
+		valid_decline    = b._valid_decline(player=p)
+		print_valids(p, valids_attack, valids_abandon, valids_redeploy, valids_choose, valid_decline)
 
 		if any(valids_attack) or any(valids_abandon) or valid_decline:
 			values = np.concatenate((valids_attack.nonzero()[0], valids_abandon.nonzero()[0], ([2*NB_AREAS] if valid_decline else [])), axis=None)
@@ -484,9 +552,10 @@ def play_one_turn():
 				print(f'*** Decline current ppl')
 				b._do_decline(player=p)
 
-		elif valid_choose:
-			print('Choose new ppl')
-			b._do_choose_ppl(player=p)	
+		elif any(valids_choose):
+			chosen_ppl = np.random.choice(valids_choose.nonzero()[0].astype(np.int64))
+			print(f'Choose ppl #{chosen_ppl}')
+			b._do_choose_ppl(player=p, index=chosen_ppl)	
 
 		elif any(valids_redeploy):
 			valids_on_each = valids_redeploy[:MAX_REDEPLOY]

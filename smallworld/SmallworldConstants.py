@@ -3,6 +3,11 @@ import numpy as np
 
 NUMBER_PLAYERS = 2
 MAX_REDEPLOY = 5
+DECK_SIZE = 6
+
+DICE_VALUES = [0, 0, 0, 1, 2, 3]
+AVG_DICE = 1
+MAX_DICE = 3
 
 # CONSTANTS
 WATER    = 0
@@ -15,16 +20,17 @@ NOPOWR = 0
 SOURCE = 1
 MINE   = 2
 
-NOPPL  = 0
-PRIMIT = 1
-OGRE   = 2
-DWARF  = 3
-HUMAN  = 4
-GIANT  = 5
-
-DICE_VALUES = [0, 0, 0, 1, 2, 3]
-AVG_DICE = 1
-MAX_DICE = 3
+NOPPL    = 0
+PRIMIT   = 1
+OGRE     = 2
+DWARF    = 3
+HUMAN    = 4
+GIANT    = 5
+AMAZON   = 6
+SORCER   = 7
+RATMAN   = 8
+SKELETON = 9
+TROLL    = 10 # update _init_deck()
 
 
 NEW_TURN_STARTED  = 1
