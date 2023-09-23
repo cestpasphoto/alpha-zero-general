@@ -6,29 +6,33 @@ from SmallworldConstants import *
 from SmallworldDisplay import print_board, print_valids
 
 ############################## BOARD DESCRIPTION ##############################
-
-
 # state = [
 
-#nbPPL TypePPL  Total  Player
+       # self.territories
+#nbPPL TypePPL    ?   Player
 #  [0,   NOPPL  , 0   , -1 ], # 0
-#  [0,   NOPPL  , 1   , -1 ], # 1
-#  [2,   -PRIMIT, 2   , -1 ], # 2
+#  [0,   NOPPL  , 0   , -1 ], # 1
+#  [2,   -PRIMIT, 0   , -1 ], # 2
 #  [0,   NOPPL  , 0   , -1 ], # 3
-#  [2,   -PRIMIT, 2   , -1 ], # 4
+#  [2,   -PRIMIT, 0   , -1 ], # 4
 
-#nbPPL TypePPL   status      ?
+		# self.active_ppl
+		# #NETWDT = number of non-empty territories won during turn
+#nbPPL TypePPL   status    #NETWDT
 #  [7, OGRE   , TO_CONQUEST, 0 ], # Active ppl in player 0's hand
 #  [9, DWARF  , TO_CONQUEST, 0 ], # Active ppl in player 1's hand
 
+		# self.decline_ppl
 #  ?    TypePPL    ?      ?
 #  [0,   -HUMAN , 0  ,   0 ], # Declined ppl in player 0's hand
 #  [0,   NOPPL  , 0  ,   0 ], # Declined ppl in player 1's hand
 
+		# self.scores
 # score  turn    ?      ?
 #  [10,   0    , 0  ,   0 ], # Score of player 0
 #  [9 ,   0    , 0  ,   0 ], # Score of player 1
 
+		# self.people_deck
 # nbPPL TypePPL   cost   ?
 # [ 5,   HUMAN,   1  ,   0 ]
 # [ 5,   TYPE2,   2  ,   0 ]
@@ -89,11 +93,9 @@ class Board():
 		for i in range(len(descr)):
 			if descr[i][3]:
 				nb_primit = initial_nb_people[PRIMIT]
-				self.territories[i,:] = [nb_primit, PRIMIT, nb_primit, -1]
+				self.territories[i,:] = [nb_primit, PRIMIT, 0, -1]
 			else:
 				self.territories[i,:] = [0, NOPPL, 0, -1]
-			if descr[i][0] == MOUNTAIN:
-				self.territories[i,2] += 1
 
 		# Init deck of people and draw for P0 and P1
 		self._init_deck()
@@ -217,6 +219,7 @@ class Board():
 			self._gather_active_ppl_but_one(player)
 
 		nb_ppl_of_player, type_ppl_of_player = self.active_ppl[player,0], self.active_ppl[player,1]
+		was_area_empty = (self.territories[area, 0] == 0)
 		minimum_ppl_for_attack = self._minimum_ppl_for_attack(area, player)
 
 		# Use dice if people are needed
@@ -235,7 +238,7 @@ class Board():
 		# Update loser and winner
 		self._give_back_to_loser(area)
 		nb_attacking_ppl = min(minimum_ppl_for_attack, nb_ppl_of_player)
-		self._player_wins_territory(area, player, nb_attacking_ppl)
+		self._player_wins_territory(area, player, nb_attacking_ppl, was_area_empty)
 
 		# Update winner's status
 		self.active_ppl[player, 2] = JUST_ATTACKED
@@ -298,7 +301,7 @@ class Board():
 			return
 
 		if self.active_ppl[player, 2] != TO_REDEPLOY:
-			self._gather_active_ppl_but_one(player)
+			self._gather_active_ppl_but_one(player, redeploy=True)
 			self.active_ppl[player, 2] = TO_REDEPLOY
 
 		if param < MAX_REDEPLOY:
@@ -310,14 +313,12 @@ class Board():
 			self.active_ppl[player, 0] -= how_many_to_deploy*nb_territories_of_player
 			assert(self.active_ppl[player, 0] >= 0)
 			self.territories[:, 0] += how_many_to_deploy*territories_of_player
-			self.territories[:, 2] += how_many_to_deploy*territories_of_player
 		else:
 			# Deploy 1 ppl on 1 area
 			area = param - MAX_REDEPLOY
 
 			self.active_ppl[player, 0]   -= 1
 			self.territories[area, 0]    += 1
-			self.territories[area, 2]    += 1
 
 		# Trigger end of turn if no more to redeploy
 		if self.active_ppl[player, 0] == 0:
@@ -419,9 +420,11 @@ class Board():
 		return result
 
 	def _minimum_ppl_for_attack(self, area, player):
-		minimum_ppl_for_attack = self.territories[area,2] + 2
+		minimum_ppl_for_attack = self.territories[area,0] + 2
 
-		# Malus if: troll (even in decline)
+		# Malus if: mountain, troll (even in decline)
+		if descr[area][0] == MOUNTAIN:
+			minimum_ppl_for_attack += 1
 		if abs(self.territories[area, 1]) == TROLL:
 			minimum_ppl_for_attack += 1
 
@@ -455,27 +458,34 @@ class Board():
 		# Make the area empty
 		self.territories[area,:] = [0, NOPPL, 0, -1]
 
-	def _player_wins_territory(self, area, player, nb_attacking_ppl):
+	def _player_wins_territory(self, area, player, nb_attacking_ppl, was_area_empty):
 		self.territories[area,0] = nb_attacking_ppl
 		self.territories[area,1] = self.active_ppl[player,1]
-		self.territories[area,2] = self.territories[area,0] + (1 if descr[area][0] == MOUNTAIN else 0)
+		self.territories[area,2] = 0
 		self.territories[area,3] = player
 
 		self.active_ppl[player, 0] -= nb_attacking_ppl
-		assert(self.active_ppl[player, 0] >= 0)	
+		assert(self.active_ppl[player, 0] >= 0)
 
-	def _gather_active_ppl_but_one(self, player):
+		if not was_area_empty:
+			self.active_ppl[player, 3] += 1
+
+	def _gather_active_ppl_but_one(self, player, redeploy=False):
 		# Gather all active people in player's hand, leaving only 1 on each territory
-		print(f'Prepare / redeploy P{player}:', end='')
+		# print(f'Prepare / redeploy P{player}:', end='')
 		for area in range(NB_AREAS):
 			if self._is_owned_by_player(area, player, active_ppl_only=True):
 				nb_ppl_to_gather = max(self.territories[area,0] - 1, 0)
 				if nb_ppl_to_gather > 0:
 					self.territories[area,0]    -= nb_ppl_to_gather
-					self.territories[area,2]    -= nb_ppl_to_gather
 					self.active_ppl[player, 0]  += nb_ppl_to_gather
-					print(f' {nb_ppl_to_gather}ppl on area{area}', end='')
-		print('')
+					# print(f' {nb_ppl_to_gather}ppl on area{area}', end='')
+
+		# If redeploy, additional people for skeleton (up to 20)
+		if redeploy and self.active_ppl[player, 1] == SKELETON:
+			self.active_ppl[player, 0] += (self.active_ppl[player, 3] // 2)
+			self.active_ppl[player, 0] = min(MAX_SKELETONS, self.active_ppl[player, 0])
+		# print('')
 
 	def _ppl_virtually_available(self, player, player_territories=None):
 		if player_territories is None:
@@ -484,6 +494,12 @@ class Board():
 		how_many_ppl_available = self.active_ppl[player, 0]
 		# Simulate redeploy: add people on the boards, except 1 per territory
 		how_many_ppl_available += np.dot(np.maximum(self.territories[:,0]-1,0), player_territories)
+
+		# Additional people for skeleton (up to 20)
+		if self.active_ppl[player, 1] == SKELETON:
+			how_many_ppl_available += (self.active_ppl[player, 3] // 2)
+			how_many_ppl_available = min(MAX_SKELETONS, how_many_ppl_available)
+
 		return how_many_ppl_available
 
 	def _switch_from_attack_to_deploy(self, player):
@@ -506,6 +522,8 @@ class Board():
 	def _update_score(self, player):
 		owned_areas = self._are_owned_by_player(player, active_ppl_only=False)
 		score_for_this_turn = 0
+
+		# Iterate on areas and count score
 		for area in [area for area in range(NB_AREAS) if owned_areas[area]]:
 			score_for_this_turn += self.territories[area, 0]
 			# +1 point if: dwarf + mine (even in decline), human + field, wizard + magic
@@ -516,7 +534,14 @@ class Board():
 			if descr[area][1] == MAGIC    and     self.territories[area, 1]  == WIZARD:
 				score_for_this_turn += 1
 
+		# +1 point if: orc + NETWDT
+		if self.active_ppl[player, 1] == ORC:
+			score_for_this_turn += self.active_ppl[player, 3]
+
 		self.scores[player][0] += score_for_this_turn
+
+		# Reset NETWDT
+		self.active_ppl[player, 3] = 0
 
 	def _update_round(self):
 		self.scores[:,1] += 1
