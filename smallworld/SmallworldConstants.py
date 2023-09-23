@@ -12,32 +12,31 @@ MAX_DICE = 3
 # CONSTANTS
 WATER    = 0
 SAND     = 1
-LAND     = 2
+FARMLAND = 2
 MOUNTAIN = 3
 MEADOW   = 4
 
 NOPOWR = 0
 SOURCE = 1
 MINE   = 2
+MAGIC  = 3
 
 NOPPL    = 0
-AMAZON   = 1  # 6  +4 pour attaque
-DWARF    = 2  # 3  +1 victoire sur mine, même en déclin
-ELF      = 3  # 6  pas de défausse lors d'une défaite
-GHOUL    = 4  # 5  tous les zombies restent en déclin, peuvent attaquer
-GIANT    = 5  # 6  -1 pour attaque montagne
-HALFLING = 6  # 6  départ n'importe où, immunité sur 2 prem régions
-HUMAN    = 7  # 5  +1 victoire sur champs
-ORC      = 8  # 5  +1 victoire pour région non-vide conquise
-RATMAN   = 9 # 8  leur nombre
-SKELETON = 10 # 6  +1 pion pour toutes 2 régions non-vide conquises
-SORCERER = 11 # 5  remplace pion unique adversaire actif par un sorcier
-TRITON   = 12 # 6  -1 pour attaque région côtière
-TROLL    = 13 # 5  +1 défense sur chaque territoire même en déclin
-WIZARD   = 14 # 5  +1 victoire sur source magique
+AMAZON   = 1  #  +4 pour attaque                                         M
+DWARF    = 2  #  +1 victoire sur mine, même en déclin                    DONE
+ELF      = 3  #  pas de défausse lors d'une défaite                      DONE
+GHOUL    = 4  #  tous les zombies restent en déclin, peuvent attaquer    L
+GIANT    = 5  #  -1 pour attaque voisin montagne                         DONE
+HALFLING = 6  #  départ n'importe où, immunité sur 2 prem régions        M
+HUMAN    = 7  #  +1 victoire sur champs                                  DONE
+ORC      = 8  #  +1 victoire pour région non-vide conquise               M
+RATMAN   = 9  #  leur nombre                                             
+SKELETON = 10 #  +1 pion pour toutes 2 régions non-vide conquises        M
+SORCERER = 11 #  remplace pion unique adversaire actif par un sorcier    L
+TRITON   = 12 #  -1 pour attaque région côtière                          DONE
+TROLL    = 13 #  +1 défense sur chaque territoire même en déclin         DONE
+WIZARD   = 14 #  +1 victoire sur source magique                          DONE
 PRIMIT   = 15
-# update _init_deck()
-
 initial_nb_people = [0, 6, 3, 6, 5, 6, 6, 5, 5, 8, 6, 5, 6, 5, 5, 2]
 
 NEW_TURN_STARTED  = 1
@@ -73,13 +72,13 @@ NB_AREAS = 9
 descr = [
  [ WATER    , NOPOWR, True  ,  False], #0
  [ SAND     , MINE  , False ,  False], #1
- [ LAND     , SOURCE, True  ,  True ], #2
+ [ FARMLAND , SOURCE, True  ,  True ], #2
  [ WATER    , NOPOWR, True  ,  False], #3
  [ MOUNTAIN , NOPOWR, False ,  False], #4
- [ LAND     , SOURCE, True  ,  True ], #5
+ [ FARMLAND , SOURCE, True  ,  True ], #5
  [ MEADOW   , NOPOWR, True  ,  False], #6
  [ MOUNTAIN , MINE  , True  ,  True ], #7
- [ SAND     , MINE  , True  ,  True ], #8
+ [ SAND     , MAGIC , True  ,  True ], #8
 ]
 
 #################### SPECIFIC TO DISPLAY ####################

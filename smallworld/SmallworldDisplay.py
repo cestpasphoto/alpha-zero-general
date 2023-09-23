@@ -11,11 +11,11 @@ def move_to_str(move, player):
 terrains_str = [
 	[Back.BLUE          , Fore.WHITE], # WATER
 	[Back.LIGHTYELLOW_EX, Fore.BLACK], # SAND
-	[Back.YELLOW        , Fore.BLACK], # LAND
+	[Back.YELLOW        , Fore.BLACK], # FARMLAND
 	[Back.WHITE         , Fore.BLACK], # MOUNTAIN
 	[Back.LIGHTGREEN_EX , Fore.BLACK], # MEADOW
 ]
-powers_str = [' ', '⍎', '⅏']
+powers_str = [' ', '⍎', '⅏', 'ℵ']
 ppl_str      = [' ', 'A' , 'D' , 'E', 'g', 'G' , 'h', 'H' , 'O' , 'R' , 's', 'S' , 't', 'T' , 'W' , 'p']
 ppl_decl_str = [' ', '🄐', '🄓', '🄔', '🄖', '🄖', '🄗', '🄗', '🄞', '🄡', '🄢', '🄢', '🄣', '🄣', '🄦', '🄟']
 status_str = [
@@ -68,7 +68,7 @@ def add_legend(display_matrix):
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
 	display_matrix[1].append(terrains_str[1] + ['sand'])
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[2] + ['land'])
+	display_matrix[1].append(terrains_str[2] + ['farm'])
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
 	display_matrix[1].append(terrains_str[3] + ['mountain'])
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
@@ -77,6 +77,7 @@ def add_legend(display_matrix):
 	legend_power = '  '
 	legend_power += powers_str[1] + ' = water source , '
 	legend_power += powers_str[2] + ' = mine , '
+	legend_power += powers_str[3] + ' = magic , '
 	display_matrix[2].append([Style.RESET_ALL, '', legend_power])
 
 	legend_ppl = '  '

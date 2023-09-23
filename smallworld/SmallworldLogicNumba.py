@@ -167,7 +167,7 @@ class Board():
 		if self.active_ppl[player, 2] not in [NEW_TURN_STARTED, JUST_ATTACKED, JUST_ABANDONED]:
 			return valids
 
-		# Check that player has at least 1 player in hand, and have a chance to win
+		# Check that player has at least 1 player in hand
 		territories_of_player = self._are_owned_by_player(player, active_ppl_only=True)
 		nb_ppl_of_player = self.active_ppl[player,0]
 		if self.active_ppl[player, 2] == JUST_ATTACKED:
@@ -193,8 +193,8 @@ class Board():
 		if self._is_owned_by_player(area, player, active_ppl_only=True):
 			return False
 
-		# Check that player has at least 1 player in hand, and have a chance to win
-		minimum_ppl_for_attack = self.territories[area,2] + 2
+		# Check that player has a chance to win	
+		minimum_ppl_for_attack = self._minimum_ppl_for_attack(area, player)
 		if nb_ppl_of_player + MAX_DICE < minimum_ppl_for_attack:
 			return False
 
@@ -217,7 +217,7 @@ class Board():
 			self._gather_active_ppl_but_one(player)
 
 		nb_ppl_of_player, type_ppl_of_player = self.active_ppl[player,0], self.active_ppl[player,1]
-		minimum_ppl_for_attack = self.territories[area,2] + 2
+		minimum_ppl_for_attack = self._minimum_ppl_for_attack(area, player)
 
 		# Use dice if people are needed
 		use_dice = (nb_ppl_of_player < minimum_ppl_for_attack)
@@ -412,14 +412,37 @@ class Board():
 			result = (self.territories[:,3] == player)
 		return result
 
+	def _is_area_border_of(self, area, terrain):
+		neighbor_areas = connexity_matrix[area]
+		areas_with_terrain = (np.array(descr)[:,0] == terrain)
+		result = np.any(np.logical_and(neighbor_areas, areas_with_terrain)).item()
+		return result
+
+	def _minimum_ppl_for_attack(self, area, player):
+		minimum_ppl_for_attack = self.territories[area,2] + 2
+
+		# Malus if: troll (even in decline)
+		if abs(self.territories[area, 1]) == TROLL:
+			minimum_ppl_for_attack += 1
+
+		# Bonus if: triton + at_edge, giant + border of mountain
+		if self.active_ppl[player, 1] == TRITON and descr[area][2]:
+			minimum_ppl_for_attack = max(minimum_ppl_for_attack - 1, 1)
+		if self.active_ppl[player, 1] == GIANT  and self._is_area_border_of(area, MOUNTAIN):
+			minimum_ppl_for_attack = max(minimum_ppl_for_attack - 1, 1)
+
+		return minimum_ppl_for_attack
+
 	def _give_back_to_loser(self, area):
 		loser = self.territories[area,3]
 		if loser >= 0:
+			assert(self.territories[area,0]>0)
 			if self._is_owned_by_player(area, loser, active_ppl_only=True):
-				self.active_ppl[loser, 0] += max(self.territories[area,0]-1, 0)
+				penalty = 0 if self.territories[area,1] == ELF else 1
+				self.active_ppl[loser, 0] += self.territories[area,0] - penalty
 			else:
-				# do not give back is loser ppl is declined
-				assert(self.territories[area,1] == self.declined_ppl[loser, 1])
+				penalty = 1
+				self.declined_ppl[loser, 0] += self.territories[area,0] - penalty
 
 	def _leave_area(self, area):
 		# Give back ppl to owner
@@ -485,7 +508,14 @@ class Board():
 		score_for_this_turn = 0
 		for area in [area for area in range(NB_AREAS) if owned_areas[area]]:
 			score_for_this_turn += self.territories[area, 0]
-		# print(f'  P{player} scored {score_for_this_turn} at this turn')
+			# +1 point if: dwarf + mine (even in decline), human + field, wizard + magic
+			if descr[area][1] == MINE     and abs(self.territories[area, 1]) == DWARF:
+				score_for_this_turn += 1
+			if descr[area][0] == FARMLAND and     self.territories[area, 1]  == HUMAN:
+				score_for_this_turn += 1
+			if descr[area][1] == MAGIC    and     self.territories[area, 1]  == WIZARD:
+				score_for_this_turn += 1
+
 		self.scores[player][0] += score_for_this_turn
 
 	def _update_round(self):
@@ -498,7 +528,8 @@ class Board():
 
 		# Draw 6 ppl randomly
 		for i in range(DECK_SIZE):
-			chosen_ppl = my_random_choice(available_people / available_people.sum())
+			# chosen_ppl = my_random_choice(available_people / available_people.sum())
+			chosen_ppl = [TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			self.people_deck[i, :] = [initial_nb_people[chosen_ppl], chosen_ppl, 0, 0]
 			available_people[chosen_ppl] = False
 
@@ -539,7 +570,7 @@ def play_one_turn():
 		print_valids(p, valids_attack, valids_abandon, valids_redeploy, valids_choose, valid_decline)
 
 		if any(valids_attack) or any(valids_abandon) or valid_decline:
-			values = np.concatenate((valids_attack.nonzero()[0], valids_abandon.nonzero()[0], ([2*NB_AREAS] if valid_decline else [])), axis=None)
+			values = np.concatenate((valids_attack.nonzero()[0], valids_abandon.nonzero()[0] + NB_AREAS, ([2*NB_AREAS] if valid_decline else [])), axis=None)
 			dice = np.random.choice(values.astype(np.int64))
 			if dice < NB_AREAS:
 				area = dice
