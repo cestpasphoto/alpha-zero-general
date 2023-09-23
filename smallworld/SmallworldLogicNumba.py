@@ -219,7 +219,6 @@ class Board():
 			self._gather_active_ppl_but_one(player)
 
 		nb_ppl_of_player, type_ppl_of_player = self.active_ppl[player,0], self.active_ppl[player,1]
-		was_area_empty = (self.territories[area, 0] == 0)
 		minimum_ppl_for_attack = self._minimum_ppl_for_attack(area, player)
 
 		# Use dice if people are needed
@@ -232,13 +231,14 @@ class Board():
 				self.active_ppl[player, 2] = TO_START_REDEPLOY
 				return
 			print(f'  Using dice, random value is {dice} and succeed')
+			nb_attacking_ppl = nb_ppl_of_player
+		else:
+			nb_attacking_ppl = minimum_ppl_for_attack
 
 		# Attack is successful
 
 		# Update loser and winner
-		self._give_back_to_loser(area)
-		nb_attacking_ppl = min(minimum_ppl_for_attack, nb_ppl_of_player)
-		self._player_wins_territory(area, player, nb_attacking_ppl, was_area_empty)
+		self._switch_territory_from_loser_to_winner(area, player, nb_attacking_ppl)
 
 		# Update winner's status
 		self.active_ppl[player, 2] = JUST_ATTACKED
@@ -436,17 +436,6 @@ class Board():
 
 		return minimum_ppl_for_attack
 
-	def _give_back_to_loser(self, area):
-		loser = self.territories[area,3]
-		if loser >= 0:
-			assert(self.territories[area,0]>0)
-			if self._is_owned_by_player(area, loser, active_ppl_only=True):
-				penalty = 0 if self.territories[area,1] == ELF else 1
-				self.active_ppl[loser, 0] += self.territories[area,0] - penalty
-			else:
-				penalty = 1
-				self.declined_ppl[loser, 0] += self.territories[area,0] - penalty
-
 	def _leave_area(self, area):
 		# Give back ppl to owner
 		owner = self.territories[area,3]
@@ -458,16 +447,30 @@ class Board():
 		# Make the area empty
 		self.territories[area,:] = [0, NOPPL, 0, -1]
 
-	def _player_wins_territory(self, area, player, nb_attacking_ppl, was_area_empty):
+	def _switch_territory_from_loser_to_winner(self, area, player, nb_attacking_ppl):
+		nb_initial_ppl = self.territories[area, 0]
+
+		# Give back people to the loser (if any)
+		loser = self.territories[area, 3]
+		if loser >= 0:
+			assert(nb_initial_ppl > 0)
+			if self._is_owned_by_player(area, loser, active_ppl_only=True):
+				nb_ppl_to_lose = 0 if self.territories[area,1] == ELF else 1
+				self.active_ppl[loser, 0] += self.territories[area,0] - nb_ppl_to_lose
+			else:
+				nb_ppl_to_lose = 1
+				self.declined_ppl[loser, 0] += self.territories[area,0] - nb_ppl_to_lose
+
+		# Install people from the winner
 		self.territories[area,0] = nb_attacking_ppl
 		self.territories[area,1] = self.active_ppl[player,1]
 		self.territories[area,2] = 0
 		self.territories[area,3] = player
-
 		self.active_ppl[player, 0] -= nb_attacking_ppl
 		assert(self.active_ppl[player, 0] >= 0)
 
-		if not was_area_empty:
+		# Update #NETWDT
+		if nb_initial_ppl > 0:
 			self.active_ppl[player, 3] += 1
 
 	def _gather_active_ppl_but_one(self, player, redeploy=False):

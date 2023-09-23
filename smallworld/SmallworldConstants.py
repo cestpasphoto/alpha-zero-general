@@ -22,24 +22,24 @@ MINE   = 2
 MAGIC  = 3
 
 NOPPL    = 0
-AMAZON   = 1  #  +4 pour attaque                                         M
+AMAZON   = 1  #  +4 pour attaque                                         L
 DWARF    = 2  #  +1 victoire sur mine, même en déclin                    DONE
 ELF      = 3  #  pas de défausse lors d'une défaite                      DONE
 GHOUL    = 4  #  tous les zombies restent en déclin, peuvent attaquer    L
 GIANT    = 5  #  -1 pour attaque voisin montagne                         DONE
-HALFLING = 6  #  départ n'importe où, immunité sur 2 prem régions        M
+HALFLING = 6  #  départ n'importe où, immunité sur 2 prem régions        L
 HUMAN    = 7  #  +1 victoire sur champs                                  DONE
 ORC      = 8  #  +1 victoire pour région non-vide conquise               DONE
 RATMAN   = 9  #  leur nombre                                             
 SKELETON = 10 #  +1 pion pour toutes 2 régions non-vide conquises        DONE
-SORCERER = 11 #  remplace pion unique adversaire actif par un sorcier    L
+SORCERER = 11 #  remplace pion unique adversaire actif par un sorcier    M
 TRITON   = 12 #  -1 pour attaque région côtière                          DONE
 TROLL    = 13 #  +1 défense sur chaque territoire même en déclin         DONE
 WIZARD   = 14 #  +1 victoire sur source magique                          DONE
 PRIMIT   = 15
 
 MAX_SKELETONS = 20
-
+MAX_SORCERERS = 18
 initial_nb_people = [0, 6, 3, 6, 5, 6, 6, 5, 5, 8, 6, 5, 6, 5, 5, 2]
 
 NEW_TURN_STARTED  = 1
