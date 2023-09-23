@@ -16,8 +16,8 @@ terrains_str = [
 	[Back.LIGHTGREEN_EX , Fore.BLACK], # MEADOW
 ]
 powers_str = [' ', '⍎', '⅏']
-ppl_str      = [' ', 'p' , 'O' , 'D' , 'H' , 'G' , 'A', 'S' , 'R' , 'S' , 'T']
-ppl_decl_str = [' ', '🄟', '🄞 ', '🄓', '🄗', '🄖', '🄐', '🄢', '🄡', '🄢', '🄣']
+ppl_str      = [' ', 'A' , 'D' , 'E', 'g', 'G' , 'h', 'H' , 'O' , 'R' , 's', 'S' , 't', 'T' , 'W' , 'p']
+ppl_decl_str = [' ', '🄐', '🄓', '🄔', '🄖', '🄖', '🄗', '🄗', '🄞', '🄡', '🄢', '🄢', '🄣', '🄣', '🄦', '🄟']
 status_str = [
 	'NOT GOOD',
 	'starts new turn',
@@ -80,8 +80,8 @@ def add_legend(display_matrix):
 	display_matrix[2].append([Style.RESET_ALL, '', legend_power])
 
 	legend_ppl = '  '
-	legend_ppl += ppl_str[1] + ' = primitive , '
-	legend_ppl += ppl_str[2] + ' = ogre , '
+	# legend_ppl += ppl_str[1] + ' = primitive , '
+	# legend_ppl += ppl_str[2] + ' = ogre , '
 	display_matrix[3].append([Style.RESET_ALL, '', legend_ppl])
 
 	return display_matrix
@@ -154,7 +154,7 @@ def print_valids(p, valids_attack, valids_abandon, valids_redeploy, valids_choos
 
 	if valids_choose.any():
 		print(f' chose a new people', end='')
-		if valids_choose.count_nonzero() < 6:
+		if np.count_nonzero(valids_choose) < 6:
 			for i in valids_choose.nonzero()[0]:
 				print(f' {i}', end='')
 		print(', or', end='')

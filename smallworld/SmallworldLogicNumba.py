@@ -50,7 +50,7 @@ def action_size():
 	return 10
 
 
-mask = np.array([4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
+mask = np.array([32768, 16384, 8192, 4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
 
 # @njit(cache=True, fastmath=True, nogil=True)
 def my_packbits(array):
@@ -88,7 +88,8 @@ class Board():
 		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
 		for i in range(len(descr)):
 			if descr[i][3]:
-				self.territories[i,:] = [2, PRIMIT, 2, -1]
+				nb_primit = initial_nb_people[PRIMIT]
+				self.territories[i,:] = [nb_primit, PRIMIT, nb_primit, -1]
 			else:
 				self.territories[i,:] = [0, NOPPL, 0, -1]
 			if descr[i][0] == MOUNTAIN:
@@ -492,13 +493,13 @@ class Board():
 
 	def _init_deck(self):
 		# All people available except NOPPL and PRIMIT
-		available_people = np.ones(TROLL+1, dtype=np.int8)
-		available_people[NOPPL], available_people[PRIMIT] = False, False
+		available_people = np.ones(PRIMIT, dtype=np.int8)
+		available_people[NOPPL] = False
 
 		# Draw 6 ppl randomly
 		for i in range(DECK_SIZE):
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
-			self.people_deck[i, :] = [6, chosen_ppl, 0, 0]
+			self.people_deck[i, :] = [initial_nb_people[chosen_ppl], chosen_ppl, 0, 0]
 			available_people[chosen_ppl] = False
 
 		# Update bitfield

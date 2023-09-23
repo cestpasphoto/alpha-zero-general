@@ -21,17 +21,24 @@ SOURCE = 1
 MINE   = 2
 
 NOPPL    = 0
-PRIMIT   = 1
-OGRE     = 2
-DWARF    = 3
-HUMAN    = 4
-GIANT    = 5
-AMAZON   = 6
-SORCER   = 7
-RATMAN   = 8
-SKELETON = 9
-TROLL    = 10 # update _init_deck()
+AMAZON   = 1  # 6  +4 pour attaque
+DWARF    = 2  # 3  +1 victoire sur mine, même en déclin
+ELF      = 3  # 6  pas de défausse lors d'une défaite
+GHOUL    = 4  # 5  tous les zombies restent en déclin, peuvent attaquer
+GIANT    = 5  # 6  -1 pour attaque montagne
+HALFLING = 6  # 6  départ n'importe où, immunité sur 2 prem régions
+HUMAN    = 7  # 5  +1 victoire sur champs
+ORC      = 8  # 5  +1 victoire pour région non-vide conquise
+RATMAN   = 9 # 8  leur nombre
+SKELETON = 10 # 6  +1 pion pour toutes 2 régions non-vide conquises
+SORCERER = 11 # 5  remplace pion unique adversaire actif par un sorcier
+TRITON   = 12 # 6  -1 pour attaque région côtière
+TROLL    = 13 # 5  +1 défense sur chaque territoire même en déclin
+WIZARD   = 14 # 5  +1 victoire sur source magique
+PRIMIT   = 15
+# update _init_deck()
 
+initial_nb_people = [0, 6, 3, 6, 5, 6, 6, 5, 5, 8, 6, 5, 6, 5, 5, 2]
 
 NEW_TURN_STARTED  = 1
 JUST_ATTACKED     = 2
