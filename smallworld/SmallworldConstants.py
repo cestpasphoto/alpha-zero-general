@@ -2,12 +2,15 @@ import numpy as np
 # from numba import njit
 
 NUMBER_PLAYERS = 2
-MAX_REDEPLOY = 5
+MAX_REDEPLOY = 8
 DECK_SIZE = 6
 
 DICE_VALUES = [0, 0, 0, 1, 2, 3]
 AVG_DICE = 1
 MAX_DICE = 3
+
+IMMUNE_CONQUEST = 40
+FULL_IMMUNITY   = 120
 
 # CONSTANTS
 WATER    = 0
@@ -27,12 +30,12 @@ DWARF    = 2  #  +1 victoire sur mine, même en déclin                    DONE
 ELF      = 3  #  pas de défausse lors d'une défaite                      DONE
 GHOUL    = 4  #  tous les zombies restent en déclin, peuvent attaquer    L
 GIANT    = 5  #  -1 pour attaque voisin montagne                         DONE
-HALFLING = 6  #  départ n'importe où, immunité sur 2 prem régions        L
+HALFLING = 6  #  départ n'importe où, immunité sur 2 prem régions        DONE
 HUMAN    = 7  #  +1 victoire sur champs                                  DONE
 ORC      = 8  #  +1 victoire pour région non-vide conquise               DONE
 RATMAN   = 9  #  leur nombre                                             
 SKELETON = 10 #  +1 pion pour toutes 2 régions non-vide conquises        DONE
-SORCERER = 11 #  remplace pion unique adversaire actif par un sorcier    M
+SORCERER = 11 #  remplace pion unique adversaire actif par un sorcier    L
 TRITON   = 12 #  -1 pour attaque région côtière                          DONE
 TROLL    = 13 #  +1 défense sur chaque territoire même en déclin         DONE
 WIZARD   = 14 #  +1 victoire sur source magique                          DONE
@@ -40,7 +43,9 @@ PRIMIT   = 15
 
 MAX_SKELETONS = 20
 MAX_SORCERERS = 18
+#                       1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
 initial_nb_people = [0, 6, 3, 6, 5, 6, 6, 5, 5, 8, 6, 5, 6, 5, 5, 2]
+initial_tokens    = [0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 NEW_TURN_STARTED  = 1
 JUST_ATTACKED     = 2
@@ -100,15 +105,15 @@ map_display = [
  [3,3,3,3,3,3,8,],
 ]
 
-txt_display = [   # nb ppl (1), area ID (2), power (3)
- [0,2,0,0,2,0,0,],
- [1,3,0,1,3,0,2,],
- [0,0,0,0,0,1,3,],
- [0,0,1,3,0,0,0,],
- [0,0,2,0,2,0,3,],
- [0,0,0,0,0,0,1,],
- [0,1,3,0,2,0,0,],
- [0,2,0,1,3,0,2,],
- [0,0,1,3,0,1,3,],
- [0,0,0,2,0,0,0,],
+txt_display = [   # ppl (1), area ID (2), power (3), defense (4)
+ [1,0,4,0,2,3,0,],
+ [2,3,0,1,4,2,0,],
+ [4,0,0,0,4,0,1,],
+ [0,0,2,3,0,0,4,],
+ [0,0,1,4,2,0,3,],
+ [0,1,0,0,4,0,1,],
+ [0,2,3,2,3,0,2,],
+ [0,4,0,1,4,1,4,],
+ [0,1,0,0,4,0,3,],
+ [0,0,2,3,0,0,0,],
 ]

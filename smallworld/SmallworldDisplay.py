@@ -57,6 +57,13 @@ def add_text(display_matrix, territories):
 				display_matrix[y][x][2] = Fore.LIGHTBLACK_EX + 'a' + str(area)
 			elif txt == 3:
 				display_matrix[y][x][2] = powers_str[ descr[area][1] ] + ' '
+			elif txt == 4 and territories[area, 2] > 0:
+				if territories[area, 2] >= FULL_IMMUNITY:
+					display_matrix[y][x][2] = '٭٭'
+				elif territories[area, 2] >= IMMUNE_CONQUEST:
+					display_matrix[y][x][2] = ' ٭'
+				else:
+					display_matrix[y][x][2] = '+' + str(territories[area, 2])
 			else:
 				display_matrix[y][x][2] = '  '
 				

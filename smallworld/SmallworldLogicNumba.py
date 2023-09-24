@@ -9,37 +9,38 @@ from SmallworldDisplay import print_board, print_valids
 # state = [
 
        # self.territories
-#nbPPL TypePPL    ?   Player
-#  [0,   NOPPL  , 0   , -1 ], # 0
-#  [0,   NOPPL  , 0   , -1 ], # 1
-#  [2,   -PRIMIT, 0   , -1 ], # 2
-#  [0,   NOPPL  , 0   , -1 ], # 3
-#  [2,   -PRIMIT, 0   , -1 ], # 4
+       # defense = 1 or IMMUNE_CONQUEST or FULL_IMMUNITY
+#nbPPL TypePPL  defense Player  ?
+#  [0,   NOPPL  , 0     , -1 ,  0], # 0
+#  [0,   NOPPL  , 0     , -1 ,  0], # 1
+#  [2,   -PRIMIT, 0     , -1 ,  0], # 2
+#  [0,   NOPPL  , 0     , -1 ,  0], # 3
+#  [2,   -PRIMIT, 0     , -1 ,  0], # 4
 
 		# self.active_ppl
 		# #NETWDT = number of non-empty territories won during turn
-#nbPPL TypePPL   status    #NETWDT
-#  [7, OGRE   , TO_CONQUEST, 0 ], # Active ppl in player 0's hand
-#  [9, DWARF  , TO_CONQUEST, 0 ], # Active ppl in player 1's hand
+#nbPPL TypePPL   status    #NETWDT #tokens
+#  [7, OGRE   , TO_CONQUEST, 0,     0 ], # Active ppl in player 0's hand
+#  [9, DWARF  , TO_CONQUEST, 0,     0 ], # Active ppl in player 1's hand
 
 		# self.decline_ppl
 #  ?    TypePPL    ?      ?
-#  [0,   -HUMAN , 0  ,   0 ], # Declined ppl in player 0's hand
-#  [0,   NOPPL  , 0  ,   0 ], # Declined ppl in player 1's hand
+#  [0,   -HUMAN , 0  ,   0,  0 ], # Declined ppl in player 0's hand
+#  [0,   NOPPL  , 0  ,   0,  0 ], # Declined ppl in player 1's hand
 
 		# self.scores
-# score  turn    ?      ?
-#  [10,   0    , 0  ,   0 ], # Score of player 0
-#  [9 ,   0    , 0  ,   0 ], # Score of player 1
+# score  turn    ?      ?   ?
+#  [10,   0    , 0  ,   0,  0 ], # Score of player 0
+#  [9 ,   0    , 0  ,   0,  0 ], # Score of player 1
 
 		# self.people_deck
-# nbPPL TypePPL   cost   ?
-# [ 5,   HUMAN,   1  ,   0 ]
-# [ 5,   TYPE2,   2  ,   0 ]
-# [ 5,   TYPE3,   3  ,   0 ]
-# [ 5,   TYPE4,   4  ,   0 ]
-# [ 5,   TYPE5,   5  ,   0 ]
-# [ 5,   TYPE6,   6  ,   0 ]
+# nbPPL TypePPL   cost   ?   ?
+# [ 5,   HUMAN,   1  ,   0,  0 ]
+# [ 5,   TYPE2,   2  ,   0,  0 ]
+# [ 5,   TYPE3,   3  ,   0,  0 ]
+# [ 5,   TYPE4,   4  ,   0,  0 ]
+# [ 5,   TYPE5,   5  ,   0,  0 ]
+# [ 5,   TYPE6,   6  ,   0,  0 ]
 # [ bitfieldPPL, bitfieldPPL, 0, 0 ] 14 ppl (2octets) + 20 pouvoirs (3octets)
 
 # ]
@@ -47,7 +48,7 @@ from SmallworldDisplay import print_board, print_valids
 
 # @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (NB_AREAS + 3*NUMBER_PLAYERS + DECK_SIZE+1, 4)
+	return (NB_AREAS + 3*NUMBER_PLAYERS + DECK_SIZE+1, 5)
 
 # @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -93,21 +94,21 @@ class Board():
 		for i in range(len(descr)):
 			if descr[i][3]:
 				nb_primit = initial_nb_people[PRIMIT]
-				self.territories[i,:] = [nb_primit, PRIMIT, 0, -1]
+				self.territories[i,:] = [nb_primit, PRIMIT, 0, -1, 0]
 			else:
-				self.territories[i,:] = [0, NOPPL, 0, -1]
+				self.territories[i,:] = [0        , NOPPL , 0, -1, 0]
 
 		# Init deck of people and draw for P0 and P1
 		self._init_deck()
 		chosen_ppl = self.people_deck[0, :]
-		self.active_ppl[0,:]   = [chosen_ppl[0], chosen_ppl[1], NEW_TURN_STARTED , 0]
+		self.active_ppl[0,:]   = [chosen_ppl[0], chosen_ppl[1], NEW_TURN_STARTED , 0, chosen_ppl[4]]
 		self._update_deck_after_chose(0)
 		chosen_ppl = self.people_deck[0, :]
-		self.active_ppl[1,:]   = [chosen_ppl[0], chosen_ppl[1], WAITING_OTHER_PL , 0]
+		self.active_ppl[1,:]   = [chosen_ppl[0], chosen_ppl[1], WAITING_OTHER_PL , 0, chosen_ppl[4]]
 		self._update_deck_after_chose(0)
 
-		self.declined_ppl[0,:] = [0, NOPPL , 0                , 0]
-		self.declined_ppl[1,:] = [0, NOPPL , 0                , 0]
+		self.declined_ppl[0,:] = [0, NOPPL , 0, 0, 0]
+		self.declined_ppl[1,:] = [0, NOPPL , 0, 0, 0]
 
 		# First round is round #1
 		self._update_round()
@@ -195,6 +196,10 @@ class Board():
 		if self._is_owned_by_player(area, player, active_ppl_only=True):
 			return False
 
+		# Check no immunity
+		if self.territories[area, 2] >= IMMUNE_CONQUEST:
+			return False
+
 		# Check that player has a chance to win	
 		minimum_ppl_for_attack = self._minimum_ppl_for_attack(area, player)
 		if nb_ppl_of_player + MAX_DICE < minimum_ppl_for_attack:
@@ -204,7 +209,7 @@ class Board():
 		nb_territories_of_player = np.count_nonzero(territories_of_player)
 		if nb_territories_of_player == 0:
 			area_is_on_edge = descr[area][2]
-			if not area_is_on_edge:
+			if self.active_ppl[player, 1] != HALFLING and not area_is_on_edge:
 				return False
 		else:
 			neighbor_areas = connexity_matrix[area]
@@ -336,21 +341,24 @@ class Board():
 		# Remove previous declined ppl from the board
 		for area in range(NB_AREAS):
 			if self._is_owned_by_player(area, player, active_ppl_only=False) and self.territories[area,1] < 0:
-				self.territories[area] = [0, NOPPL, 0, -1]
+				self.territories[area] = [0, NOPPL, 0, -1, 0]
 
 		# Move ppl to decline and keep only 1 ppl per territory
 		self._gather_active_ppl_but_one(player)
 		self.declined_ppl[player, :] = self.active_ppl[player, :]
 		self.declined_ppl[player, 0] = 0
 		self.declined_ppl[player, 2] = 0
+		self.declined_ppl[player, 3] = 0
+		self.declined_ppl[player, 4] = 0
 		
-		# Flip back ppl tokens on the board
+		# Flip back ppl tokens on the board and remove defense
 		for area in range(NB_AREAS):
 			if self.territories[area, 1] == self.declined_ppl[player, 1]:
 				self.territories[area, 1] = -self.declined_ppl[player, 1]
+				self.territories[area, 2] = 0
 		self.declined_ppl[player, 1] = -self.declined_ppl[player, 1]
 
-		self.active_ppl[player, :] = [0, NOPPL, WAITING_OTHER_PL, 0]
+		self.active_ppl[player, :] = [0, NOPPL, WAITING_OTHER_PL, 0, 0]
 		self._score_and_switch_to_next_player(player)
 
 	def _valids_choose_ppl(self, player):
@@ -370,8 +378,8 @@ class Board():
 		return valids
 
 	def _do_choose_ppl(self, player, index):
-		chosen_ppl = self.people_deck[index, :]
-		self.active_ppl[player,:] = [chosen_ppl[0], chosen_ppl[1], NEW_TURN_STARTED , 0]
+		self.active_ppl[player,:] = self.people_deck[index, :]
+		self.active_ppl[player,2] = NEW_TURN_STARTED
 		self._update_deck_after_chose(index)
 
 	def _valids_abandon(self, player):
@@ -420,7 +428,7 @@ class Board():
 		return result
 
 	def _minimum_ppl_for_attack(self, area, player):
-		minimum_ppl_for_attack = self.territories[area,0] + 2
+		minimum_ppl_for_attack = self.territories[area,0] + self.territories[area, 2] + 2
 
 		# Malus if: mountain, troll (even in decline)
 		if descr[area][0] == MOUNTAIN:
@@ -445,7 +453,7 @@ class Board():
 			self.declined_ppl[owner, 0] += self.territories[area,0]
 
 		# Make the area empty
-		self.territories[area,:] = [0, NOPPL, 0, -1]
+		self.territories[area,:] = [0, NOPPL, 0, -1, 0]
 
 	def _switch_territory_from_loser_to_winner(self, area, player, nb_attacking_ppl):
 		nb_initial_ppl = self.territories[area, 0]
@@ -466,8 +474,13 @@ class Board():
 		self.territories[area,1] = self.active_ppl[player,1]
 		self.territories[area,2] = 0
 		self.territories[area,3] = player
+		self.territories[area,4] = 0
 		self.active_ppl[player, 0] -= nb_attacking_ppl
 		assert(self.active_ppl[player, 0] >= 0)
+		# Add specific tokens
+		if self.active_ppl[player, 1] == HALFLING and self.active_ppl[player, 4] > 0:
+			self.territories[area, 2] = FULL_IMMUNITY
+			self.active_ppl[player, 4] -= 1
 
 		# Update #NETWDT
 		if nb_initial_ppl > 0:
@@ -557,8 +570,8 @@ class Board():
 		# Draw 6 ppl randomly
 		for i in range(DECK_SIZE):
 			# chosen_ppl = my_random_choice(available_people / available_people.sum())
-			chosen_ppl = [TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
-			self.people_deck[i, :] = [initial_nb_people[chosen_ppl], chosen_ppl, 0, 0]
+			chosen_ppl = [HALFLING, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
+			self.people_deck[i, :] = [initial_nb_people[chosen_ppl], chosen_ppl, 0, 0, initial_tokens[chosen_ppl]]
 			available_people[chosen_ppl] = False
 
 		# Update bitfield
@@ -572,7 +585,7 @@ class Board():
 		self.people_deck[index:DECK_SIZE-1, :] = self.people_deck[index+1:DECK_SIZE, :]
 		# Draw a new people for last combination
 		chosen_ppl = my_random_choice(available_people / available_people.sum())
-		self.people_deck[DECK_SIZE-1, :] = [6, chosen_ppl, 0, 0]
+		self.people_deck[DECK_SIZE-1, :] = [initial_nb_people[chosen_ppl], chosen_ppl, 0, 0, initial_tokens[chosen_ppl]]
 		available_people[chosen_ppl] = False
 
 		# Update back the bitfield
