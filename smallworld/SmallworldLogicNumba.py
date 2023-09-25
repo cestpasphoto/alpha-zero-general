@@ -178,9 +178,11 @@ class Board():
 			if nb_ppl_of_player <= 0:
 				return valids
 		else:
-			# Simulate redeploy: add people on the boards, except 1 per territory
+			# 1st attck so simulate redeploy: add people from the board, except 1 per territory
 			nb_ppl_to_get_from_board = np.dot(np.maximum(self.territories[:,0]-1,0), territories_of_player)
 			nb_ppl_of_player += nb_ppl_to_get_from_board
+			if self.active_ppl[player, 1] == AMAZON:
+				nb_ppl_of_player += 4
 
 		for area in range(NB_AREAS):
 			valids[area] = self._valid_attack_area(player, area, nb_ppl_of_player, territories_of_player)
@@ -221,6 +223,10 @@ class Board():
 	def _do_attack(self, player, area):
 		# Prepare people if 1st action of the turn
 		if self.active_ppl[player, 2] != JUST_ATTACKED:
+			if self.active_ppl[player,1] == AMAZON:
+				print(f'Bonus Amazone {self.active_ppl[player,0]} --> {self.active_ppl[player,0]+4}')
+				self.active_ppl[player,0] += 4
+				self.active_ppl[player,4]  = 4
 			self._gather_active_ppl_but_one(player)
 
 		nb_ppl_of_player, type_ppl_of_player = self.active_ppl[player,0], self.active_ppl[player,1]
@@ -232,8 +238,7 @@ class Board():
 			dice = DICE_VALUES[3]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				print(f'  Using dice, random value is {dice} but fails')
-				# self._gather_active_ppl_but_one(player)
-				self.active_ppl[player, 2] = TO_START_REDEPLOY
+				self._switch_from_attack_to_deploy(player)
 				return
 			print(f'  Using dice, random value is {dice} and succeed')
 			nb_attacking_ppl = nb_ppl_of_player
@@ -256,7 +261,7 @@ class Board():
 
 		# Check that it is time
 		if self.active_ppl[player, 2] not in [TO_START_REDEPLOY, TO_REDEPLOY]:
-			if self.active_ppl[player, 2] in [JUST_DECLINED, WAITING_OTHER_PL]:
+			if self.active_ppl[player, 2] in [JUST_DECLINED, WAITING_OTHER_PL, NEED_ABANDON]:
 				return valids
 
 		# Check there is at least one active territory
@@ -272,6 +277,8 @@ class Board():
 			how_many_ppl_available = self.active_ppl[player, 0]
 		else:
 			how_many_ppl_available = self._ppl_virtually_available(player, territories)
+			if self.active_ppl[player, 1] == AMAZON:
+				how_many_ppl_available -= self.active_ppl[player, 4]
 		if how_many_ppl_available <= 0:
 			# If no other option, then allow to skip redeploy
 			valids[0] = True
@@ -300,13 +307,26 @@ class Board():
 		return True
 
 	def _do_redeploy(self, player, param):
-		if param == 0:
-			# Special case, skip redeploy
+		if param == 0: # Special case, skip redeploy
+			# Remove Amazon additional ppl before
+			if self.active_ppl[player, 1] == AMAZON and self.active_ppl[player, 2] != TO_REDEPLOY:
+				if self.active_ppl[player, 0] < self.active_ppl[player, 4]:
+					self.active_ppl[player, 2] = NEED_ABANDON
+					return
+				else:
+					print(f'Removing {self.active_ppl[player, 4]} Amazons {self.active_ppl[player, 0]} --> {self.active_ppl[player, 0]-self.active_ppl[player, 4]}')
+					self.active_ppl[player, 0] -= self.active_ppl[player, 4]
+					self.active_ppl[player, 4] = 0
 			self._score_and_switch_to_next_player(player)
 			return
 
 		if self.active_ppl[player, 2] != TO_REDEPLOY:
 			self._gather_active_ppl_but_one(player, redeploy=True)
+			if self.active_ppl[player, 1] == AMAZON:
+				print(f'Removing {self.active_ppl[player, 4]} Amazons {self.active_ppl[player, 0]} --> {self.active_ppl[player, 0]-self.active_ppl[player, 4]}')
+				self.active_ppl[player, 0] -= self.active_ppl[player, 4]
+				self.active_ppl[player, 4] = 0
+				assert(self.active_ppl[player, 0] >= 0)
 			self.active_ppl[player, 2] = TO_REDEPLOY
 
 		if param < MAX_REDEPLOY:
@@ -386,7 +406,7 @@ class Board():
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
 
 		# To avoid infinite loops, allow to abandon area only at the beginning of the turn
-		if self.active_ppl[player, 2] != NEW_TURN_STARTED:
+		if self.active_ppl[player, 2] not in [NEW_TURN_STARTED, NEED_ABANDON]:
 			return valids
 		if self.active_ppl[player, 1] == NOPPL:
 			return valids
@@ -403,7 +423,12 @@ class Board():
 
 	def _do_abandon(self, player, area):
 		self._leave_area(area)
-		self.active_ppl[player, 2] = JUST_ABANDONED
+
+		if self.active_ppl[player, 2] == NEED_ABANDON: # Case of amazon not able to give back 4 ppl
+			how_many_ppl_available = self._ppl_virtually_available(player)
+			self.active_ppl[player, 2] = NEED_ABANDON if how_many_ppl_available < self.active_ppl[player, 4] else TO_START_REDEPLOY
+		else:
+			self.active_ppl[player, 2] = JUST_ABANDONED
 
 	###########################################################################
 
@@ -519,8 +544,14 @@ class Board():
 		return how_many_ppl_available
 
 	def _switch_from_attack_to_deploy(self, player):
-		# self._gather_active_ppl_but_one(player)
 		self.active_ppl[player, 2] = TO_START_REDEPLOY
+		if self.active_ppl[player, 1] == AMAZON:
+			how_many_ppl_available = self._ppl_virtually_available(player)
+			if how_many_ppl_available < self.active_ppl[player, 4]:
+				print(f'Need to abandon some areas ({how_many_ppl_available})')
+				self.active_ppl[player, 2] = NEED_ABANDON
+			else:
+				print(f'No need to abandon areas ({how_many_ppl_available})')
 
 	def _score_and_switch_to_next_player(self, player, new_status_of_cur_player=WAITING_OTHER_PL):
 		self._update_score(player)
@@ -570,7 +601,7 @@ class Board():
 		# Draw 6 ppl randomly
 		for i in range(DECK_SIZE):
 			# chosen_ppl = my_random_choice(available_people / available_people.sum())
-			chosen_ppl = [HALFLING, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
+			chosen_ppl = [AMAZON, HALFLING, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			self.people_deck[i, :] = [initial_nb_people[chosen_ppl], chosen_ppl, 0, 0, initial_tokens[chosen_ppl]]
 			available_people[chosen_ppl] = False
 

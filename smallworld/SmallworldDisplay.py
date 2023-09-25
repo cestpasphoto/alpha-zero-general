@@ -24,6 +24,7 @@ status_str = [
 	'just attacked',
 	'just abandoned an area',
 	'just declined its ppl',
+	'need to abandon area(s)',
 	'will start to redeploy',
 	'redeploy ongoing',
 	'waiting other player',
@@ -33,7 +34,7 @@ def generate_background():
 	display_matrix = deepcopy(map_display)
 	for y in range(DISPLAY_HEIGHT):
 		for x in range(DISPLAY_WIDTH):
-			area = map_display[y][x]
+			area, _ = map_display[y][x]
 			terrain = descr[area][0]
 			display_matrix[y][x] = deepcopy(terrains_str[terrain])
 			display_matrix[y][x].append('.')
@@ -43,8 +44,7 @@ def generate_background():
 def add_text(display_matrix, territories):
 	for y in range(DISPLAY_HEIGHT):
 		for x in range(DISPLAY_WIDTH):
-			area = map_display[y][x]
-			txt = txt_display[y][x]
+			area, txt = map_display[y][x]
 			if txt == 1 and territories[area,0] > 0:
 				display_matrix[y][x][2] = str(territories[area,0])
 				if territories[area,1] >= 0:

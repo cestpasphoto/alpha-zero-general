@@ -25,7 +25,7 @@ MINE   = 2
 MAGIC  = 3
 
 NOPPL    = 0
-AMAZON   = 1  #  +4 pour attaque                                         L
+AMAZON   = 1  #  +4 pour attaque                                         DONE
 DWARF    = 2  #  +1 victoire sur mine, même en déclin                    DONE
 ELF      = 3  #  pas de défausse lors d'une défaite                      DONE
 GHOUL    = 4  #  tous les zombies restent en déclin, peuvent attaquer    L
@@ -51,9 +51,10 @@ NEW_TURN_STARTED  = 1
 JUST_ATTACKED     = 2
 JUST_ABANDONED    = 3
 JUST_DECLINED     = 4
-TO_START_REDEPLOY = 5
-TO_REDEPLOY       = 6
-WAITING_OTHER_PL  = 7
+NEED_ABANDON      = 5
+TO_START_REDEPLOY = 6
+TO_REDEPLOY       = 7
+WAITING_OTHER_PL  = 8
 
 #################### MAP DESCRIPTION ####################
 
@@ -92,28 +93,23 @@ descr = [
 #################### SPECIFIC TO DISPLAY ####################
 
 DISPLAY_WIDTH, DISPLAY_HEIGHT = 7, 10
+# First is area, second is what to print (0=nothing, 1=ppl, 2=area ID, 3=power, 4=defense)
 map_display = [
- [0,0,0,0,6,6,7,],
- [0,0,0,6,6,7,7,],
- [0,1,1,1,6,7,7,],
- [2,1,1,1,1,1,7,],
- [2,1,1,1,5,5,5,],
- [2,2,2,4,5,5,5,],
- [2,2,2,4,4,8,8,],
- [2,2,2,4,4,8,8,],
- [3,3,3,3,3,8,8,],
- [3,3,3,3,3,3,8,],
+ [(0,0),(0,1),(0,4),(0,0),(6,2),(6,3),(7,0),],
+ [(0,2),(0,3),(0,0),(6,1),(6,4),(7,0),(7,2),],
+ [(0,0),(1,0),(1,3),(1,0),(6,0),(7,1),(7,4),],
+ [(2,0),(1,0),(1,2),(1,0),(1,0),(1,0),(7,3),],
+ [(2,0),(1,0),(1,1),(1,4),(5,2),(5,0),(5,3),],
+ [(2,0),(2,2),(2,0),(4,0),(5,0),(5,1),(5,4),],
+ [(2,0),(2,1),(2,4),(4,2),(4,3),(8,0),(8,2),],
+ [(2,0),(2,3),(2,0),(4,1),(4,4),(8,1),(8,4),],
+ [(3,0),(3,2),(3,0),(3,0),(3,3),(8,0),(8,3),],
+ [(3,0),(3,0),(3,1),(3,4),(3,0),(3,0),(8,0),],
 ]
 
-txt_display = [   # ppl (1), area ID (2), power (3), defense (4)
- [1,0,4,0,2,3,0,],
- [2,3,0,1,4,2,0,],
- [4,0,0,0,4,0,1,],
- [0,0,2,3,0,0,4,],
- [0,0,1,4,2,0,3,],
- [0,1,0,0,4,0,1,],
- [0,2,3,2,3,0,2,],
- [0,4,0,1,4,1,4,],
- [0,1,0,0,4,0,3,],
- [0,0,2,3,0,0,0,],
-]
+# for area in range(NB_AREAS):
+# 	displayed = [map_display[y][x][1] for y in range(DISPLAY_HEIGHT) for x in range(DISPLAY_WIDTH) if map_display[y][x][0] == area and map_display[y][x][1] > 0]
+# 	displayed_sorted = sorted(displayed)
+# 	print(area, displayed_sorted)
+# 	if len(displayed_sorted) != 4 or [i for i in range(1,5) if i not in displayed_sorted]:
+# 		breakpoint()
