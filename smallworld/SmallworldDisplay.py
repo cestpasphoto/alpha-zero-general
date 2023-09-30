@@ -19,7 +19,7 @@ powers_str = [' ', '⍎', '⅏', 'ℵ']
 ppl_str      = [' ', 'A' , 'D' , 'E', 'g', 'G' , 'h', 'H' , 'O' , 'R' , 's', 'S' , 't', 'T' , 'W' , 'p']
 ppl_decl_str = [' ', '🄐', '🄓', '🄔', '🄖', '🄖', '🄗', '🄗', '🄞', '🄡', '🄢', '🄢', '🄣', '🄣', '🄦', '🄟']
 status_str = [
-	'NOT GOOD',
+	'',
 	'starts new turn',
 	'just attacked',
 	'just abandoned an area',
@@ -59,9 +59,9 @@ def add_text(display_matrix, territories):
 				display_matrix[y][x][2] = powers_str[ descr[area][1] ] + ' '
 			elif txt == 4 and territories[area, 2] > 0:
 				if territories[area, 2] >= FULL_IMMUNITY:
-					display_matrix[y][x][2] = '٭٭'
+					display_matrix[y][x][2] = '**'
 				elif territories[area, 2] >= IMMUNE_CONQUEST:
-					display_matrix[y][x][2] = ' ٭'
+					display_matrix[y][x][2] = ' *'
 				else:
 					display_matrix[y][x][2] = '+' + str(territories[area, 2])
 			else:
@@ -99,7 +99,7 @@ def add_players_hand(display_matrix, active_ppl, declined_ppl):
 	for p in range(NUMBER_PLAYERS):
 		description.append([Style.RESET_ALL, '', f'P{p} has {active_ppl[p,0]}ppl "{ppl_str[active_ppl[p,1]]}" (st={status_str[active_ppl[p,2]]})'])
 		if declined_ppl[p,1] != NOPPL:
-			description[-1][2] += f' and "{ppl_decl_str[-declined_ppl[p,1]]}" on decline'
+			description[-1][2] += f' and "{ppl_decl_str[-declined_ppl[p,1]]} (st={status_str[declined_ppl[p,2]]})" on decline'
 		description[-1][2] += ' - '
 	display_matrix.append(description)
 	return display_matrix
