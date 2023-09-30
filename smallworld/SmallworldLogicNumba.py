@@ -290,8 +290,10 @@ class Board():
 
 		for ppl_to_deploy in range(1, MAX_REDEPLOY):
 			valids[ppl_to_deploy] = self._valid_redeploy_on_each(player, ppl_to_deploy, how_many_ppl_available, nb_territories)
-		for area in range(NB_AREAS):
-			valids[MAX_REDEPLOY + area] = self._valid_redeploy_area(player, area, territories)
+		# Allow redeploy on one area only if not possible to redeploy on each
+		if not valids[1:MAX_REDEPLOY].any():
+			for area in range(NB_AREAS):
+				valids[MAX_REDEPLOY + area] = self._valid_redeploy_area(player, area, territories)
 
 		if not valids.any():
 			# If no other option, then allow to skip redeploy
@@ -434,6 +436,75 @@ class Board():
 		else:
 			current_ppl[2] = JUST_ABANDONED
 
+	def _valids_special_action(self, player):
+		valids = np.zeros(NB_AREAS, dtype=np.bool_)
+		current_ppl = self._current_ppl(player)
+
+		if current_ppl[1] == SORCERER:
+			# Attack permitted when it's the time
+			if current_ppl[2] not in [NEW_TURN_STARTED, JUST_ATTACKED, JUST_ABANDONED]:
+				return valids
+
+			# Only 18 sorcerers in the box
+			territories_of_player = self._are_occupied_by(current_ppl)
+			total_number = self._total_number_of_ppl(current_ppl, territories_of_player)
+			if total_number + 1 > MAX_SORCERERS:
+				return valids
+			
+			for area in range(NB_AREAS):
+				valids[area] = self._valid_special_action_area(player, area, current_ppl, territories_of_player)
+
+		return valids
+
+	def _valid_special_action_area(self, player, area, current_ppl, territories_of_player):
+		if current_ppl[1] == SORCERER:
+			# No attack on water
+			if descr[area][0] == WATER:
+				return False
+			# People on this area is alone and active
+			if self.territories[area, 0] != 1 or self.territories[area, 1] <= 0:
+				return False
+			# No attack on current people
+			if self._is_occupied_by(area, current_ppl):
+				return False
+			# Check no full immunity
+			if self.territories[area, 2] >= FULL_IMMUNITY:
+				return False
+			# Check that territory is close to another owned territory or is on the edge
+			neighbor_areas = connexity_matrix[area]
+			if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
+				return False
+			# Check that opponent had not been already 'sorcerized' during this turn
+			if current_ppl[4] & 2**self.territories[area,3]:
+				return False
+
+			return True
+
+		else:
+			return False
+
+	def _do_special_action(self, player, area):
+		current_ppl = self._current_ppl(player)
+
+		if current_ppl[1] == SORCERER:
+			loser, loser_ppl = self.territories[area,3], self._ppl_owner_of(area)
+			# Prepare people if 1st action of the turn
+			if current_ppl[2] != JUST_ATTACKED:
+				self._gather_current_ppl_but_one(current_ppl)
+			# Replace
+			self.territories[area,:] = [1, SORCERER, 0, player, 0]
+			if self._total_number_of_ppl(loser_ppl) <= 0:
+				print('Last people was lost')
+				loser_ppl[:] = [0, NOPPL, WAITING_OTHER_PL, 0, 0]
+			# Note that loser have been 'sorcerized'
+			current_ppl[4] += 2**loser
+			# Update winner's status and #NETWDT
+			current_ppl[2] = JUST_ATTACKED
+			current_ppl[3] += 1
+
+		else:
+			raise Exception('Should not happen')
+
 	###########################################################################
 
 	def _current_ppl(self, player):
@@ -500,9 +571,7 @@ class Board():
 			nb_ppl_to_lose = 1 if self.territories[area,1] != ELF else 0
 			loser_ppl[0] += self.territories[area,0] - nb_ppl_to_lose
 
-			loser_territories = self._are_occupied_by(loser_ppl)
-			total_ppl = np.dot(self.territories[:,0], loser_territories) + loser_ppl[0]
-			if total_ppl <= 0:
+			if self._total_number_of_ppl(loser_ppl) <= 0:
 				print('Last people was lost')
 				loser_ppl[:] = [0, NOPPL, WAITING_OTHER_PL, 0, 0]
 
@@ -523,6 +592,20 @@ class Board():
 		if nb_initial_ppl > 0:
 			winner_ppl[3] += 1
 
+	def _total_number_of_ppl(self, current_ppl, player_territories=None):
+		if player_territories is None:
+			player_territories = self._are_occupied_by(current_ppl)
+
+		how_many_on_board = np.dot(self.territories[:,0], player_territories)
+		how_many_in_hand  = current_ppl[0]
+		return how_many_on_board + how_many_in_hand
+
+	def _limit_total_number_of_ppl(self, current_ppl, upper_limit):
+		total_number = self._total_number_of_ppl(current_ppl)
+		if total_number > upper_limit:
+			current_ppl[0] -= (upper_limit-total_number)
+			assert(current_ppl[0] >= 0)
+
 	def _gather_current_ppl_but_one(self, current_ppl, redeploy=False):
 		# Gather all active people in player's hand, leaving only 1 on each territory
 		# print(f'Prepare / redeploy P{player}:', end='')
@@ -537,7 +620,7 @@ class Board():
 		# If redeploy, additional people for skeleton (up to 20)
 		if redeploy and current_ppl[1] == SKELETON:
 			current_ppl[0] += (current_ppl[3] // 2)
-			current_ppl[0] = min(MAX_SKELETONS, current_ppl[0])
+			self._limit_total_number_of_ppl(current_ppl, MAX_SKELETONS)
 		# print('')
 
 	def _ppl_virtually_available(self, current_ppl, player_territories=None):
@@ -550,8 +633,8 @@ class Board():
 
 		# Additional people for skeleton (up to 20)
 		if current_ppl[1] == SKELETON:
-			how_many_ppl_available += (current_ppl[3] // 2)
-			how_many_ppl_available = min(MAX_SKELETONS, how_many_ppl_available)
+			total_number = self._total_number_of_ppl(current_ppl, player_territories)
+			how_many_ppl_available += min(current_ppl[3] // 2, MAX_SKELETONS-total_number)
 
 		return how_many_ppl_available
 
@@ -625,7 +708,7 @@ class Board():
 		# Draw 6 ppl randomly
 		for i in range(DECK_SIZE):
 			# chosen_ppl = my_random_choice(available_people / available_people.sum())
-			chosen_ppl = [GHOUL, AMAZON, HALFLING, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
+			chosen_ppl = [SORCERER, GHOUL, AMAZON, HALFLING, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			self.people_deck[i, :] = [initial_nb_people[chosen_ppl], chosen_ppl, 0, 0, initial_tokens[chosen_ppl]]
 			available_people[chosen_ppl] = False
 
@@ -663,25 +746,26 @@ def play_one_turn():
 
 	while b.active_ppl[p, 2] < WAITING_OTHER_PL or b.declined_ppl[p, 2] not in [0, WAITING_OTHER_PL]:
 		valids_attack    = b._valids_attack(player=p)
+		valids_special   = b._valids_special_action(player=p)
 		valids_abandon   = b._valids_abandon(player=p)
 		valids_redeploy  = b._valids_redeploy(player=p)
 		valids_choose    = b._valids_choose_ppl(player=p)
 		valid_decline    = b._valid_decline(player=p)
-		print_valids(p, valids_attack, valids_abandon, valids_redeploy, valids_choose, valid_decline)
+		print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_choose, valid_decline)
 
-		if any(valids_attack) or any(valids_abandon) or valid_decline:
-			values = np.concatenate((valids_attack.nonzero()[0], valids_abandon.nonzero()[0] + NB_AREAS, ([2*NB_AREAS] if valid_decline else [])), axis=None)
+		if any(valids_attack) or any(valids_special) or any(valids_abandon) or valid_decline:
+			values = np.concatenate((valids_attack.nonzero()[0], valids_special.nonzero()[0] + NB_AREAS, valids_abandon.nonzero()[0] + 2*NB_AREAS, ([3*NB_AREAS] if valid_decline else [])), axis=None)
 			dice = np.random.choice(values.astype(np.int64))
-
-			if valid_decline and not any(valids_attack) and not any(valids_abandon):
-				breakpoint()
-
 			if dice < NB_AREAS:
 				area = dice
 				print(f'Attacking area {area}')
 				b._do_attack(player=p, area=area)
 			elif dice < 2*NB_AREAS:
 				area = dice - NB_AREAS
+				print(f'Special move on area {area}')
+				b._do_special_action(player=p, area=area)
+			elif dice < 3*NB_AREAS:
+				area = dice - 2*NB_AREAS
 				print(f'Abandonning area {area}')
 				b._do_abandon(player=p, area=area)
 			else:

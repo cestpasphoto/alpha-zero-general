@@ -132,11 +132,17 @@ def print_board(b):
 	print(display_str)
 
 # Used for debug purposes
-def print_valids(p, valids_attack, valids_abandon, valids_redeploy, valids_choose, valid_decline):
+def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_choose, valid_decline):
 	print(f'Valids: P{p} can', end='')
 	if valids_attack.any():
 		print(f' attack area', end='')
 		for i in valids_attack.nonzero()[0]:
+			print(f' {i}', end='')
+		print(', or', end='')
+
+	if valids_special.any():
+		print(f' special on', end='')
+		for i in valids_special.nonzero()[0]:
 			print(f' {i}', end='')
 		print(', or', end='')
 
