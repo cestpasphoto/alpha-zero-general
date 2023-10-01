@@ -29,6 +29,10 @@ status_str = [
 	'redeploy ongoing',
 	'waiting other player',
 ]
+ac_or_dec_str = ['decline-spirit', 'decline', 'active', '???']
+
+ppl_long_str = [' ', 'AMAZON','DWARF','ELF','GHOUL','GIANT','HALFLING','HUMAN','ORC','RATMAN','SKELETON','SORCERER','TRITON','TROLL','WIZARD', 'LOST_TRIBE']
+power_long_str = [' ','ALCHEMIST','BERSERK','BIVOUACKING','COMMANDO','DIPLOMAT','DRAGONMASTER', 'FLYING','FOREST','FORTIFIED','HEROIC','HILL','MERCHANT','MOUNTED','PILLAGING','SEAFARING','SPIRIT','STOUT','SWAMP','UNDERWORLD','WEALTHY']
 
 def generate_background():
 	display_matrix = deepcopy(map_display)
@@ -57,19 +61,19 @@ def add_text(display_matrix, territories):
 				display_matrix[y][x][2] = Fore.LIGHTBLACK_EX + 'a' + str(area)
 			elif txt == 3:
 				display_matrix[y][x][2] = powers_str[ descr[area][1] ] + ' '
-			elif txt == 4 and territories[area, 2] > 0:
-				if territories[area, 2] >= FULL_IMMUNITY:
+			elif txt == 4 and territories[area, 3:].sum() > 0:
+				if territories[area, 3:].sum() >= FULL_IMMUNITY:
 					display_matrix[y][x][2] = '**'
-				elif territories[area, 2] >= IMMUNE_CONQUEST:
+				elif territories[area, 3:].sum() >= IMMUNE_CONQUEST:
 					display_matrix[y][x][2] = ' *'
 				else:
-					display_matrix[y][x][2] = '+' + str(territories[area, 2])
+					display_matrix[y][x][2] = '+' + str(territories[area, 3:].sum())
 			else:
 				display_matrix[y][x][2] = '  '
 				
 	return display_matrix
 
-def add_legend(display_matrix):
+def add_legend(display_matrix, peoples):
 	display_matrix[1].append([Style.RESET_ALL, '', '  '])
 	display_matrix[1].append(terrains_str[0] + ['water'])
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
@@ -88,28 +92,34 @@ def add_legend(display_matrix):
 	display_matrix[2].append([Style.RESET_ALL, '', legend_power])
 
 	legend_ppl = '  '
-	# legend_ppl += ppl_str[1] + ' = primitive , '
-	# legend_ppl += ppl_str[2] + ' = ogre , '
+	for i in range(NUMBER_PLAYERS):
+		for j in range(3):
+			ppl, power = abs(peoples[i,j,1:3])
+			if ppl != NOPPL:
+				short_str = ppl_str[ppl] if j == ACTIVE else ppl_decl_str[ppl]
+				legend_ppl += f'{short_str}={ppl_long_str[ppl]}'
+				if power != NOPOWER:
+					legend_ppl += f'+{power_long_str[power]}'
+				legend_ppl += f', '
 	display_matrix[3].append([Style.RESET_ALL, '', legend_ppl])
 
 	return display_matrix
 
-def add_players_hand(display_matrix, active_ppl, declined_ppl):
+def add_players_hand(display_matrix, peoples, status):
 	description = []
 	for p in range(NUMBER_PLAYERS):
-		description.append([Style.RESET_ALL, '', f'P{p} has {active_ppl[p,0]}ppl "{ppl_str[active_ppl[p,1]]}" (st={status_str[active_ppl[p,2]]})'])
-		if declined_ppl[p,1] != NOPPL:
-			description[-1][2] += f' and "{ppl_decl_str[-declined_ppl[p,1]]} (st={status_str[declined_ppl[p,2]]})" on decline'
+		description.append([Style.RESET_ALL, '', f'P{p} has {peoples[p,ACTIVE,0]}ppl "{ppl_str[peoples[p,ACTIVE,1]]}"'])
+		if peoples[p,DECLINED,1] != NOPPL:
+			description[-1][2] += f' and "{ppl_decl_str[-peoples[p,DECLINED,1]]}" on decline'
+		description[-1][2] += f', {ac_or_dec_str[status[p, 3]]} {status_str[status[p, 4]]}'
 		description[-1][2] += ' - '
 	display_matrix.append(description)
 	return display_matrix
 
-def add_scores(display_matrix, scores):
-	scores_str = '  Scores: '
+def add_scores(display_matrix, status):
 	for p in range(NUMBER_PLAYERS):
-		scores_str += f' P{p}={scores[p][0]} '
-	scores_str += f' turn #{scores[0][1]}'
-	display_matrix[4].append([Style.RESET_ALL, '', scores_str])
+		scores_str = f' P{p}={status[p,0]:02} #{status[p,1]:02} netwdt={status[p,2]}'
+		display_matrix[4+p].append([Style.RESET_ALL, '', scores_str])
 	return display_matrix
 
 def disp_to_str(display_matrix):
@@ -125,9 +135,9 @@ def disp_to_str(display_matrix):
 def print_board(b):
 	display_matrix = generate_background()
 	display_matrix = add_text(display_matrix, b.territories)
-	display_matrix = add_legend(display_matrix)
-	display_matrix = add_scores(display_matrix, b.scores)
-	display_matrix = add_players_hand(display_matrix, b.active_ppl, b.declined_ppl)
+	display_matrix = add_legend(display_matrix, b.peoples)
+	display_matrix = add_scores(display_matrix, b.status)
+	display_matrix = add_players_hand(display_matrix, b.peoples, b.status)
 	display_str = disp_to_str(display_matrix)
 	print(display_str)
 
