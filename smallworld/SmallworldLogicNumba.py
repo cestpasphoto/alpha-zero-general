@@ -33,10 +33,16 @@ from SmallworldDisplay import print_board, print_valids
 #####                                 1      Round number (same for all players)
 #####                                 2      #NETWDT = number of Non-Empty Territories Won During Turn
 #####                                 3      Id of people (0 or 1 or 2) current playing, -1 else
-#####                                 4      Status of people (from NEW_TURN_STARTED to WAITING_OTHER_PL)
+#####                                 4      Status of people (from PHASE_READ to PHASE_WAIT)
 #####   37   self.invisible_deck(1D) 0-1     Bitfield stating if people #i (0-14) is already in deck or used
 #####                                2-4     Bitfield stating if power #i (0-20) is already in deck or used
 # Indexes above are assuming 2 players, you can have more details in copy_state().
+#
+# How is used self.peoples[:,:,3] depending on people:
+#  Amazon  : number of people under "loan", 4 during attack and should be 0 at end of turn
+#  Skeleton: 1 if their power was applied this turn
+#  Halfling: number of used holes-in-ground
+#  Sorcerer: bitfield of which player has been sorcerized during this turn
 
 # @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
@@ -98,8 +104,9 @@ class Board():
 		self._init_deck()
 		for player in range(NUMBER_PLAYERS):
 			self._do_choose_ppl(player, 0)
-			self.status[player, 3:] = [-1, WAITING_OTHER_PL]
-		self.status[0, 3:] = [ACTIVE, NEW_TURN_STARTED]
+			self.status[player, 0] = 0 # Reset money
+			self.status[player, 3:] = [-1, PHASE_WAIT]
+		self.status[0, 3:] = [ACTIVE, PHASE_READY]
 
 		# First round is round #1
 		self._update_round()
@@ -160,15 +167,11 @@ class Board():
 			return valids
 
 		# Attack permitted when it's the time
-		if self.status[player, 4] not in [NEW_TURN_STARTED, JUST_ATTACKED, JUST_ABANDONED]:
+		if self.status[player, 4] not in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST]:
 			return valids
 
 		territories_of_player = self._are_occupied_by(current_ppl)
-		# Check that player could have at least 1 player in hand
-		how_many_ppl_available = current_ppl[0]
-		if self.status[player, 4] != JUST_ATTACKED:
-			# 1st attack, so simulate redeploy: add people from the board, except 1 per territory
-			how_many_ppl_available = self._ppl_virtually_available(current_ppl, self.status[player, 4], territories_of_player)
+		how_many_ppl_available = self._ppl_virtually_available(player, current_ppl, PHASE_CONQUEST, territories_of_player)
 		# Forbid to continue if 0 ppl left in hand
 		if how_many_ppl_available <= 0:
 			return valids
@@ -211,9 +214,8 @@ class Board():
 	def _do_attack(self, player, area):
 		current_ppl, current_id = self._current_ppl(player)
 
-		# Prepare people if 1st action of the turn
-		if self.status[player, 4] != JUST_ATTACKED:
-			self._gather_current_ppl_but_one(current_ppl, self.status[player, 4])
+		# If 1st action of the turn, prepare people
+		self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST)
 
 		nb_ppl_of_player, minimum_ppl_for_attack = current_ppl[0],self._minimum_ppl_for_attack(area, current_ppl)
 
@@ -223,7 +225,7 @@ class Board():
 			dice = DICE_VALUES[3]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				print(f'  Using dice, random value is {dice} but fails')
-				self._switch_from_attack_to_deploy(current_ppl, player)
+				self.status[player, 4] = PHASE_CONQ_WITH_DICE
 				return
 			print(f'  Using dice, random value is {dice} and succeed')
 			nb_attacking_ppl = nb_ppl_of_player
@@ -236,48 +238,42 @@ class Board():
 		self._switch_territory_from_loser_to_winner(area, player, current_ppl, nb_attacking_ppl)
 
 		# Update winner's status
-		self.status[player, 4] = JUST_ATTACKED
-		# Redeploy if that was last attack
-		if current_ppl[0] == 0 or use_dice:
-			self._switch_from_attack_to_deploy(current_ppl, player)
+		self.status[player, 4] = PHASE_CONQ_WITH_DICE if use_dice else PHASE_CONQUEST
 
 	def _valids_redeploy(self, player):
 		valids = np.zeros(NB_AREAS + MAX_REDEPLOY, dtype=np.bool_)
 		current_ppl, current_id = self._current_ppl(player)
 
+		# Check that player has a valid ppl:
+		if current_ppl[1] == NOPPL:
+			return valids
+
 		# Check that it is time
-		if self.status[player, 4] not in [TO_START_REDEPLOY, TO_REDEPLOY]:
-			if self.status[player, 4] in [JUST_DECLINED, WAITING_OTHER_PL, NEED_ABANDON]:
-				return valids
+		if self.status[player, 4] not in [PHASE_READY, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_REDEPLOY]:
+			return valids
 
 		# Check there is at least one active territory
-		current_territories = self._are_occupied_by(current_ppl)
-		nb_territories = np.count_nonzero(current_territories)
+		territories_of_player = self._are_occupied_by(current_ppl)
+		nb_territories = np.count_nonzero(territories_of_player)
 		if nb_territories == 0:
-			# If no other option, then allow to skip redeploy
-			valids[0] = True
+			valids[0] = True # If no other option, then allow to skip redeploy
 			return valids
 
 		# Check that player has still some ppl to deploy
-		if self.status[player, 4] == TO_REDEPLOY:
-			how_many_ppl_available = current_ppl[0]
-		else:
-			how_many_ppl_available = self._ppl_virtually_available(current_ppl, self.status[player, 4], current_territories)
-		if how_many_ppl_available <= 0:
-			# If no other option, then allow to skip redeploy
-			valids[0] = True
+		how_many_ppl_available = self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY, territories_of_player)
+		if how_many_ppl_available == 0:
+			valids[0] = True # If no other option, then allow to skip redeploy
 			return valids
+		elif how_many_ppl_available < 0:
+			return valids    # Redeploy not allowed, need to abandon instead
 
 		for ppl_to_deploy in range(1, MAX_REDEPLOY):
 			valids[ppl_to_deploy] = (how_many_ppl_available >= ppl_to_deploy * nb_territories)
-		# Allow redeploy on one area only if not possible to redeploy on each
-		if not valids[1:MAX_REDEPLOY].any():
-			for area in range(NB_AREAS):
-				valids[MAX_REDEPLOY + area] = (current_territories[area])
+		for area in range(NB_AREAS):
+			valids[MAX_REDEPLOY + area] = territories_of_player[area]
 
 		if not valids.any():
-			# If no other option, then allow to skip redeploy
-			valids[0] = True
+			valids[0] = True # If no other option, then allow to skip redeploy
 
 		return valids
 
@@ -285,26 +281,13 @@ class Board():
 		current_ppl, current_id = self._current_ppl(player)
 
 		if param == 0: # Special case, skip redeploy
-			# Remove Amazon additional ppl before
-			if current_ppl[1] == AMAZON and self.status[player, 4] != TO_REDEPLOY:
-				if current_ppl[0] < current_ppl[3]:
-					self.status[player, 4] = NEED_ABANDON
-					return
-				else:
-					print(f'Removing {current_ppl[3]} Amazons {current_ppl[0]} --> {current_ppl[0]-current_ppl[3]}')
-					current_ppl[0] -= current_ppl[3]
-					current_ppl[3] = 0
-			self._score_and_switch_to_next(player, current_ppl)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
+			# Status already changed by previous function
 			return
 
-		if self.status[player, 4] != TO_REDEPLOY:
-			self._gather_current_ppl_but_one(current_ppl, self.status[player, 4], redeploy=True)
-			if current_ppl[1] == AMAZON:
-				print(f'Removing {current_ppl[3]} Amazons {current_ppl[0]} --> {current_ppl[0]-current_ppl[3]}')
-				current_ppl[0] -= current_ppl[3]
-				current_ppl[3] = 0
-				assert(current_ppl[0] >= 0)
-			self.status[player, 4] = TO_REDEPLOY
+		self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+		self.status[player, 4] = PHASE_REDEPLOY
 
 		if param < MAX_REDEPLOY:
 			# Deploy X ppl on all active areas
@@ -312,7 +295,7 @@ class Board():
 
 			territories_of_player = self._are_occupied_by(current_ppl)
 			current_ppl[0] -= how_many_to_deploy * np.count_nonzero(territories_of_player)
-			assert(current_ppl[0] >= 0)
+			assert current_ppl[0] >= 0
 			self.territories[:, 0] += how_many_to_deploy*territories_of_player
 		else:
 			# Deploy 1 ppl on 1 area
@@ -323,14 +306,15 @@ class Board():
 
 		# Trigger end of turn if no more to redeploy
 		if current_ppl[0] == 0:
-			self._score_and_switch_to_next(player, current_ppl)
+			self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
+			# Status already changed by previous function
 
 	def _valid_decline(self, player):
 		# Going to decline permitted only for active_ppl
 		if self.status[player, 3] != ACTIVE or self.peoples[player, ACTIVE, 1] == NOPPL:
 			return False
 		# Going to decline permitted only on 1st move
-		if self.status[player, 4] != NEW_TURN_STARTED:
+		if self.status[player, 4] != PHASE_READY:
 			return False
 		return True
 
@@ -346,8 +330,9 @@ class Board():
 		if current_ppl[1] == GHOUL:
 			self.peoples[player, DECLINED, :3] = current_ppl[:3]
 		else:
-			self._gather_current_ppl_but_one(current_ppl, self.status[player, 4])
+			self._gather_current_ppl_but_one(current_ppl)
 			self.peoples[player, DECLINED, 1] = current_ppl[1]
+		current_ppl[:] = [0, NOPPL, NOPOWER, 0, 0]
 		
 		# Flip back ppl tokens on the board and remove defense
 		for area in range(NB_AREAS):
@@ -355,16 +340,15 @@ class Board():
 				self.territories[area, 1] = -self.peoples[player, DECLINED, 1]
 				self.territories[area, 2:] = 0
 		self.peoples[player, DECLINED, 1:3] = -self.peoples[player, DECLINED, 1:3]
-
-		current_ppl[:] = [0, NOPPL, NOPOWER, 0, 0]
-		self.status[player, 4] = WAITING_OTHER_PL
-		self._score_and_switch_to_next(player, current_ppl)
+		
+		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
+		self.status[player, 4] = PHASE_WAIT
 
 	def _valids_choose_ppl(self, player):
 		valids = np.zeros(DECK_SIZE, dtype=np.bool_)
 
 		# Check that it is time
-		if self.status[player, 4] != NEW_TURN_STARTED:
+		if self.status[player, 4] != PHASE_READY:
 			return valids
 		# Check that player hasn't a player yet
 		if self.peoples[player, ACTIVE, 1] != NOPPL:
@@ -377,23 +361,29 @@ class Board():
 		return valids
 
 	def _do_choose_ppl(self, player, index):
-		self.peoples[player, ACTIVE, :] = 0
-		self.peoples[player, ACTIVE, :3] = self.visible_deck[index, :3]
-		self.peoples[player, ACTIVE, 3] = initial_tokens[self.visible_deck[index, 1]]
+		current_ppl = self.peoples[player, ACTIVE, :]
 
-		 # Earn money but also pay what's needed
+		current_ppl[:]  = 0
+		current_ppl[:3] = self.visible_deck[index, :3]
+		current_ppl[3]  = initial_tokens[self.visible_deck[index, 1]]
+
+		# Earn money but also pay what's needed
+		print(f'Earn {self.visible_deck[index, 3]} but pay {index}')
 		self.status[player, 0] += self.visible_deck[index, 3] - index
-		# This status also means we just chose a ppl
-		self.status[player, 4] = JUST_ATTACKED
+
+		self._prepare_for_new_status(player, current_ppl, PHASE_CHOOSE)
+		self.status[player, 4] = PHASE_CHOOSE
 		self._update_deck_after_chose(index)
 
 	def _valids_abandon(self, player):
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
 		current_ppl, current_id = self._current_ppl(player)
 
-		# To avoid infinite loops, allow to abandon area only at the beginning of the turn
-		if self.status[player, 4] not in [NEW_TURN_STARTED, NEED_ABANDON]:
-			return valids
+		if self.status[player, 4] not in [PHASE_READY, PHASE_ABANDON]:
+			if current_ppl[1] == AMAZON and self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) < 0:
+				pass # exception if Amazons can't redeploy
+			else:
+				return valids
 		# Cant abandon if player doesn't have any active people
 		if current_ppl[1] == NOPPL:
 			return valids
@@ -406,12 +396,11 @@ class Board():
 	def _do_abandon(self, player, area):
 		current_ppl, current_id = self._current_ppl(player)
 		self._leave_area(area)
-
-		if self.status[player, 4] == NEED_ABANDON: # Case of amazon not able to give back 4 ppl
-			how_many_ppl_available = self._ppl_virtually_available(current_ppl, NEED_ABANDON)
-			self.status[player, 4] = NEED_ABANDON if how_many_ppl_available < current_ppl[4] else TO_START_REDEPLOY
+		if self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
+			pass # exception if Amazons can't redeploy, don't change status
 		else:
-			self.status[player, 4] = JUST_ABANDONED
+			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON)
+			self.status[player, 4] = PHASE_ABANDON
 
 	def _valids_special_action(self, player):
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
@@ -419,7 +408,7 @@ class Board():
 
 		if current_ppl[1] == SORCERER:
 			# Attack permitted when it's the time
-			if self.status[player, 4] not in [NEW_TURN_STARTED, JUST_ATTACKED, JUST_ABANDONED]:
+			if self.status[player, 4] not in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST]:
 				return valids
 
 			# Limited number of sorcerers in the box
@@ -452,7 +441,8 @@ class Board():
 			if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
 				return False
 			# Check that opponent had not been already 'sorcerized' during this turn
-			if current_ppl[3] & 2**self.territories[area,3]:
+			_, loser = self._ppl_owner_of(area)
+			if current_ppl[3] & 2**loser:
 				return False
 
 			return True
@@ -466,14 +456,13 @@ class Board():
 		if current_ppl[1] == SORCERER:
 			loser_ppl, loser = self._ppl_owner_of(area)
 			# Prepare people if 1st action of the turn
-			if self.status[player, 4] != JUST_ATTACKED:
-				self._gather_current_ppl_but_one(current_ppl, self.status[player, 4])
+			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST)
 			# Replace
 			self.territories[area,:] = [1, SORCERER, current_ppl[2], 0, 0]
 			# Note that loser have been 'sorcerized'
 			current_ppl[3] += 2**loser
 			# Update winner's status and #NETWDT
-			self.status[player, 4] = JUST_ATTACKED
+			self.status[player, 4] = PHASE_CONQUEST
 			current_ppl[2] += 1
 
 		else:
@@ -519,11 +508,11 @@ class Board():
 
 		# Bonus if: triton + at_edge, giant + border of mountain
 		if current_ppl[1] == TRITON and descr[area][2]:
-			minimum_ppl_for_attack = max(minimum_ppl_for_attack - 1, 1)
+			minimum_ppl_for_attack -= 1
 		if current_ppl[1] == GIANT  and self._is_area_border_of(area, MOUNTAIN):
-			minimum_ppl_for_attack = max(minimum_ppl_for_attack - 1, 1)
+			minimum_ppl_for_attack -= 1
 
-		return minimum_ppl_for_attack
+		return max(minimum_ppl_for_attack, 1)
 
 	def _leave_area(self, area):
 		# Give back ppl to owner
@@ -538,7 +527,7 @@ class Board():
 		# Give back people to the loser (if any)
 		loser_ppl, _ = self._ppl_owner_of(area)
 		if loser_ppl is not None:
-			assert(nb_initial_ppl > 0)
+			assert nb_initial_ppl > 0
 			# Lose 1 ppl unless you are elf and active
 			nb_ppl_to_lose = 1 if self.territories[area,1] != ELF else 0
 			loser_ppl[0] += self.territories[area,0] - nb_ppl_to_lose
@@ -548,7 +537,7 @@ class Board():
 		self.territories[area,1:3] = winner_ppl[1:3]
 		self.territories[area,3:] = 0
 		winner_ppl[0] -= nb_attacking_ppl
-		assert(winner_ppl[0] >= 0)
+		assert winner_ppl[0] >= 0
 		# Add specific tokens
 		if winner_ppl[1] == HALFLING and winner_ppl[3] > 0:
 			self.territories[area, 3] = FULL_IMMUNITY
@@ -570,15 +559,9 @@ class Board():
 		total_number = self._total_number_of_ppl(current_ppl, player_territories)
 		return min(addition, maximum - total_number)
 
-	def _gather_current_ppl_but_one(self, current_ppl, status, redeploy=False):
+	def _gather_current_ppl_but_one(self, current_ppl):
 		# Gather all active people in player's hand, leaving only 1 on each territory
 		# print(f'Prepare / redeploy P{player}:', end='')
-
-		if status == NEW_TURN_STARTED:
-			if current_ppl[1] == AMAZON and current_ppl[3] == 0:
-				print(f'Bonus Amazone {current_ppl[0]} --> {current_ppl[0]+4}')
-				current_ppl[0] += 4
-				current_ppl[3]  = 4
 
 		for area in range(NB_AREAS):
 			if self._is_occupied_by(area, current_ppl):
@@ -588,45 +571,91 @@ class Board():
 					current_ppl[0]           += nb_ppl_to_gather
 					# print(f' {nb_ppl_to_gather}ppl on area{area}', end='')
 
-		# If redeploy, additional people for skeleton (up to 20)
-		if redeploy and current_ppl[1] == SKELETON:
-			current_ppl[0] += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS)
-		# print('')
+	def _prepare_for_new_status(self, player, current_ppl, next_status):
+		old_status = self.status[player, 4]
 
-	def _ppl_virtually_available(self, current_ppl, status, player_territories=None):
+		if old_status in [PHASE_READY] and next_status in [PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
+			self._gather_current_ppl_but_one(current_ppl)
+		elif old_status in [PHASE_READY, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+			self._gather_current_ppl_but_one(current_ppl)
+		elif next_status == PHASE_WAIT:
+			if self.status[player, 3] == ACTIVE:
+				self._compute_and_update_score(player)
+			self._switch_to_next(player, current_ppl)
+
+		if current_ppl[1] == AMAZON:
+			self._switch_status_amazon(player, current_ppl, old_status, next_status)
+		elif current_ppl[1] == SKELETON:
+			self._switch_status_skeleton(player, current_ppl, old_status, next_status)	
+
+	def _switch_status_amazon(self, player, current_ppl, old_status, next_status):
+		if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+			if current_ppl[3] != 0:
+				print(f'Remove bonus Amazons {current_ppl[0]} --> {current_ppl[0]-current_ppl[3]}')
+				current_ppl[0] -= current_ppl[3]
+				current_ppl[3]  = 0
+			else:
+				print(f'Bonus Amazone not used ? {current_ppl[3]}')
+				breakpoint()
+
+		elif old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
+			if current_ppl[3] == 0:
+				print(f'Add bonus Amazons {current_ppl[0]} --> {current_ppl[0]+4}')
+				current_ppl[0] += 4
+				current_ppl[3]  = 4
+			else:
+				print(f'Bonus Amazone already used ? {current_ppl[3]}')
+				breakpoint()
+
+	def _switch_status_skeleton(self, player, current_ppl, old_status, next_status):
+		if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+			if current_ppl[3] == 0:
+				current_ppl[0] += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS)
+				current_ppl[3] = 1 # We write that we gave additional ppl already
+			else:
+				print(f'Skeleton power already used ? {current_ppl[3]}')
+				breakpoint()
+
+	def _ppl_virtually_available(self, player, current_ppl, next_status, player_territories=None):
 		if player_territories is None:
 			player_territories = self._are_occupied_by(current_ppl)
 
+		old_status = self.status[player, 4]
 		how_many_ppl_available = current_ppl[0]
-		# Simulate redeploy: add people on the boards, except 1 per territory
-		how_many_ppl_available += np.dot(np.maximum(self.territories[:,0]-1,0), player_territories)
+		if old_status in [PHASE_READY] and next_status in [PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
+			# Simulate redeploy: add people on the boards, except 1 per territory
+			how_many_ppl_available += np.dot(np.maximum(self.territories[:,0]-1,0), player_territories)
+		elif old_status in [PHASE_READY, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+			# Simulate redeploy: add people on the boards, except 1 per territory
+			how_many_ppl_available += np.dot(np.maximum(self.territories[:,0]-1,0), player_territories)
 
 		# Additional people depending on people and game status
 		if current_ppl[1] == AMAZON:
-			if status == NEW_TURN_STARTED:
-				how_many_ppl_available += 4
-			else:
-				how_many_ppl_available -= current_ppl[3]
+			if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+				if current_ppl[3] != 0:
+					how_many_ppl_available -= current_ppl[3]
+				else:
+					print(f'Bonus Amazone not used ? {current_ppl[3]}')
+					breakpoint()
+
+			elif old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
+				if current_ppl[3] == 0:
+					how_many_ppl_available += 4
+				else:
+					print(f'Bonus Amazone already used ? {current_ppl[3]}')
+					breakpoint()
+
 		elif current_ppl[1] == SKELETON:
-			if status == TO_START_REDEPLOY:
-				how_many_ppl_available += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS, player_territories)
+			if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+				if current_ppl[3] == 0:
+					how_many_ppl_available += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS, player_territories)
+				else:
+					print(f'Skeleton power already used ? {current_ppl[3]}')
+					breakpoint()
+		return how_many_ppl_available		
 
-		return how_many_ppl_available
-
-	def _switch_from_attack_to_deploy(self, current_ppl, player):
-		self.status[player, 4] = TO_START_REDEPLOY
-		if current_ppl[1] == AMAZON:
-			how_many_ppl_available = self._ppl_virtually_available(current_ppl, JUST_ATTACKED)
-			if how_many_ppl_available < current_ppl[4]:
-				print(f'Amazons need to abandon some areas ({how_many_ppl_available})')
-				self.status[player, 4] = NEED_ABANDON
-			# else:
-				# print(f'No need to abandon areas ({how_many_ppl_available})')
-
-	def _score_and_switch_to_next(self, player, current_ppl):
+	def _switch_to_next(self, player, current_ppl):
 		if self.status[player, 3] == ACTIVE:				# Next turn is for next player
-			self._update_score(player)
-
 			next_player = (player+1) % NUMBER_PLAYERS
 			if next_player == 0:
 				self._update_round()
@@ -639,26 +668,44 @@ class Board():
 				next_ppl_id = ACTIVE
 			next_ppl = self.peoples[next_player, next_ppl_id, :]
 
-			self.status[player, 3:5] = [-1, WAITING_OTHER_PL]
-			assert(self.status[next_player, 3] == -1)
-			assert(self.status[next_player, 4] == WAITING_OTHER_PL)
-			self.status[next_player, 3], self.status[next_player, 4] = next_ppl_id, NEW_TURN_STARTED
+			self.status[player, 3:5] = [-1, PHASE_WAIT]
+			assert self.status[next_player, 3] == -1
+			assert self.status[next_player, 4] == PHASE_WAIT
+			self.status[next_player, 3], self.status[next_player, 4] = next_ppl_id, PHASE_READY
 		else:  												# Next turn is for same player
 			print('Same player to play with its active ppl now')
 			next_player = player
 			next_ppl = self.peoples[player, ACTIVE, :]
-			self.status[player, 3:5] = [ACTIVE, NEW_TURN_STARTED]
+			self.status[player, 3:5] = [ACTIVE, PHASE_READY]
 
-		# Clean #NETWDT
+		# Reset stuff depending on people
+		if current_ppl[1] == SKELETON:
+			if current_ppl[3] != 1:
+				print('** skeleton power hasnt been applied during this turn')
+				breakpoint()
+			current_ppl[3] = 0 # Must be reset
+		elif current_ppl[1] == HALFLING:
+			pass # Don't reset it
+		elif current_ppl[1] == SORCERER:
+			current_ppl[3] = 0 # Must be reset
+		else:
+			if current_ppl[3] != 0:
+				print(f'People info not null with people={current_ppl[1]}')
+				breakpoint()
+
+		# Reset stuff depending on power
+		current_ppl[4] = 0
+
+		# Reset #NETWDT
 		self.status[player, 2] = 0
 
-	def _update_score(self, player):
+	def _compute_and_update_score(self, player):
 		score_for_this_turn = 0
 
 		# Iterate on areas and count score
 		for area in range(NB_AREAS):
 			if self.territories[area, 1] != NOPPL and self.territories[area, 1] in self.peoples[player, :, 1]:
-				score_for_this_turn += self.territories[area, 0]
+				score_for_this_turn += 1
 				# +1 point if: dwarf + mine (even in decline), human + field, wizard + magic
 				if descr[area][1] == MINE     and abs(self.territories[area, 1]) == DWARF:
 					score_for_this_turn += 1
@@ -688,8 +735,8 @@ class Board():
 
 		# Draw 6 ppl+power randomly
 		for i in range(DECK_SIZE):
-			# chosen_ppl = my_random_choice(available_people / available_people.sum())
-			chosen_ppl = [SORCERER, GHOUL, AMAZON, HALFLING, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
+			chosen_ppl = my_random_choice(available_people / available_people.sum())
+			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			chosen_power = my_random_choice(available_power / available_power.sum())
 			self.visible_deck[i, :] = [initial_nb_people[chosen_ppl], chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -728,6 +775,7 @@ def play_one_turn():
 	print(f'Player is now P{p}')
 
 	while b.status[p, 3] >= 0:
+		# breakpoint()
 		valids_attack    = b._valids_attack(player=p)
 		valids_special   = b._valids_special_action(player=p)
 		valids_abandon   = b._valids_abandon(player=p)

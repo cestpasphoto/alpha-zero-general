@@ -80,14 +80,13 @@ WEALTHY     = 20 # +7 victoire à la fin premier tour
 initial_nb_power   = [0, 4, 4, 5, 4, 5, 5, 5, 4, 3, 5, 4, 2, 5, 5, 5, 5, 4, 4, 5, 4]
 initial_tokens_pwr = [0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-NEW_TURN_STARTED  = 1
-JUST_ATTACKED     = 2
-JUST_ABANDONED    = 3
-JUST_DECLINED     = 4
-NEED_ABANDON      = 5
-TO_START_REDEPLOY = 6
-TO_REDEPLOY       = 7
-WAITING_OTHER_PL  = 8
+PHASE_READY          = 1 # Next action is to play
+PHASE_CHOOSE         = 2 # Chose
+PHASE_ABANDON        = 3 # Abandon
+PHASE_CONQUEST       = 4 # Include preparation, attack, abandon, specialppl
+PHASE_CONQ_WITH_DICE = 5 # Dice (not in berserk case)
+PHASE_REDEPLOY       = 6 # Include redeploy, specialpower
+PHASE_WAIT           = 7 # End of turn (after redeploy, or decline)
 
 #################### MAP DESCRIPTION ####################
 

@@ -16,20 +16,19 @@ terrains_str = [
 	[Back.LIGHTGREEN_EX , Fore.BLACK], # MEADOW
 ]
 powers_str = [' ', '⍎', '⅏', 'ℵ']
-ppl_str      = [' ', 'A' , 'D' , 'E', 'g', 'G' , 'h', 'H' , 'O' , 'R' , 's', 'S' , 't', 'T' , 'W' , 'p']
-ppl_decl_str = [' ', '🄐', '🄓', '🄔', '🄖', '🄖', '🄗', '🄗', '🄞', '🄡', '🄢', '🄢', '🄣', '🄣', '🄦', '🄟']
+ppl_str      = [' ', 'A' , 'D' , 'E', 'g', 'G' , 'h', 'H' , 'O' , 'R' , 's', 'S' , 't', 'T' , 'W' , 'l']
+ppl_decl_str = [' ', '🄐', '🄓', '🄔', '🄖', '🄖', '🄗', '🄗', '🄞', '🄡', '🄢', '🄢', '🄣', '🄣', '🄦', '🄛']
 status_str = [
 	'',
-	'starts new turn',
-	'just attacked',
-	'just abandoned an area',
-	'just declined its ppl',
-	'need to abandon area(s)',
-	'will start to redeploy',
-	'redeploy ongoing',
-	'waiting other player',
+	'is ready to play',
+	'chose new ppl',
+	'abandoned',
+	'attacked',
+	'attacked with dice',
+	'redeployed',
+	'is waiting',
 ]
-ac_or_dec_str = ['decline-spirit', 'decline', 'active', '???']
+ac_or_dec_str = ['decline-spirit ppl', 'decline ppl', 'active ppl', 'none']
 
 ppl_long_str = [' ', 'AMAZON','DWARF','ELF','GHOUL','GIANT','HALFLING','HUMAN','ORC','RATMAN','SKELETON','SORCERER','TRITON','TROLL','WIZARD', 'LOST_TRIBE']
 power_long_str = [' ','ALCHEMIST','BERSERK','BIVOUACKING','COMMANDO','DIPLOMAT','DRAGONMASTER', 'FLYING','FOREST','FORTIFIED','HEROIC','HILL','MERCHANT','MOUNTED','PILLAGING','SEAFARING','SPIRIT','STOUT','SWAMP','UNDERWORLD','WEALTHY']
@@ -94,12 +93,14 @@ def add_legend(display_matrix, peoples):
 	legend_ppl = '  '
 	for i in range(NUMBER_PLAYERS):
 		for j in range(3):
-			ppl, power = abs(peoples[i,j,1:3])
+			ppl, power, pplinfo, powerinfo = abs(peoples[i,j,1:])
 			if ppl != NOPPL:
 				short_str = ppl_str[ppl] if j == ACTIVE else ppl_decl_str[ppl]
-				legend_ppl += f'{short_str}={ppl_long_str[ppl]}'
+				legend_ppl += f'{short_str} = {ppl_long_str[ppl]}'
 				if power != NOPOWER:
 					legend_ppl += f'+{power_long_str[power]}'
+				if pplinfo != 0 or powerinfo != 0:
+					legend_ppl += f' ({pplinfo}-{powerinfo})'
 				legend_ppl += f', '
 	display_matrix[3].append([Style.RESET_ALL, '', legend_ppl])
 
@@ -118,7 +119,7 @@ def add_players_hand(display_matrix, peoples, status):
 
 def add_scores(display_matrix, status):
 	for p in range(NUMBER_PLAYERS):
-		scores_str = f' P{p}={status[p,0]:02} #{status[p,1]:02} netwdt={status[p,2]}'
+		scores_str = f'  P{p}: score={status[p,0]:02} #{status[p,1]:02} netwdt={status[p,2]}'
 		display_matrix[4+p].append([Style.RESET_ALL, '', scores_str])
 	return display_matrix
 
