@@ -100,14 +100,13 @@ class Board():
 			else:
 				self.territories[i,:] = [0    , NOPPL     , NOPOWER, 0, 0]
 
-		# Init deck of people and draw for P0 and P1
 		self._init_deck()
-		for player in range(NUMBER_PLAYERS):
-			self._do_choose_ppl(player, 0)
-			self.status[player, 0] = 0 # Reset money
-			self.status[player, 3:] = [-1, PHASE_WAIT]
-		self.status[0, 3:] = [ACTIVE, PHASE_READY]
 
+		# Init money and status for each player
+		self.status[:, 0] = 5
+		self.status[0, 3:] = [ACTIVE, PHASE_READY]
+		self.status[1:, 3:] = [-1, PHASE_WAIT]
+		
 		# First round is round #1
 		self._update_round()
 	
@@ -750,9 +749,10 @@ class Board():
 		available_people = my_unpackbits(self.invisible_deck[:2])
 		available_power  = my_unpackbits(self.invisible_deck[2:])
 
-		# Delete people #item, shift others upwards and give them 1 coin each
+		# Delete people #item, shift others upwards
 		self.visible_deck[index:DECK_SIZE-1, :] = self.visible_deck[index+1:DECK_SIZE, :]
-		self.visible_deck[index:DECK_SIZE-1, 3] += 1
+		# Give previous combos 1 coin each
+		self.visible_deck[0:index, 3] += 1
 		# Draw a new people for last combination
 		chosen_ppl   = my_random_choice(available_people / available_people.sum())
 		chosen_power = my_random_choice(available_power / available_power.sum())

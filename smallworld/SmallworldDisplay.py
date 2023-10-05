@@ -28,7 +28,7 @@ status_str = [
 	'redeployed',
 	'is waiting',
 ]
-ac_or_dec_str = ['decline-spirit ppl', 'decline ppl', 'active ppl', 'none']
+ac_or_dec_str = ['decline-spirit ppl', 'decline ppl', 'active ppl', '']
 
 ppl_long_str = [' ', 'AMAZON','DWARF','ELF','GHOUL','GIANT','HALFLING','HUMAN','ORC','RATMAN','SKELETON','SORCERER','TRITON','TROLL','WIZARD', 'LOST_TRIBE']
 power_long_str = [' ','ALCHEMIST','BERSERK','BIVOUACKING','COMMANDO','DIPLOMAT','DRAGONMASTER', 'FLYING','FOREST','FORTIFIED','HEROIC','HILL','MERCHANT','MOUNTED','PILLAGING','SEAFARING','SPIRIT','STOUT','SWAMP','UNDERWORLD','WEALTHY']
@@ -106,21 +106,23 @@ def add_legend(display_matrix, peoples):
 
 	return display_matrix
 
-def add_players_hand(display_matrix, peoples, status):
-	description = []
+def add_players_status(display_matrix, peoples, status):
 	for p in range(NUMBER_PLAYERS):
-		description.append([Style.RESET_ALL, '', f'P{p} has {peoples[p,ACTIVE,0]}ppl "{ppl_str[peoples[p,ACTIVE,1]]}"'])
+		description = f'  P{p}: sc={status[p,0]:2} #{status[p,1]} netwdt={status[p,2]}'
+		description += f' - has {peoples[p,ACTIVE,0]}ppl "{ppl_str[peoples[p,ACTIVE,1]]}"'
 		if peoples[p,DECLINED,1] != NOPPL:
-			description[-1][2] += f' and "{ppl_decl_str[-peoples[p,DECLINED,1]]}" on decline'
-		description[-1][2] += f', {ac_or_dec_str[status[p, 3]]} {status_str[status[p, 4]]}'
-		description[-1][2] += ' - '
-	display_matrix.append(description)
+			description += f' and "{ppl_decl_str[-peoples[p,DECLINED,1]]}"'
+		if status[p, 4] != PHASE_WAIT:
+			description += f', {ac_or_dec_str[status[p, 3]]} {status_str[status[p, 4]]}'
+		display_matrix[6+p].append([Style.RESET_ALL, '', description])
 	return display_matrix
 
-def add_scores(display_matrix, status):
-	for p in range(NUMBER_PLAYERS):
-		scores_str = f'  P{p}: score={status[p,0]:02} #{status[p,1]:02} netwdt={status[p,2]}'
-		display_matrix[4+p].append([Style.RESET_ALL, '', scores_str])
+def add_deck(display_matrix, visible_deck):
+	deck_str = f'  Deck: '
+	for i in range(DECK_SIZE):
+		ppl, power, coins = visible_deck[i,1], visible_deck[i,2], visible_deck[i,3]
+		deck_str += f'{i}={ppl_long_str[ppl].lower()[:5]}-{power_long_str[power].lower()[:5]}-{coins} '
+	display_matrix[4].append([Style.RESET_ALL, Style.DIM, deck_str])
 	return display_matrix
 
 def disp_to_str(display_matrix):
@@ -137,8 +139,9 @@ def print_board(b):
 	display_matrix = generate_background()
 	display_matrix = add_text(display_matrix, b.territories)
 	display_matrix = add_legend(display_matrix, b.peoples)
-	display_matrix = add_scores(display_matrix, b.status)
-	display_matrix = add_players_hand(display_matrix, b.peoples, b.status)
+	display_matrix = add_deck(display_matrix, b.visible_deck)
+	display_matrix = add_players_status(display_matrix, b.peoples, b.status)
+	
 	display_str = disp_to_str(display_matrix)
 	print(display_str)
 
