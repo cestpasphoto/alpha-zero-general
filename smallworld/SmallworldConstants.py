@@ -22,11 +22,15 @@ SAND     = 1
 FARMLAND = 2
 MOUNTAIN = 3
 MEADOW   = 4
+FORESTT  = 5
+HILLT    = 6
+SWAMPT   = 6
 
 NOPOWR = 0
 SOURCE = 1
 MINE   = 2
 MAGIC  = 3
+CAVERN = 4
 
 #################### PEOPLE AND POWERS ####################
 
@@ -56,29 +60,29 @@ initial_tokens    = [0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 
 NOPOWER     = 0
-ALCHEMIST   = 1  # +2 chaque tour
+ALCHEMIST   = 1  # +2 chaque tour      												DONE
 BERSERK     = 2  # Lancer de dé AVANT chaque attaque
-BIVOUACKING = 3  # 5 défenses à placer à chaque tour + immunité au sorcier
-COMMANDO    = 4  # -1 attaque
+BIVOUACKING = 3  # 5 défenses à placer à chaque tour + immunité au sorcier          
+COMMANDO    = 4  # -1 attaque        												DONE !
 DIPLOMAT    = 5  # Paix avec un peuple actif à choisir à chaque tour
 DRAGONMASTER= 6  # 1 attaque dragon par tour + immunité complète
-FLYING      = 7  # Toutes les régions sont voisines
-FOREST      = 8  # +1 victoire si forêt
+FLYING      = 7  # Toutes les régions sont voisines                                 DONE !
+FOREST      = 8  # +1 victoire si forêt                                             DONE
 FORTIFIED   = 9  # +1 défense avec forteresse mm en déclin, +1 par tour actif (max 6)
-HEROIC      = 10 # 2 immunités complètes
-HILL        = 11 # +1 victoire par colline
-MERCHANT    = 12 # +1 victoire par région
-MOUNTED     = 13 # -1 attaque colline/ferme
-PILLAGING   = 14 # +1 par région non vide conquise
+HEROIC      = 10 # 2 immunités complètes                                            
+HILL        = 11 # +1 victoire par colline                                          DONE
+MERCHANT    = 12 # +1 victoire par région                                           DONE !
+MOUNTED     = 13 # -1 attaque colline/ferme                                         DONE
+PILLAGING   = 14 # +1 par région non vide conquise                                  DONE !
 SEAFARING   = 15 # Conquête possible des mers/lacs, conservées en déclin
 SPIRIT      = 16 # 2e peuple en déclin, et le reste jusqu'au bout
 STOUT       = 17 # Déclin possible juste après tour classique
-SWAMP       = 18 # +1 victoire par marais
-UNDERWORLD  = 19 # -1 attaque caverne, et les cavernes sont adjacentes
-WEALTHY     = 20 # +7 victoire à la fin premier tour
+SWAMP       = 18 # +1 victoire par marais                                           DONE
+UNDERWORLD  = 19 # -1 attaque caverne, et les cavernes sont adjacentes              DONE
+WEALTHY     = 20 # +7 victoire à la fin premier tour								DONE !
 #                        1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20
 initial_nb_power   = [0, 4, 4, 5, 4, 5, 5, 5, 4, 3, 5, 4, 2, 5, 5, 5, 5, 4, 4, 5, 4]
-initial_tokens_pwr = [0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+initial_tokens_pwr = [0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7]
 
 PHASE_READY          = 1 # Next action is to play
 PHASE_CHOOSE         = 2 # Chose

@@ -120,8 +120,8 @@ def add_players_status(display_matrix, peoples, status):
 def add_deck(display_matrix, visible_deck):
 	deck_str = f'  Deck: '
 	for i in range(DECK_SIZE):
-		ppl, power, coins = visible_deck[i,1], visible_deck[i,2], visible_deck[i,3]
-		deck_str += f'{i}={ppl_long_str[ppl].lower()[:5]}-{power_long_str[power].lower()[:5]}-{coins} '
+		nb, ppl, power, coins = visible_deck[i,0], visible_deck[i,1], visible_deck[i,2], visible_deck[i,3]
+		deck_str += f'{i}={nb}{ppl_long_str[ppl].lower()[:5]}-{power_long_str[power].lower()[:5]}+{coins} '
 	display_matrix[4].append([Style.RESET_ALL, Style.DIM, deck_str])
 	return display_matrix
 

@@ -198,15 +198,20 @@ class Board():
 		if how_many_ppl_available + MAX_DICE < minimum_ppl_for_attack:
 			return False
 
-		# Check that territory is close to another owned territory or is on the edge
-		if np.count_nonzero(territories_of_player) == 0:
-			area_is_on_edge = descr[area][2]
-			if current_ppl[1] != HALFLING and not area_is_on_edge:
-				return False
-		else:
-			neighbor_areas = connexity_matrix[area]
-			if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
-				return False
+		# Check that territory is close to another owned territory or is on the edge (unless is flying)
+		if current_ppl[2] != FLYING:
+			if np.count_nonzero(territories_of_player) == 0:
+				area_is_on_edge = descr[area][2]
+				if current_ppl[1] != HALFLING and not area_is_on_edge:
+					return False
+			else:
+				neighbor_areas = connexity_matrix[area]
+				if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
+					caverns = (np.array(descr)[:,0] == CAVERN)
+					if current_ppl[2] == UNDERWORLD and descr[area][1] == CAVERN and np.any(np.logical_and(caverns, territories_of_player)):
+						pass # exception if underworld: all caverns are neighbors
+					else:
+						return False
 
 		return True
 
@@ -364,10 +369,10 @@ class Board():
 
 		current_ppl[:]  = 0
 		current_ppl[:3] = self.visible_deck[index, :3]
-		current_ppl[3]  = initial_tokens[self.visible_deck[index, 1]]
+		current_ppl[3]  = initial_tokens[current_ppl[1]]
+		current_ppl[4]  = initial_tokens_pwr[current_ppl[2]]
 
 		# Earn money but also pay what's needed
-		print(f'Earn {self.visible_deck[index, 3]} but pay {index}')
 		self.status[player, 0] += self.visible_deck[index, 3] - index
 
 		self._prepare_for_new_status(player, current_ppl, PHASE_CHOOSE)
@@ -435,10 +440,11 @@ class Board():
 			# Check no full immunity
 			if self.territories[area, 3] >= FULL_IMMUNITY or self.territories[area, 4] >= FULL_IMMUNITY:
 				return False
-			# Check that territory is close to another owned territory or is on the edge
-			neighbor_areas = connexity_matrix[area]
-			if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
-				return False
+			# Check that territory is close to another owned territory or is on the edge (unless is flying)
+			if current_ppl[2] != FLYING:
+				neighbor_areas = connexity_matrix[area]
+				if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
+					return False
 			# Check that opponent had not been already 'sorcerized' during this turn
 			_, loser = self._ppl_owner_of(area)
 			if current_ppl[3] & 2**loser:
@@ -505,10 +511,17 @@ class Board():
 		if abs(self.territories[area, 1]) == TROLL:
 			minimum_ppl_for_attack += 1
 
-		# Bonus if: triton + at_edge, giant + border of mountain
+		# Bonus if: triton + at_edge, giant + border of mountain, commando, mounted + hill|farm,
+		#   underworld + cavern, 
 		if current_ppl[1] == TRITON and descr[area][2]:
 			minimum_ppl_for_attack -= 1
 		if current_ppl[1] == GIANT  and self._is_area_border_of(area, MOUNTAIN):
+			minimum_ppl_for_attack -= 1
+		if current_ppl[2] == COMMANDO:
+			minimum_ppl_for_attack -= 1
+		if current_ppl[2] == MOUNTED and descr[area][0] in [HILLT, FARMLAND]:
+			minimum_ppl_for_attack -= 1
+		if current_ppl[2] == UNDERWORLD and descr[area][1] == CAVERN:
 			minimum_ppl_for_attack -= 1
 
 		return max(minimum_ppl_for_attack, 1)
@@ -693,7 +706,13 @@ class Board():
 				breakpoint()
 
 		# Reset stuff depending on power
-		current_ppl[4] = 0
+		if current_ppl[1] == WEALTHY:
+			if current_ppl[4] != 0:
+				print('** wealthy power hasnt been applied during this turn')
+				breakpoint()
+			current_ppl[4] = 0
+		else:
+			current_ppl[4] = 0
 
 		# Reset #NETWDT
 		self.status[player, 2] = 0
@@ -705,17 +724,33 @@ class Board():
 		for area in range(NB_AREAS):
 			if self.territories[area, 1] != NOPPL and self.territories[area, 1] in self.peoples[player, :, 1]:
 				score_for_this_turn += 1
-				# +1 point if: dwarf + mine (even in decline), human + field, wizard + magic
+				# +1 point if: dwarf + mine (even in decline), human + field, wizard + magic, forest + forest,
+				#     hill + hill, swamp + swamp, merchant
 				if descr[area][1] == MINE     and abs(self.territories[area, 1]) == DWARF:
 					score_for_this_turn += 1
 				if descr[area][0] == FARMLAND and     self.territories[area, 1]  == HUMAN:
 					score_for_this_turn += 1
 				if descr[area][1] == MAGIC    and     self.territories[area, 1]  == WIZARD:
 					score_for_this_turn += 1
+				if descr[area][0] == FORESTT  and     self.territories[area, 2]  == FOREST:
+					score_for_this_turn += 1
+				if descr[area][0] == HILLT    and     self.territories[area, 2]  == HILL:
+					score_for_this_turn += 1
+				if descr[area][0] == SWAMPT   and     self.territories[area, 2]  == SWAMP:
+					score_for_this_turn += 1
+				if                                    self.territories[area, 2]  == MERCHANT:
+					score_for_this_turn += 1
 
-		# +1 point if: orc + NETWDT
+		# Bonus points if: orc (+NETWDT), pillaging (+NETWDT), alchemist (+2), wealthy+1stRound (+7)
 		if self.peoples[player, ACTIVE, 1] == ORC:
 			score_for_this_turn += self.status[player, 2]
+		if self.peoples[player, ACTIVE, 2] == PILLAGING:
+			score_for_this_turn += self.status[player, 2]
+		if self.peoples[player, ACTIVE, 2] == ALCHEMIST:
+			score_for_this_turn += 2
+		if self.peoples[player, ACTIVE, 2] == WEALTHY and self.peoples[player, ACTIVE, 4] > 0:
+			score_for_this_turn += self.peoples[player, ACTIVE, 4]
+			self.peoples[player, ACTIVE, 4] = 0
 
 		self.status[player, 0] += score_for_this_turn
 
@@ -736,8 +771,10 @@ class Board():
 		for i in range(DECK_SIZE):
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
-			chosen_power = my_random_choice(available_power / available_power.sum())
-			self.visible_deck[i, :] = [initial_nb_people[chosen_ppl], chosen_ppl, chosen_power, 0, 0]
+			# chosen_power = my_random_choice(available_power / available_power.sum())
+			chosen_power = [ALCHEMIST, COMMANDO, WEALTHY, MOUNTED, PILLAGING, SWAMP, FOREST, HILL, UNDERWORLD][i]
+			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
+			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
 
 		# Update bitfield
