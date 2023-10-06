@@ -406,7 +406,7 @@ class Board():
 			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON)
 			self.status[player, 4] = PHASE_ABANDON
 
-	def _valids_special_action(self, player):
+	def _valids_special_actionppl(self, player):
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
 		current_ppl, current_id = self._current_ppl(player)
 
@@ -422,11 +422,11 @@ class Board():
 				return valids
 			
 			for area in range(NB_AREAS):
-				valids[area] = self._valid_special_action_area(player, area, current_ppl, territories_of_player)
+				valids[area] = self._valid_special_actionppl_area(player, area, current_ppl, territories_of_player)
 
 		return valids
 
-	def _valid_special_action_area(self, player, area, current_ppl, territories_of_player):
+	def _valid_special_actionppl_area(self, player, area, current_ppl, territories_of_player):
 		if current_ppl[1] == SORCERER:
 			# No attack on water
 			if descr[area][0] == WATER:
@@ -446,8 +446,11 @@ class Board():
 				if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
 					return False
 			# Check that opponent had not been already 'sorcerized' during this turn
-			_, loser = self._ppl_owner_of(area)
+			loser_ppl, loser = self._ppl_owner_of(area)
 			if current_ppl[3] & 2**loser:
+				return False
+			# Check that opponent isn't protected by a campment
+			if loser_ppl[2] == BIVOUACKING and self.territories[area, 4] > 0:
 				return False
 
 			return True
@@ -455,7 +458,7 @@ class Board():
 		else:
 			return False
 
-	def _do_special_action(self, player, area):
+	def _do_special_actionppl(self, player, area):
 		current_ppl, current_id = self._current_ppl(player)
 
 		if current_ppl[1] == SORCERER:
@@ -470,6 +473,46 @@ class Board():
 			self.status[player, 4] = PHASE_CONQUEST
 			current_ppl[2] += 1
 
+		else:
+			raise Exception('Should not happen')
+
+	def _valids_special_actionpwr(self, player):
+		valids = np.zeros(NB_AREAS, dtype=np.bool_)
+		current_ppl, current_id = self._current_ppl(player)
+
+		if current_ppl[2] == BIVOUACKING:
+			# Place campments when it's the time
+			if self.status[player, 4] not in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_REDEPLOY]:
+				return valids
+
+			# Limited number of campments in the box
+			if current_ppl[4] <= 0:
+				return valids
+			
+			for area in range(NB_AREAS):
+				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
+
+		return valids
+
+	def _valid_special_actionpwr_area(self, player, area, current_ppl):
+		if current_ppl[2] == BIVOUACKING:
+			# Apply only on own territories
+			if not self._is_occupied_by(area, current_ppl):
+				return False
+			return True
+		else:
+			return False
+
+	def _do_special_actionpwr(self, player, area):
+		current_ppl, current_id = self._current_ppl(player)
+
+		if current_ppl[2] == BIVOUACKING:
+			# Put campment
+			self.territories[area, 4] += 1
+			current_ppl[4]            -= 1
+
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self.status[player, 4] = PHASE_REDEPLOY
 		else:
 			raise Exception('Should not happen')
 
@@ -527,8 +570,12 @@ class Board():
 		return max(minimum_ppl_for_attack, 1)
 
 	def _leave_area(self, area):
-		# Give back ppl to owner
-		self._ppl_owner_of(area)[0][0] += self.territories[area, 0]
+		leaver_ppl, leaver_id = self._ppl_owner_of(area)
+
+		# Give back ppl to owner, and tokens if needed
+		leaver_ppl[0] += self.territories[area, 0]
+		if self.territories[area, 2] == BIVOUACKING:
+			leaver_ppl[4] += self.territories[area, 4]
 
 		# Make the area empty
 		self.territories[area,:] = 0
@@ -543,6 +590,9 @@ class Board():
 			# Lose 1 ppl unless you are elf and active
 			nb_ppl_to_lose = 1 if self.territories[area,1] != ELF else 0
 			loser_ppl[0] += self.territories[area,0] - nb_ppl_to_lose
+			# Give back tokens
+			if self.territories[area, 2] == BIVOUACKING:
+				loser_ppl[4] += self.territories[area, 4]
 
 		# Install people from the winner
 		self.territories[area,0] = nb_attacking_ppl
@@ -595,10 +645,15 @@ class Board():
 				self._compute_and_update_score(player)
 			self._switch_to_next(player, current_ppl)
 
+		# People
 		if current_ppl[1] == AMAZON:
 			self._switch_status_amazon(player, current_ppl, old_status, next_status)
 		elif current_ppl[1] == SKELETON:
 			self._switch_status_skeleton(player, current_ppl, old_status, next_status)	
+
+		# Power
+		if current_ppl[2] == BIVOUACKING:
+			self._switch_status_bivouacking(player, current_ppl, old_status, next_status)
 
 	def _switch_status_amazon(self, player, current_ppl, old_status, next_status):
 		if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
@@ -626,6 +681,16 @@ class Board():
 				current_ppl[3] = 1 # We write that we gave additional ppl already
 			else:
 				print(f'Skeleton power already used ? {current_ppl[3]}')
+				breakpoint()
+
+	def _switch_status_bivouacking(self, player, current_ppl, old_status, next_status):
+		if old_status in [PHASE_READY, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
+			# Gather back all campments
+			for area in self._are_occupied_by(current_ppl).nonzero()[0]:
+				current_ppl[4] += self.territories[area, 4]
+				self.territories[area, 4] = 0
+			if current_ppl[4] != 5:
+				print(f'Some campments were lost ? {current_ppl[4]}')
 				breakpoint()
 
 	def _ppl_virtually_available(self, player, current_ppl, next_status, player_territories=None):
@@ -706,11 +771,14 @@ class Board():
 				breakpoint()
 
 		# Reset stuff depending on power
-		if current_ppl[1] == WEALTHY:
+		if current_ppl[2] == WEALTHY:
 			if current_ppl[4] != 0:
 				print('** wealthy power hasnt been applied during this turn')
 				breakpoint()
-			current_ppl[4] = 0
+		elif current_ppl[2] == BIVOUACKING:
+			if current_ppl[4] != 0:
+				print('** Hasnt used all campments')
+				breakpoint()
 		else:
 			current_ppl[4] = 0
 
@@ -754,9 +822,6 @@ class Board():
 
 		self.status[player, 0] += score_for_this_turn
 
-		# Reset NETWDT
-		self.status[player, 2] = 0
-
 	def _update_round(self):
 		self.status[:, 1] += 1
 
@@ -772,7 +837,7 @@ class Board():
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			# chosen_power = my_random_choice(available_power / available_power.sum())
-			chosen_power = [ALCHEMIST, COMMANDO, WEALTHY, MOUNTED, PILLAGING, SWAMP, FOREST, HILL, UNDERWORLD][i]
+			chosen_power = BIVOUACKING
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -814,15 +879,16 @@ def play_one_turn():
 	while b.status[p, 3] >= 0:
 		# breakpoint()
 		valids_attack    = b._valids_attack(player=p)
-		valids_special   = b._valids_special_action(player=p)
+		valids_specialppl= b._valids_special_actionppl(player=p)
 		valids_abandon   = b._valids_abandon(player=p)
 		valids_redeploy  = b._valids_redeploy(player=p)
+		valids_specialpwr= b._valids_special_actionpwr(player=p)
 		valids_choose    = b._valids_choose_ppl(player=p)
 		valid_decline    = b._valid_decline(player=p)
-		print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_choose, valid_decline)
+		print_valids(p, valids_attack, valids_specialppl, valids_abandon, valids_redeploy, valids_specialpwr, valids_choose, valid_decline)
 
-		if any(valids_attack) or any(valids_special) or any(valids_abandon) or valid_decline:
-			values = np.concatenate((valids_attack.nonzero()[0], valids_special.nonzero()[0] + NB_AREAS, valids_abandon.nonzero()[0] + 2*NB_AREAS, ([3*NB_AREAS] if valid_decline else [])), axis=None)
+		if any(valids_attack) or any(valids_specialppl) or any(valids_abandon) or valid_decline:
+			values = np.concatenate((valids_attack.nonzero()[0], valids_specialppl.nonzero()[0] + NB_AREAS, valids_abandon.nonzero()[0] + 2*NB_AREAS, ([3*NB_AREAS] if valid_decline else [])), axis=None)
 			dice = np.random.choice(values.astype(np.int64))
 			if dice < NB_AREAS:
 				area = dice
@@ -830,8 +896,8 @@ def play_one_turn():
 				b._do_attack(player=p, area=area)
 			elif dice < 2*NB_AREAS:
 				area = dice - NB_AREAS
-				print(f'Special move on area {area}')
-				b._do_special_action(player=p, area=area)
+				print(f'Special movePPL on area {area}')
+				b._do_special_actionppl(player=p, area=area)
 			elif dice < 3*NB_AREAS:
 				area = dice - 2*NB_AREAS
 				print(f'Abandonning area {area}')
@@ -845,20 +911,23 @@ def play_one_turn():
 			print(f'Choose ppl #{chosen_ppl}')
 			b._do_choose_ppl(player=p, index=chosen_ppl)	
 
-		elif any(valids_redeploy):
+		elif any(valids_redeploy) or any(valids_specialpwr):
 			valids_on_each = valids_redeploy[:MAX_REDEPLOY]
 
-			# Chose a "redeploy on each" action if possible
-			if valids_on_each.any():
+			if valids_specialpwr.any():
+				area = np.random.choice(valids_specialpwr.nonzero()[0].astype(np.int64))
+				print(f'Special movePWR on area {area}')
+				b._do_special_actionpwr(player=p, area=area)	
+			elif valids_on_each.any(): # Chose a "redeploy on each" action if possible
 				param = valids_on_each.nonzero()[0].max()
 				print(f'Redeploy {param}ppl on each area')
-			else:
+				b._do_redeploy(player=p, param=param)
+			elif valids_redeploy.any():
 				area = np.random.choice(valids_redeploy[MAX_REDEPLOY:].nonzero()[0].astype(np.int64))
 				param = area + MAX_REDEPLOY
 				print(f'Redeploy on area {area}')
+				b._do_redeploy(player=p, param=param)
 			
-			b._do_redeploy(player=p, param=param)
-
 		else:
 			breakpoint()
 			break 

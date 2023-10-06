@@ -118,10 +118,12 @@ def add_players_status(display_matrix, peoples, status):
 	return display_matrix
 
 def add_deck(display_matrix, visible_deck):
-	deck_str = f'  Deck: '
+	deck_str = f'  Deck:'
 	for i in range(DECK_SIZE):
 		nb, ppl, power, coins = visible_deck[i,0], visible_deck[i,1], visible_deck[i,2], visible_deck[i,3]
-		deck_str += f'{i}={nb}{ppl_long_str[ppl].lower()[:5]}-{power_long_str[power].lower()[:5]}+{coins} '
+		deck_str += f' {i}={nb}{ppl_long_str[ppl].lower()[:5]}-{power_long_str[power].lower()[:5]}'
+		if coins > 0:
+			deck_str += f'+{coins}'
 	display_matrix[4].append([Style.RESET_ALL, Style.DIM, deck_str])
 	return display_matrix
 
@@ -146,7 +148,7 @@ def print_board(b):
 	print(display_str)
 
 # Used for debug purposes
-def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_choose, valid_decline):
+def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_specialpwr, valids_choose, valid_decline):
 	print(f'Valids: P{p} can', end='')
 	if valids_attack.any():
 		print(f' attack area', end='')
@@ -155,7 +157,7 @@ def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redepl
 		print(', or', end='')
 
 	if valids_special.any():
-		print(f' special on', end='')
+		print(f' specialPPL on', end='')
 		for i in valids_special.nonzero()[0]:
 			print(f' {i}', end='')
 		print(', or', end='')
@@ -178,6 +180,12 @@ def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redepl
 			print(f' redeploy on area', end='')
 			for i in valids_redeploy.nonzero()[0]:
 				print(f' {i-MAX_REDEPLOY}', end='')
+		print(', or', end='')
+
+	if valids_specialpwr.any():
+		print(f' specialPWR on', end='')
+		for i in valids_specialpwr.nonzero()[0]:
+			print(f' {i}', end='')
 		print(', or', end='')
 
 	if valids_choose.any():
