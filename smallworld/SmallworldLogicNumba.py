@@ -492,12 +492,40 @@ class Board():
 			for area in range(NB_AREAS):
 				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
 
+		elif current_ppl[2] == DRAGONMASTER:
+			# Attack permitted when it's the time
+			if self.status[player, 4] not in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST]:
+				return valids
+
+			# Check 1st time this power is used during turn
+			if current_ppl[4] > 0:
+				return valids
+
+			for area in range(NB_AREAS):
+				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
+
 		return valids
 
 	def _valid_special_actionpwr_area(self, player, area, current_ppl):
 		if current_ppl[2] == BIVOUACKING:
 			# Apply only on own territories
 			if not self._is_occupied_by(area, current_ppl):
+				return False
+			return True
+		elif current_ppl[2] == DRAGONMASTER:
+			# No attack on water
+			if descr[area][0] == WATER:
+				return False
+			# No attack on current people
+			territories_of_player = self._are_occupied_by(current_ppl)
+			if territories_of_player[area]:
+				return False
+			# Check no full immunity
+			if self.territories[area, 3] >= FULL_IMMUNITY or self.territories[area, 4] >= FULL_IMMUNITY:
+				return False
+			# Check that territory is close to another owned territory or is on the edge
+			neighbor_areas = connexity_matrix[area]
+			if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
 				return False
 			return True
 		else:
@@ -513,6 +541,21 @@ class Board():
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
 			self.status[player, 4] = PHASE_REDEPLOY
+
+		elif current_ppl[2] == DRAGONMASTER:
+			# Remove previous dragon
+			for area_ in self._are_occupied_by(current_ppl).nonzero()[0]:
+				self.territories[area_, 4] = 0
+			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST)
+			
+			# Update loser and winner, and add dragon
+			self._switch_territory_from_loser_to_winner(area, player, current_ppl, nb_attacking_ppl=1)
+			self.territories[area, 4] = FULL_IMMUNITY
+
+			self.status[player, 4] = PHASE_CONQUEST
+
+			# Note that we used the power
+			current_ppl[4] = 1
 		else:
 			raise Exception('Should not happen')
 
@@ -837,7 +880,7 @@ class Board():
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			# chosen_power = my_random_choice(available_power / available_power.sum())
-			chosen_power = BIVOUACKING
+			chosen_power = [DRAGONMASTER, BIVOUACKING, DRAGONMASTER, BIVOUACKING, DRAGONMASTER, BIVOUACKING][i]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -887,8 +930,16 @@ def play_one_turn():
 		valid_decline    = b._valid_decline(player=p)
 		print_valids(p, valids_attack, valids_specialppl, valids_abandon, valids_redeploy, valids_specialpwr, valids_choose, valid_decline)
 
-		if any(valids_attack) or any(valids_specialppl) or any(valids_abandon) or valid_decline:
-			values = np.concatenate((valids_attack.nonzero()[0], valids_specialppl.nonzero()[0] + NB_AREAS, valids_abandon.nonzero()[0] + 2*NB_AREAS, ([3*NB_AREAS] if valid_decline else [])), axis=None)
+		if any(valids_specialppl):
+			area = np.random.choice(valids_specialppl.nonzero()[0].astype(np.int64))
+			print(f'Special movePPL on area {area}')
+			b._do_special_actionppl(player=p, area=area)
+		elif any(valids_specialpwr):
+			area = np.random.choice(valids_specialpwr.nonzero()[0].astype(np.int64))
+			print(f'Special movePWR on area {area}')
+			b._do_special_actionpwr(player=p, area=area)
+		elif any(valids_attack) or any(valids_abandon) or valid_decline:
+			values = np.concatenate((valids_attack.nonzero()[0], valids_abandon.nonzero()[0] + NB_AREAS, ([2*NB_AREAS] if valid_decline else [])), axis=None)
 			dice = np.random.choice(values.astype(np.int64))
 			if dice < NB_AREAS:
 				area = dice
@@ -896,10 +947,6 @@ def play_one_turn():
 				b._do_attack(player=p, area=area)
 			elif dice < 2*NB_AREAS:
 				area = dice - NB_AREAS
-				print(f'Special movePPL on area {area}')
-				b._do_special_actionppl(player=p, area=area)
-			elif dice < 3*NB_AREAS:
-				area = dice - 2*NB_AREAS
 				print(f'Abandonning area {area}')
 				b._do_abandon(player=p, area=area)
 			else:
@@ -911,18 +958,14 @@ def play_one_turn():
 			print(f'Choose ppl #{chosen_ppl}')
 			b._do_choose_ppl(player=p, index=chosen_ppl)	
 
-		elif any(valids_redeploy) or any(valids_specialpwr):
+		elif any(valids_redeploy):
 			valids_on_each = valids_redeploy[:MAX_REDEPLOY]
-
-			if valids_specialpwr.any():
-				area = np.random.choice(valids_specialpwr.nonzero()[0].astype(np.int64))
-				print(f'Special movePWR on area {area}')
-				b._do_special_actionpwr(player=p, area=area)	
-			elif valids_on_each.any(): # Chose a "redeploy on each" action if possible
+			# Chose a "redeploy on each" action if possible
+			if valids_on_each.any():
 				param = valids_on_each.nonzero()[0].max()
 				print(f'Redeploy {param}ppl on each area')
 				b._do_redeploy(player=p, param=param)
-			elif valids_redeploy.any():
+			else:
 				area = np.random.choice(valids_redeploy[MAX_REDEPLOY:].nonzero()[0].astype(np.int64))
 				param = area + MAX_REDEPLOY
 				print(f'Redeploy on area {area}')
