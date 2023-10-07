@@ -112,6 +112,8 @@ def add_players_status(display_matrix, peoples, status):
 		description += f' - has {peoples[p,ACTIVE,0]}ppl "{ppl_str[peoples[p,ACTIVE,1]]}"'
 		if peoples[p,DECLINED,1] != NOPPL:
 			description += f' and "{ppl_decl_str[-peoples[p,DECLINED,1]]}"'
+		if peoples[p,DECLINED_SPIRIT,1] != NOPPL:
+			description += f' and "{ppl_decl_str[-peoples[p,DECLINED_SPIRIT,1]]}"'
 		if status[p, 4] != PHASE_WAIT:
 			description += f', {ac_or_dec_str[status[p, 3]]} {status_str[status[p, 4]]}'
 		display_matrix[6+p].append([Style.RESET_ALL, '', description])

@@ -339,26 +339,28 @@ class Board():
 			if self._is_occupied_by(area, self.peoples[player, DECLINED, :]):
 				self.territories[area] = [0, NOPPL, NOPOWER, 0, 0]
 
+		declined_id = DECLINED_SPIRIT if current_ppl[2] == SPIRIT else DECLINED
+
 		# Move ppl to decline and keep only 1 ppl per territory
-		self.peoples[player, DECLINED, :] = 0
+		self.peoples[player, declined_id, :] = 0
 		if current_ppl[1] == GHOUL:
-			self.peoples[player, DECLINED, :3] = current_ppl[:3]
+			self.peoples[player, declined_id, :3] = current_ppl[:3]
 		else:
 			self._gather_current_ppl_but_one(current_ppl)
-			self.peoples[player, DECLINED, 1] = current_ppl[1]
+			self.peoples[player, declined_id, 1] = current_ppl[1]
 		current_ppl[:] = [0, NOPPL, NOPOWER, 0, 0]
 		
 		# Flip back ppl tokens on the board and remove defense
 		for area in range(NB_AREAS):
-			if self.territories[area, 1] == self.peoples[player, DECLINED, 1]:
+			if self.territories[area, 1] == self.peoples[player, declined_id, 1]:
 				backup = self.territories[area, :]
-				self.territories[area, 1] = -self.peoples[player, DECLINED, 1]
+				self.territories[area, 1] = -self.peoples[player, declined_id, 1]
 				# Remove defense, except some cases
 				self.territories[area, 2:] = 0
 				if backup[2] == FORTIFIED:
 					self.territories[area, 4] = backup[4]
 
-		self.peoples[player, DECLINED, 1:3] = -self.peoples[player, DECLINED, 1:3]
+		self.peoples[player, declined_id, 1:3] = -self.peoples[player, declined_id, 1:3]
 		
 		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
 		self.status[player, 4] = PHASE_WAIT
@@ -1054,8 +1056,8 @@ class Board():
 		for i in range(DECK_SIZE):
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
-			chosen_power = my_random_choice(available_power / available_power.sum())
-			# chosen_power = [DIPLOMAT, HEROIC, DIPLOMAT, HEROIC, DIPLOMAT, HEROIC][i]
+			# chosen_power = my_random_choice(available_power / available_power.sum())
+			chosen_power = [SPIRIT, HEROIC, SPIRIT, HEROIC, SPIRIT, HEROIC][i]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
