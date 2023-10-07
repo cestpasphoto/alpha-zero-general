@@ -329,7 +329,10 @@ class Board():
 			return False
 		# Going to decline permitted only on 1st move
 		if self.status[player, 4] != PHASE_READY:
-			return False
+			if self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_REDEPLOY] and self.peoples[player, ACTIVE, 2] == STOUT:
+				pass # Exception
+			else:
+				return False
 		return True
 
 	def _do_decline(self, player):
@@ -1057,7 +1060,7 @@ class Board():
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			# chosen_power = my_random_choice(available_power / available_power.sum())
-			chosen_power = [SPIRIT, SEAFARING, SPIRIT, SEAFARING, SPIRIT, SEAFARING][i]
+			chosen_power = [STOUT, SEAFARING, STOUT, SEAFARING, STOUT, SEAFARING][i]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -1094,7 +1097,7 @@ print()
 
 def play_one_turn():
 	p = (b.status[:, 3] >= 0).nonzero()[0].item()
-	# print(f'Player is now P{p}')
+	print('  ' + '='*20 + f'  P{p} now plays  ' + '='*20)
 
 	while b.status[p, 3] >= 0:
 		valids_attack    = b._valids_attack(player=p)
@@ -1150,7 +1153,7 @@ def play_one_turn():
 			print(f'Decline current ppl')
 			b._do_decline(player=p)
 		elif action == 'end':
-			print('  ' + '='*20 + '  END  OF  TURN  ' + '='*20)
+			print('end turn')
 			b._do_end(player=p)
 		else:
 			breakpoint()			
