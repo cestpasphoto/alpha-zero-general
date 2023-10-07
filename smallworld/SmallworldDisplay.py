@@ -148,7 +148,7 @@ def print_board(b):
 	print(display_str)
 
 # Used for debug purposes
-def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_specialpwr, valids_choose, valid_decline):
+def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_specialpwr, valids_choose, valid_decline, valid_end):
 	print(f'Valids: P{p} can', end='')
 	if valids_attack.any():
 		print(f' attack area', end='')
@@ -197,5 +197,8 @@ def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redepl
 
 	if valid_decline:
 		print(f' decline current people, or', end='')
+
+	if valid_end:
+		print(f' end turn', end='')
 
 	print('.')
