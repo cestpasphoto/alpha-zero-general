@@ -213,6 +213,13 @@ class Board():
 					else:
 						return False
 
+		# Check that active ppl is not attacking an active diplomat in peace
+		if self.territories[area, 2] == DIPLOMAT:
+			loser_ppl, loser_id = self._ppl_owner_of(area)
+			assert (loser_ppl[4] & 2**6 == 0)
+			if loser_ppl[4] == player:
+				return False
+
 		return True
 
 	def _do_attack(self, player, area):
@@ -521,6 +528,14 @@ class Board():
 			for area in range(NB_AREAS):
 				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
 
+		elif current_ppl[2] == DIPLOMAT:
+			# Chose when it's the time
+			if self.status[player, 4] not in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
+				return valids
+
+			for other_player in range(NUMBER_PLAYERS):
+				valids[other_player] = self._valid_special_actionpwr_area(player, other_player, current_ppl)
+
 		elif current_ppl[2] == DRAGONMASTER:
 			# Attack permitted when it's the time
 			if self.status[player, 4] not in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST]:
@@ -561,6 +576,15 @@ class Board():
 				return False
 			# If there is no hero already
 			if self.territories[area, 4] > 0:
+				return False
+			return True
+
+		elif current_ppl[2] == DIPLOMAT:
+			# Param is actually id of other player
+			other_player = area
+			# Check not attacked during this turn
+			assert ((current_ppl[4] & 2**6) or current_ppl[4] == 0)
+			if current_ppl[4] & 2**other_player:
 				return False
 			return True
 
@@ -607,6 +631,15 @@ class Board():
 			# Put hero
 			self.territories[area, 4] = FULL_IMMUNITY
 			current_ppl[4]            -= 1
+
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self.status[player, 4] = PHASE_REDEPLOY
+
+		elif current_ppl[2] == DIPLOMAT:
+			other_player = area
+			# Set diplomacy
+			assert ((current_ppl[4] & 2**6) or current_ppl[4] == 0)
+			current_ppl[4] = other_player
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
 			self.status[player, 4] = PHASE_REDEPLOY
@@ -689,7 +722,7 @@ class Board():
 		leaver_ppl[0] += self.territories[area, 0]
 		if self.territories[area, 2] in [BIVOUACKING, FORTIFIED]:
 			leaver_ppl[4] += self.territories[area, 4]
-		elif self.territories[area, 2] == HEROIC:
+		elif self.territories[area, 2] == HEROIC and self.territories[area, 4] > 0:
 			leaver_ppl[4] += 1
 			self.territories[area, 4] = 0
 
@@ -700,7 +733,7 @@ class Board():
 		nb_initial_ppl = self.territories[area, 0]
 
 		# Give back people to the loser (if any)
-		loser_ppl, _ = self._ppl_owner_of(area)
+		loser_ppl, loser_id = self._ppl_owner_of(area)
 		if loser_ppl is not None:
 			assert nb_initial_ppl > 0
 			# Lose 1 ppl unless you are elf and active
@@ -709,9 +742,13 @@ class Board():
 			# Give back tokens
 			if self.territories[area, 2] in [BIVOUACKING, FORTIFIED]:
 				loser_ppl[4] += self.territories[area, 4]
-			elif self.territories[area, 2] == HEROIC:
+			elif self.territories[area, 2] == HEROIC and self.territories[area, 4] > 0:
 				loser_ppl[4] += 1
 				self.territories[area, 4] = 0
+			# Note successful attack if diplomat
+			if winner_ppl[2] == DIPLOMAT:
+				assert (winner_ppl[4] & 2**6)
+				winner_ppl[4] += 2**loser_id
 
 		# Install people from the winner
 		self.territories[area,0] = nb_attacking_ppl
@@ -775,7 +812,8 @@ class Board():
 			self._switch_status_bivouacking(player, current_ppl, old_status, next_status)
 		elif current_ppl[2] == HEROIC:
 			self._switch_status_heroic(player, current_ppl, old_status, next_status)
-
+		elif current_ppl[2] == DIPLOMAT:
+			self._switch_status_diplomat(player, current_ppl, old_status, next_status)
 
 	def _switch_status_amazon(self, player, current_ppl, old_status, next_status):
 		if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
@@ -825,6 +863,15 @@ class Board():
 			if current_ppl[4] != 2:
 				print(f'Some heros were lost ? {current_ppl[4]}')
 				breakpoint()
+
+	def _switch_status_diplomat(self, player, current_ppl, old_status, next_status):
+		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
+			# Start noting which players I attacked
+			current_ppl[4] = 2**6
+		elif old_status in [PHASE_CONQUEST] and next_status == PHASE_WAIT:
+			# If no player chose, set peace with ... self
+			if current_ppl[4] & 2**6:
+				current_ppl[4] = 2**player
 
 	def _ppl_virtually_available(self, player, current_ppl, next_status, player_territories=None):
 		if player_territories is None:
@@ -917,6 +964,9 @@ class Board():
 		elif current_ppl[2] == HEROIC:
 			if current_ppl[4] != 0:
 				print('** Hasnt used all heros')
+		elif current_ppl[2] == DIPLOMAT:
+			if current_ppl[4] & 2**6:
+				print('** Diplomat still in old mode')
 				breakpoint()
 		else:
 			current_ppl[4] = 0
@@ -978,7 +1028,7 @@ class Board():
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			# chosen_power = my_random_choice(available_power / available_power.sum())
-			chosen_power = [FORTIFIED, HEROIC, FORTIFIED, HEROIC, FORTIFIED, HEROIC][i]
+			chosen_power = [DIPLOMAT, HEROIC, DIPLOMAT, HEROIC, DIPLOMAT, HEROIC][i]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
