@@ -341,8 +341,13 @@ class Board():
 		# Flip back ppl tokens on the board and remove defense
 		for area in range(NB_AREAS):
 			if self.territories[area, 1] == self.peoples[player, DECLINED, 1]:
+				backup = self.territories[area, :]
 				self.territories[area, 1] = -self.peoples[player, DECLINED, 1]
+				# Remove defense, except some cases
 				self.territories[area, 2:] = 0
+				if backup[2] == FORTIFIED:
+					self.territories[area, 4] = backup[4]
+
 		self.peoples[player, DECLINED, 1:3] = -self.peoples[player, DECLINED, 1:3]
 		
 		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
@@ -491,6 +496,18 @@ class Board():
 			
 			for area in range(NB_AREAS):
 				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
+		
+		elif current_ppl[2] == FORTIFIED:
+			# Place fortress when it's the time
+			if self.status[player, 4] not in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_REDEPLOY]:
+				return valids
+
+			# Check if any fortress remaining
+			if current_ppl[4] <= 0:
+				return valids
+			
+			for area in range(NB_AREAS):
+				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
 
 		elif current_ppl[2] == DRAGONMASTER:
 			# Attack permitted when it's the time
@@ -499,6 +516,10 @@ class Board():
 
 			# Check 1st time this power is used during turn
 			if current_ppl[4] > 0:
+				return valids
+
+			# Check at least 1 ppl remaining
+			if current_ppl[0] < 1:
 				return valids
 
 			for area in range(NB_AREAS):
@@ -512,6 +533,16 @@ class Board():
 			if not self._is_occupied_by(area, current_ppl):
 				return False
 			return True
+
+		elif current_ppl[2] == FORTIFIED:
+			# Apply only on own territories
+			if not self._is_occupied_by(area, current_ppl):
+				return False
+			# If there is no fortress already
+			if self.territories[area, 4] > 0:
+				return False
+			return True
+
 		elif current_ppl[2] == DRAGONMASTER:
 			# No attack on water
 			if descr[area][0] == WATER:
@@ -528,6 +559,7 @@ class Board():
 			if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
 				return False
 			return True
+
 		else:
 			return False
 
@@ -536,6 +568,14 @@ class Board():
 
 		if current_ppl[2] == BIVOUACKING:
 			# Put campment
+			self.territories[area, 4] += 1
+			current_ppl[4]            -= 1
+
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self.status[player, 4] = PHASE_REDEPLOY
+
+		elif current_ppl[2] == FORTIFIED:
+			# Put fortress
 			self.territories[area, 4] += 1
 			current_ppl[4]            -= 1
 
@@ -556,6 +596,7 @@ class Board():
 
 			# Note that we used the power
 			current_ppl[4] = 1
+
 		else:
 			raise Exception('Should not happen')
 
@@ -619,6 +660,8 @@ class Board():
 		leaver_ppl[0] += self.territories[area, 0]
 		if self.territories[area, 2] == BIVOUACKING:
 			leaver_ppl[4] += self.territories[area, 4]
+		elif self.territories[area, 2] == FORTIFIED:
+			leaver_ppl[4] += self.territories[area, 4]
 
 		# Make the area empty
 		self.territories[area,:] = 0
@@ -635,6 +678,8 @@ class Board():
 			loser_ppl[0] += self.territories[area,0] - nb_ppl_to_lose
 			# Give back tokens
 			if self.territories[area, 2] == BIVOUACKING:
+				loser_ppl[4] += self.territories[area, 4]
+			elif self.territories[area, 2] == FORTIFIED:
 				loser_ppl[4] += self.territories[area, 4]
 
 		# Install people from the winner
@@ -822,6 +867,8 @@ class Board():
 			if current_ppl[4] != 0:
 				print('** Hasnt used all campments')
 				breakpoint()
+		elif current_ppl[2] == FORTIFIED:
+			pass # Don't reset it
 		else:
 			current_ppl[4] = 0
 
@@ -836,7 +883,7 @@ class Board():
 			if self.territories[area, 1] != NOPPL and self.territories[area, 1] in self.peoples[player, :, 1]:
 				score_for_this_turn += 1
 				# +1 point if: dwarf + mine (even in decline), human + field, wizard + magic, forest + forest,
-				#     hill + hill, swamp + swamp, merchant
+				#     hill + hill, swamp + swamp, merchant, fortress
 				if descr[area][1] == MINE     and abs(self.territories[area, 1]) == DWARF:
 					score_for_this_turn += 1
 				if descr[area][0] == FARMLAND and     self.territories[area, 1]  == HUMAN:
@@ -850,6 +897,8 @@ class Board():
 				if descr[area][0] == SWAMPT   and     self.territories[area, 2]  == SWAMP:
 					score_for_this_turn += 1
 				if                                    self.territories[area, 2]  == MERCHANT:
+					score_for_this_turn += 1
+				if self.territories[area, 4] > 0 and  self.territories[area, 2]  == FORTIFIED:
 					score_for_this_turn += 1
 
 		# Bonus points if: orc (+NETWDT), pillaging (+NETWDT), alchemist (+2), wealthy+1stRound (+7)
@@ -880,7 +929,7 @@ class Board():
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			# chosen_power = my_random_choice(available_power / available_power.sum())
-			chosen_power = [DRAGONMASTER, BIVOUACKING, DRAGONMASTER, BIVOUACKING, DRAGONMASTER, BIVOUACKING][i]
+			chosen_power = [FORTIFIED, DRAGONMASTER, FORTIFIED, DRAGONMASTER, FORTIFIED, DRAGONMASTER][i]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False

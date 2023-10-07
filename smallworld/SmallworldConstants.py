@@ -62,13 +62,13 @@ initial_tokens    = [0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 NOPOWER     = 0
 ALCHEMIST   = 1  # +2 chaque tour      												DONE
 BERSERK     = 2  # Lancer de dé AVANT chaque attaque
-BIVOUACKING = 3  # 5 défenses à placer à chaque tour + immunité au sorcier          DONE
+BIVOUACKING = 3  # 5 défenses à placer à chaque tour + immunité au sorcier          DONE !
 COMMANDO    = 4  # -1 attaque        												DONE !
 DIPLOMAT    = 5  # Paix avec un peuple actif à choisir à chaque tour
-DRAGONMASTER= 6  # 1 attaque dragon par tour + immunité complète                    DONE
+DRAGONMASTER= 6  # 1 attaque dragon par tour + immunité complète                    DONE !
 FLYING      = 7  # Toutes les régions sont voisines                                 DONE !
 FOREST      = 8  # +1 victoire si forêt                                             DONE
-FORTIFIED   = 9  # +1 défense avec forteresse mm en déclin, +1 par tour actif (max 6)
+FORTIFIED   = 9  # +1 défense avec forteresse mm en déclin, +1 par tour actif (max 6) DONE
 HEROIC      = 10 # 2 immunités complètes                                            
 HILL        = 11 # +1 victoire par colline                                          DONE
 MERCHANT    = 12 # +1 victoire par région                                           DONE !
@@ -82,7 +82,7 @@ UNDERWORLD  = 19 # -1 attaque caverne, et les cavernes sont adjacentes          
 WEALTHY     = 20 # +7 victoire à la fin premier tour								DONE !
 #                        1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20
 initial_nb_power   = [0, 4, 4, 5, 4, 5, 5, 5, 4, 3, 5, 4, 2, 5, 5, 5, 5, 4, 4, 5, 4]
-initial_tokens_pwr = [0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7]
+initial_tokens_pwr = [0, 0, 0, 5, 0, 0, 0, 0, 0, 6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7]
 
 PHASE_READY          = 1 # Next action is to play
 PHASE_CHOOSE         = 2 # Chose
