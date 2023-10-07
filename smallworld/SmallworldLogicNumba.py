@@ -182,7 +182,7 @@ class Board():
 
 	def _valid_attack_area(self, player, area, current_ppl, how_many_ppl_available, territories_of_player):
 		# No attack on water
-		if descr[area][0] == WATER:
+		if descr[area][0] == WATER and current_ppl[2] != SEAFARING:
 			return False
 
 		# No attack on current people
@@ -446,7 +446,7 @@ class Board():
 	def _valid_special_actionppl_area(self, player, area, current_ppl, territories_of_player):
 		if current_ppl[1] == SORCERER:
 			# No attack on water
-			if descr[area][0] == WATER:
+			if descr[area][0] == WATER  and current_ppl[2] != SEAFARING:
 				return False
 			# People on this area is alone and active
 			if self.territories[area, 0] != 1 or self.territories[area, 1] <= 0:
@@ -1057,7 +1057,7 @@ class Board():
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			# chosen_power = my_random_choice(available_power / available_power.sum())
-			chosen_power = [SPIRIT, HEROIC, SPIRIT, HEROIC, SPIRIT, HEROIC][i]
+			chosen_power = [SPIRIT, SEAFARING, SPIRIT, SEAFARING, SPIRIT, SEAFARING][i]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
