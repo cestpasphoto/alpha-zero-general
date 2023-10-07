@@ -509,6 +509,18 @@ class Board():
 			for area in range(NB_AREAS):
 				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
 
+		elif current_ppl[2] == HEROIC:
+			# Place hero when it's the time
+			if self.status[player, 4] not in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_REDEPLOY]:
+				return valids
+
+			# Check if any hero remaining
+			if current_ppl[4] <= 0:
+				return valids
+			
+			for area in range(NB_AREAS):
+				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
+
 		elif current_ppl[2] == DRAGONMASTER:
 			# Attack permitted when it's the time
 			if self.status[player, 4] not in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST]:
@@ -539,6 +551,15 @@ class Board():
 			if not self._is_occupied_by(area, current_ppl):
 				return False
 			# If there is no fortress already
+			if self.territories[area, 4] > 0:
+				return False
+			return True
+
+		elif current_ppl[2] == HEROIC:
+			# Apply only on own territories
+			if not self._is_occupied_by(area, current_ppl):
+				return False
+			# If there is no hero already
 			if self.territories[area, 4] > 0:
 				return False
 			return True
@@ -577,6 +598,14 @@ class Board():
 		elif current_ppl[2] == FORTIFIED:
 			# Put fortress
 			self.territories[area, 4] += 1
+			current_ppl[4]            -= 1
+
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self.status[player, 4] = PHASE_REDEPLOY
+
+		elif current_ppl[2] == HEROIC:
+			# Put hero
+			self.territories[area, 4] = FULL_IMMUNITY
 			current_ppl[4]            -= 1
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
@@ -658,10 +687,11 @@ class Board():
 
 		# Give back ppl to owner, and tokens if needed
 		leaver_ppl[0] += self.territories[area, 0]
-		if self.territories[area, 2] == BIVOUACKING:
+		if self.territories[area, 2] in [BIVOUACKING, FORTIFIED]:
 			leaver_ppl[4] += self.territories[area, 4]
-		elif self.territories[area, 2] == FORTIFIED:
-			leaver_ppl[4] += self.territories[area, 4]
+		elif self.territories[area, 2] == HEROIC:
+			leaver_ppl[4] += 1
+			self.territories[area, 4] = 0
 
 		# Make the area empty
 		self.territories[area,:] = 0
@@ -677,10 +707,11 @@ class Board():
 			nb_ppl_to_lose = 1 if self.territories[area,1] != ELF else 0
 			loser_ppl[0] += self.territories[area,0] - nb_ppl_to_lose
 			# Give back tokens
-			if self.territories[area, 2] == BIVOUACKING:
+			if self.territories[area, 2] in [BIVOUACKING, FORTIFIED]:
 				loser_ppl[4] += self.territories[area, 4]
-			elif self.territories[area, 2] == FORTIFIED:
-				loser_ppl[4] += self.territories[area, 4]
+			elif self.territories[area, 2] == HEROIC:
+				loser_ppl[4] += 1
+				self.territories[area, 4] = 0
 
 		# Install people from the winner
 		self.territories[area,0] = nb_attacking_ppl
@@ -742,6 +773,9 @@ class Board():
 		# Power
 		if current_ppl[2] == BIVOUACKING:
 			self._switch_status_bivouacking(player, current_ppl, old_status, next_status)
+		elif current_ppl[2] == HEROIC:
+			self._switch_status_heroic(player, current_ppl, old_status, next_status)
+
 
 	def _switch_status_amazon(self, player, current_ppl, old_status, next_status):
 		if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
@@ -779,6 +813,17 @@ class Board():
 				self.territories[area, 4] = 0
 			if current_ppl[4] != 5:
 				print(f'Some campments were lost ? {current_ppl[4]}')
+				breakpoint()
+
+	def _switch_status_heroic(self, player, current_ppl, old_status, next_status):
+		if old_status in [PHASE_READY, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
+			# Gather back heros
+			for area in self._are_occupied_by(current_ppl).nonzero()[0]:
+				if self.territories[area, 4] > 0:
+					current_ppl[4] += 1
+					self.territories[area, 4] = 0
+			if current_ppl[4] != 2:
+				print(f'Some heros were lost ? {current_ppl[4]}')
 				breakpoint()
 
 	def _ppl_virtually_available(self, player, current_ppl, next_status, player_territories=None):
@@ -869,6 +914,10 @@ class Board():
 				breakpoint()
 		elif current_ppl[2] == FORTIFIED:
 			pass # Don't reset it
+		elif current_ppl[2] == HEROIC:
+			if current_ppl[4] != 0:
+				print('** Hasnt used all heros')
+				breakpoint()
 		else:
 			current_ppl[4] = 0
 
@@ -929,7 +978,7 @@ class Board():
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
 			# chosen_power = my_random_choice(available_power / available_power.sum())
-			chosen_power = [FORTIFIED, DRAGONMASTER, FORTIFIED, DRAGONMASTER, FORTIFIED, DRAGONMASTER][i]
+			chosen_power = [FORTIFIED, HEROIC, FORTIFIED, HEROIC, FORTIFIED, HEROIC][i]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
