@@ -171,6 +171,12 @@ class Board():
 
 		territories_of_player = self._are_occupied_by(current_ppl)
 		how_many_ppl_available = self._ppl_virtually_available(player, current_ppl, PHASE_CONQUEST, territories_of_player)
+		if current_ppl[2] == BERSERK:
+			if current_ppl[4] & 2**6:
+				how_many_ppl_available += (current_ppl[4] % 2**6)
+			else:
+				print(f'No dice before ? {current_ppl[4]}')
+				breakpoint()
 		# Forbid to continue if 0 ppl left in hand
 		if how_many_ppl_available <= 0:
 			return valids
@@ -196,6 +202,9 @@ class Board():
 		# Check that player has a chance to win	
 		minimum_ppl_for_attack = self._minimum_ppl_for_attack(area, current_ppl)
 		if how_many_ppl_available + MAX_DICE < minimum_ppl_for_attack:
+			return False
+		# No 2nd dice for berserk
+		if current_ppl[2] == BERSERK and how_many_ppl_available < minimum_ppl_for_attack:
 			return False
 
 		# Check that territory is close to another owned territory or is on the edge (unless is flying)
@@ -232,7 +241,15 @@ class Board():
 
 		# Use dice if people are needed
 		use_dice = (nb_ppl_of_player < minimum_ppl_for_attack)
-		if use_dice:
+		if current_ppl[2] == BERSERK and current_ppl[4] & 2**6:
+			dice = (current_ppl[4] % 2**6)
+			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
+				print(f'  Using previous dice, random value is {dice} but fails')
+				self.status[player, 4] = PHASE_CONQ_WITH_DICE
+				return
+			print(f'  Using previous dice, random value is {dice} and succeed')
+			nb_attacking_ppl = max(minimum_ppl_for_attack - dice, 1)
+		elif use_dice:
 			dice = DICE_VALUES[3]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				print(f'  Using dice, random value is {dice} but fails')
@@ -841,6 +858,8 @@ class Board():
 			self._switch_status_heroic(player, current_ppl, old_status, next_status)
 		elif current_ppl[2] == DIPLOMAT:
 			self._switch_status_diplomat(player, current_ppl, old_status, next_status)
+		elif current_ppl[2] == BERSERK:
+			self._switch_status_berserk(player, current_ppl, old_status, next_status)
 
 		if next_status == PHASE_WAIT:
 			if self.status[player, 3] == ACTIVE:
@@ -905,6 +924,15 @@ class Board():
 			if current_ppl[4] & 2**6:
 				current_ppl[4] = 2**player
 
+	def _switch_status_berserk(self, player, current_ppl, old_status, next_status):
+		if next_status in [PHASE_READY, PHASE_ABANDON, PHASE_CHOOSE, PHASE_CONQUEST]:
+			# pre-run dice
+			dice = np.random.choice(DICE_VALUES)
+			print(f'Prerun dice, value = {dice}')
+			current_ppl[4] = dice + 2**6
+		else:
+			current_ppl[4] = 0
+
 	def _ppl_virtually_available(self, player, current_ppl, next_status, player_territories=None):
 		if player_territories is None:
 			player_territories = self._are_occupied_by(current_ppl)
@@ -961,11 +989,13 @@ class Board():
 			assert self.status[next_player, 3] == -1
 			assert self.status[next_player, 4] == PHASE_WAIT
 			self.status[next_player, 3], self.status[next_player, 4] = next_ppl_id, PHASE_READY
+			self._prepare_for_new_status(player, next_ppl, PHASE_READY)
 		else:  												# Next turn is for same player
 			print('Same player to play with its active ppl now')
 			next_player = player
 			next_ppl = self.peoples[player, ACTIVE, :]
 			self.status[player, 3:] = [ACTIVE, PHASE_READY]
+			self._prepare_for_new_status(player, next_ppl, PHASE_READY)
 
 		# Reset stuff depending on people
 		if current_ppl[1] == SKELETON:
@@ -1059,8 +1089,8 @@ class Board():
 		for i in range(DECK_SIZE):
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			# chosen_ppl = [SKELETON, AMAZON, SORCERER, GHOUL, TROLL, GIANT, TRITON, HUMAN, WIZARD, DWARF, ELF][i]
-			# chosen_power = my_random_choice(available_power / available_power.sum())
-			chosen_power = [STOUT, SEAFARING, STOUT, SEAFARING, STOUT, SEAFARING][i]
+			chosen_power = my_random_choice(available_power / available_power.sum())
+			# chosen_power = [BERSERK, BERSERK, BERSERK, BERSERK, BERSERK, BERSERK][i]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
