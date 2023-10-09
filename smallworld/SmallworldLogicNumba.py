@@ -89,7 +89,7 @@ class Board():
 		self.init_game()
 
 	def get_score(self, player):
-		return self.scores[player, 0]
+		return self.status[player, 0]
 
 	def init_game(self):
 		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
@@ -127,7 +127,7 @@ class Board():
 		return result
 
 	def make_move(self, move, player, deterministic):
-		return 1-player
+		return (player+1)%NUMBER_PLAYERS
 
 	def get_state(self):
 		return self.state
@@ -136,7 +136,7 @@ class Board():
 		return self.status[0,1]
 
 	def check_end_game(self, next_player):
-		if self.get_round() <= 10:
+		if self.get_round() <= NB_ROUNDS:
 			return np.array([0, 0], dtype=np.float32) # No winner yet
 
 		# Game is ended
@@ -144,15 +144,49 @@ class Board():
 		best_score = scores.max()
 		return np.where(scores == best_score, 1, -1).astype(np.float32)
 
+	# if n=1, transform P0 to Pn, P1 to P0, ... and Pn to Pn-1
+	# else do this action n times
 	def swap_players(self, nb_swaps):
-		return
+		# No need to roll territories, visible_deck and invisible_deck
+		def _roll_in_place_axis0_1d(array):
+			tmp_copy = array.copy()
+			size0 = array.shape[0]
+			for i in range(size0):
+				array[i] = tmp_copy[(i+nb_swaps)%size0]
+		def _roll_in_place_axis0_2d(array):
+			tmp_copy = array.copy()
+			size0 = array.shape[0]
+			for i in range(size0):
+				array[i,:] = tmp_copy[(i+nb_swaps)%size0,:]
+		def _roll_in_place_axis0_3d(array):
+			tmp_copy = array.copy()
+			size0 = array.shape[0]
+			for i in range(size0):
+				array[i,:,:] = tmp_copy[(i+nb_swaps)%size0,:,:]
+
+		# "Roll" peoples and status
+		_roll_in_place_axis0_2d(self.status)
+		_roll_in_place_axis0_3d(self.peoples)
+
+		# Update other references to player ids
+		for p in range(NUMBER_PLAYERS):
+			for i in range(ACTIVE):
+				if self.peoples[p, i, 1] == SORCERER:
+					data = my_unpackbits(self.peoples[p, i, 3])
+					new_data = my_packbits(_roll_in_place_axis0_1d(data))
+					self.peoples[p, i, 3] = new_data
+
+				if self.peoples[p, i, 2] == DIPLOMAT and self.peoples[p, i, 4] & 2**6:
+					data = my_unpackbits(self.peoples[p, i, 4] - 2**6)
+					new_data = my_packbits(_roll_in_place_axis0_1d(data))
+					self.peoples[p, i, 4] = (new_data + 2**6)
 
 	def get_symmetries(self, policy, valids):
 		# Always called on canonical board, meaning player = 0
-		# In all symmetries, no need to update the "optim" vectors as they are not used by NN
 		symmetries = [(self.state.copy(), policy.copy(), valids.copy())]
 		state_backup, policy_backup, valids_backup = symmetries[0]
 
+		# I found no symmetry for this game
 		return symmetries
 
 	###########################################################################
@@ -922,7 +956,7 @@ class Board():
 		elif old_status != PHASE_WAIT and next_status == PHASE_WAIT:
 			# If no player chose, set peace with ... self
 			if current_ppl[4] & 2**6:
-				current_ppl[4] = 2**player
+				current_ppl[4] = player
 
 	def _switch_status_berserk(self, player, current_ppl, old_status, next_status):
 		if next_status in [PHASE_READY, PHASE_ABANDON, PHASE_CHOOSE, PHASE_CONQUEST]:
@@ -1148,11 +1182,12 @@ def play_one_turn():
 			[(i, 'choose'    ) for i, v in enumerate(valids_choose) if v] +\
 			[(i, 'decline'   ) for i, v in enumerate([valid_decline]) if v] +\
 			[(i, 'end'       ) for i, v in enumerate([valid_end]) if v]
+		weights = [3 if t == 'attack' else 0.5 if t == 'redeploy' else 0.1 if t == 'end' else 1.0 for _,t in valids_all]
 
 		if len(valids_all) == 0:
 			print('No possible action')
 			breakpoint()
-		area, action = random.choice(valids_all)
+		area, action = random.choices(valids_all, weights)[0]
 
 		if   action == 'attack':
 			print(f'Attacking area {area}')

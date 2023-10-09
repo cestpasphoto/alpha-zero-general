@@ -4,6 +4,7 @@ import numpy as np
 NUMBER_PLAYERS = 2
 MAX_REDEPLOY = 8
 DECK_SIZE = 6
+NB_ROUNDS = 10
 
 DICE_VALUES = [0, 0, 0, 1, 2, 3]
 AVG_DICE = 1
