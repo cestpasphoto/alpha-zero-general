@@ -1,7 +1,7 @@
 import random
 import json
 from SmallworldLogicNumba import *
-from os import remove, listdir, path
+from os import listdir, path, mkdir
 
 b = Board(NUMBER_PLAYERS)
 p, it = 0, 0
@@ -68,6 +68,9 @@ def play_one_turn(dump_directory=None):
 	p = (b.status[:, 3] >= 0).nonzero()[0].item()
 	print('  ' + '='*20 + f'  P{p} now plays  ' + '='*20)
 
+	if not path.exists(dump_directory):
+		mkdir(dump_directory)
+
 	while b.status[p, 3] >= 0:
 		valids_all = compute_valids_all(p, do_print=True)
 		weights = [3 if t == 'attack' else 0.5 if t == 'redeploy' else 0.1 if t == 'end' else 1.0 for _,t in valids_all]
@@ -97,10 +100,6 @@ def play_one_turn(dump_directory=None):
 
 		if dump_directory:
 			backup_state_after = b.get_state().copy()
-			if it == 0:
-				# Remove previous files
-				_ = [remove(path.join(dump_directory, f)) for f in listdir(dump_directory) if f.startswith('dump')]
-			# And dump
 			with open(dump_directory + f'/dump{it:03}.json', 'w') as f:
 				dump_data = {
 					'before'     : backup_state_before.tolist(),
@@ -109,10 +108,10 @@ def play_one_turn(dump_directory=None):
 					'area_action': [area, action],
 					'after'      : backup_state_after.tolist(),
 				}
-				f.write('{')
+				f.write('{\n')
 				for k, v in dump_data.items():
 					f.write(json.dumps(k) + ': ' + json.dumps(v) + ',\n')
-				f.write('"fake": 0\n}\n')
+				f.write('"zfake": 0\n}\n')
 
 			it += 1
 
@@ -141,17 +140,34 @@ def run_test(dump_file):
 		# Do not compare invisible_deck, nor last item of visible deck (random)
 		if ref_action == 'choose' and i in [len(board_state) - 1, len(board_state) - 4]:
 			continue
+		# Do not compare prerun dice info for berserk
+		if board_state[i][1] == BERSERK and NB_AREAS <= i < NB_AREAS+3*NUMBER_PLAYERS:
+			if (board_state[i][:4] != dump_data['after'][i][:4]) or \
+			   (board_state[i][4] & 2**6) != (dump_data['after'][i][4] & 2**6):
+				print(f'error in after, row {i}')
+				breakpoint()
 		if board_state[i] != dump_data['after'][i]:
 			print(f'error in after, row {i}')
 			breakpoint()
 
+def run_tests(dump_directory):
+	dump_files = [dump_directory+f for f in listdir(dump_directory) if f.startswith('dump')]
+	for dump_file in sorted(dump_files):
+		run_test(dump_file)
+
 ###############################################################################
+
+# Create a new testset
+used_ids = [int(f[3:6]) for f in listdir('./dumps/') if f.startswith('set')]
+new_id = max(used_ids)+1 if len(used_ids) else 0
+dump_directory = f'./dumps/set{new_id:03}/'
+print(f'Dump dir: {dump_directory}')
 
 print_board(b)
 print()
 while not b.check_end_game(p).any():
-	p = play_one_turn(dump_directory='./dumps/')
+	p = play_one_turn(dump_directory=dump_directory)
 
 print(f'The end: {b.check_end_game(p)}')
 
-run_test('dumps/dump000.json')
+run_tests(dump_directory)
