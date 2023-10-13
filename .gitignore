@@ -12,6 +12,7 @@
 # checkpoint and results
 checkpoints/
 results/
+smallworld/dumps/
 
 # For PyCharm users
 .idea/
