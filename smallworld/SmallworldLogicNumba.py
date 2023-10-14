@@ -411,7 +411,7 @@ class Board():
 		# Flip back ppl tokens on the board and remove defense
 		for area in range(NB_AREAS):
 			if self.territories[area, 1] == self.peoples[player, declined_id, 1]:
-				backup = self.territories[area, :]
+				backup = self.territories[area, :].copy()
 				self.territories[area, 1] = -self.peoples[player, declined_id, 1]
 				# Remove defense, except some cases
 				self.territories[area, 2:] = 0
@@ -929,7 +929,7 @@ class Board():
 	def _switch_status_skeleton(self, player, current_ppl, old_status, next_status):
 		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
 			if current_ppl[3] == 0:
-				current_ppl[0] += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS)
+				current_ppl[0] += self._limit_added_ppl(current_ppl, self.status[player, 2] // 2, MAX_SKELETONS)
 				current_ppl[3] = 1 # We write that we gave additional ppl already
 			else:
 				print(f'Skeleton power already used ? {current_ppl[3]}')
