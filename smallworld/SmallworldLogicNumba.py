@@ -231,7 +231,7 @@ class Board():
 			return False
 
 		# Check no immunity
-		if self.territories[area, 3] >= IMMUNE_CONQUEST or self.territories[area, 4] >= IMMUNE_CONQUEST:
+		if self.territories[area, 3] >= IMMUNITY or self.territories[area, 4] >= IMMUNITY:
 			return False
 
 		# Check that player has a chance to win	
@@ -510,7 +510,7 @@ class Board():
 			if self._is_occupied_by(area, current_ppl):
 				return False
 			# Check no full immunity
-			if self.territories[area, 3] >= FULL_IMMUNITY or self.territories[area, 4] >= FULL_IMMUNITY:
+			if self.territories[area, 3] >= IMMUNITY or self.territories[area, 4] >= IMMUNITY:
 				return False
 			# Check that territory is close to another owned territory or is on the edge (unless is flying)
 			if current_ppl[2] != FLYING:
@@ -657,7 +657,7 @@ class Board():
 			if territories_of_player[area]:
 				return False
 			# Check no full immunity
-			if self.territories[area, 3] >= FULL_IMMUNITY or self.territories[area, 4] >= FULL_IMMUNITY:
+			if self.territories[area, 3] >= IMMUNITY or self.territories[area, 4] >= IMMUNITY:
 				return False
 			# Check that territory is close to another owned territory or is on the edge
 			neighbor_areas = connexity_matrix[area]
@@ -689,7 +689,7 @@ class Board():
 
 		elif current_ppl[2] == HEROIC:
 			# Put hero
-			self.territories[area, 4] = FULL_IMMUNITY
+			self.territories[area, 4] = IMMUNITY
 			current_ppl[4]            -= 1
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
@@ -712,7 +712,7 @@ class Board():
 			
 			# Update loser and winner, and add dragon
 			self._switch_territory_from_loser_to_winner(area, player, current_ppl, nb_attacking_ppl=1)
-			self.territories[area, 4] = FULL_IMMUNITY
+			self.territories[area, 4] = IMMUNITY
 
 			self.status[player, 4] = PHASE_CONQUEST
 
@@ -841,7 +841,7 @@ class Board():
 		assert winner_ppl[0] >= 0
 		# Add specific tokens
 		if winner_ppl[1] == HALFLING and winner_ppl[3] > 0:
-			self.territories[area, 3] = FULL_IMMUNITY
+			self.territories[area, 3] = IMMUNITY
 			winner_ppl[3] -= 1
 
 		# Update #NETWDT

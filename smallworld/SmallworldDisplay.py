@@ -67,10 +67,8 @@ def add_text(display_matrix, territories):
 						display_matrix[y][x][2] += powers_str[i]
 				display_matrix[y][x][2] += ' ' * (2-len(display_matrix[y][x][2]))
 			elif txt == 4 and territories[area, 3:].sum() > 0:
-				if territories[area, 3:].sum() >= FULL_IMMUNITY:
+				if territories[area, 3:].sum() >= IMMUNITY:
 					display_matrix[y][x][2] = '**'
-				elif territories[area, 3:].sum() >= IMMUNE_CONQUEST:
-					display_matrix[y][x][2] = ' *'
 				else:
 					display_matrix[y][x][2] = '+' + str(territories[area, 3:].sum())
 			else:

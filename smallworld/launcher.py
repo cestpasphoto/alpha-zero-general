@@ -73,7 +73,7 @@ def play_one_turn(dump_directory=None):
 
 	while b.status[p, 3] >= 0:
 		valids_all = compute_valids_all(p, do_print=True)
-		weights = [3 if t == 'attack' else 0.5 if t == 'redeploy' else 0.1 if t == 'end' else 1.0 for _,t in valids_all]
+		weights = [5 if t == 'attack' else 0.5 if t == 'redeploy' else 0.1 if t == 'end' else 1.0 for _,t in valids_all]
 		if len(valids_all) == 0:
 			print('No possible action')
 			breakpoint()
