@@ -3,6 +3,7 @@ from numba import njit
 import numba
 
 from SmallworldConstants import *
+from SmallworldMaps import *
 from SmallworldDisplay import print_board, print_valids
 
 ############################## BOARD DESCRIPTION ##############################

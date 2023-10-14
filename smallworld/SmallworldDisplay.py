@@ -2,6 +2,7 @@ import numpy as np
 from colorama import Style, Fore, Back
 from copy import deepcopy
 from SmallworldConstants import *
+from SmallworldMaps import *
 
 def move_to_str(move, player):
 	return f'Unknown move {move}'
@@ -9,15 +10,20 @@ def move_to_str(move, player):
 ############################# PRINT GAME ######################################
 
 terrains_str = [
-	[Back.BLUE          , Fore.WHITE], # WATER
-	[Back.LIGHTYELLOW_EX, Fore.BLACK], # SAND
-	[Back.YELLOW        , Fore.BLACK], # FARMLAND
+	[Back.GREEN         , Fore.BLACK], # FORESTT
+	[Back.LIGHTYELLOW_EX, Fore.BLACK], # FARMLAND
+	[Back.LIGHTGREEN_EX , Fore.BLACK], # HILLT
+	[Back.LIGHTRED_EX   , Fore.BLACK], # SWAMPT
 	[Back.WHITE         , Fore.BLACK], # MOUNTAIN
-	[Back.LIGHTGREEN_EX , Fore.BLACK], # MEADOW
+	[Back.LIGHTBLUE_EX  , Fore.WHITE], # WATER
 ]
-powers_str = [' ', '⍎', '⅏', 'ℵ']
+powers_str = [' ', '⅏','ℵ', '⍎']
+
 ppl_str      = [' ', 'A' , 'D' , 'E', 'g', 'G' , 'h', 'H' , 'O' , 'R' , 's', 'S' , 't', 'T' , 'W' , 'l']
 ppl_decl_str = [' ', '🄐', '🄓', '🄔', '🄖', '🄖', '🄗', '🄗', '🄞', '🄡', '🄢', '🄢', '🄣', '🄣', '🄦', '🄛']
+ppl_long_str = [' ', 'AMAZON','DWARF','ELF','GHOUL','GIANT','HALFLING','HUMAN','ORC','RATMAN','SKELETON','SORCERER','TRITON','TROLL','WIZARD', 'LOST_TRIBE']
+power_long_str = [' ','ALCHEMIST','BERSERK','BIVOUACKING','COMMANDO','DIPLOMAT','DRAGONMASTER', 'FLYING','FOREST','FORTIFIED','HEROIC','HILL','MERCHANT','MOUNTED','PILLAGING','SEAFARING','SPIRIT','STOUT','SWAMP','UNDERWORLD','WEALTHY']
+ac_or_dec_str = ['decline-spirit ppl', 'decline ppl', 'active ppl', '']
 status_str = [
 	'',
 	'is ready to play',
@@ -28,10 +34,6 @@ status_str = [
 	'redeployed',
 	'is waiting',
 ]
-ac_or_dec_str = ['decline-spirit ppl', 'decline ppl', 'active ppl', '']
-
-ppl_long_str = [' ', 'AMAZON','DWARF','ELF','GHOUL','GIANT','HALFLING','HUMAN','ORC','RATMAN','SKELETON','SORCERER','TRITON','TROLL','WIZARD', 'LOST_TRIBE']
-power_long_str = [' ','ALCHEMIST','BERSERK','BIVOUACKING','COMMANDO','DIPLOMAT','DRAGONMASTER', 'FLYING','FOREST','FORTIFIED','HEROIC','HILL','MERCHANT','MOUNTED','PILLAGING','SEAFARING','SPIRIT','STOUT','SWAMP','UNDERWORLD','WEALTHY']
 
 def generate_background():
 	display_matrix = deepcopy(map_display)
