@@ -1,6 +1,6 @@
 import numpy as np
-from numba import njit
-import numba
+# from numba import njit
+# import numba
 
 from SmallworldConstants import *
 from SmallworldMaps import *
@@ -75,14 +75,14 @@ def my_random_choice(prob):
 	return result
 
 
-spec = [
-	('state'         , numba.int8[:,:]),
-	('territories'   , numba.int8[:,:]),
-	('peoples'       , numba.int8[:,:]),
-	('visible_deck'  , numba.int8[:,:]),
-	('status'        , numba.int8[:,:]),
-	('invisible_deck', numba.int8[:,:]),
-]
+# spec = [
+# 	('state'         , numba.int8[:,:]),
+# 	('territories'   , numba.int8[:,:]),
+# 	('peoples'       , numba.int8[:,:]),
+# 	('visible_deck'  , numba.int8[:,:]),
+# 	('status'        , numba.int8[:,:]),
+# 	('invisible_deck', numba.int8[:,:]),
+# ]
 # @numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
