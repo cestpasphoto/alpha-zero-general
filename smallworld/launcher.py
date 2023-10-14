@@ -1,7 +1,7 @@
 import random
 import json
 from SmallworldLogicNumba import *
-from os import listdir, path, mkdir
+from os import listdir, path, mkdir, _exit
 
 b = Board(NUMBER_PLAYERS)
 p, it = 0, 0
@@ -73,7 +73,7 @@ def play_one_turn(dump_directory=None):
 
 	while b.status[p, 3] >= 0:
 		valids_all = compute_valids_all(p, do_print=True)
-		weights = [5 if t == 'attack' else 0.5 if t == 'redeploy' else 0.1 if t == 'end' else 1.0 for _,t in valids_all]
+		weights = [4 if t == 'attack' else 4 if t == 'decline' else 0.5 if t == 'redeploy' else 0.1 if t == 'end' else 1.0 for _,t in valids_all]
 		if len(valids_all) == 0:
 			print('No possible action')
 			breakpoint()
@@ -86,15 +86,16 @@ def play_one_turn(dump_directory=None):
 		# Chose a "redeploy on each" action if possible
 		if action == 'redeploy':
 			valids_on_each = [area_ for (area_, action_) in valids_all if (action_ == 'redeploy' and area_ < MAX_REDEPLOY)]
-			if any(valids_on_each):
+			if len(valids_on_each):
 				area, action = max(valids_on_each), 'redeployeach'
 			else:
 				area, action = area-MAX_REDEPLOY, 'redeploy1'
 		try:
 			do_action(p, area, action)
 		except:
-			pass
+			stop = True
 		else:
+			stop = False
 			print_board(b)
 			print()
 
@@ -113,7 +114,11 @@ def play_one_turn(dump_directory=None):
 					f.write(json.dumps(k) + ': ' + json.dumps(v) + ',\n')
 				f.write('"zfake": 0\n}\n')
 
-			it += 1
+		it += 1
+
+		if stop:
+			print('Exit with error')
+			_exit(-1)
 
 	return (p+1)%NUMBER_PLAYERS
 
@@ -141,7 +146,7 @@ def run_test(dump_file):
 		if ref_action == 'choose' and i in [len(board_state) - 1, len(board_state) - 4]:
 			continue
 		# Do not compare prerun dice info for berserk
-		if board_state[i][1] == BERSERK and NB_AREAS <= i < NB_AREAS+3*NUMBER_PLAYERS:
+		if board_state[i][2] == BERSERK and NB_AREAS <= i < NB_AREAS+3*NUMBER_PLAYERS:
 			if (board_state[i][:4] != dump_data['after'][i][:4]) or \
 			   (board_state[i][4] & 2**6) != (dump_data['after'][i][4] & 2**6):
 				print(f'error in after, row {i}')

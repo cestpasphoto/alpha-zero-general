@@ -54,10 +54,9 @@ def add_text(display_matrix, territories):
 				display_matrix[y][x][2] = str(territories[area,0])
 				if territories[area,1] >= 0:
 					display_matrix[y][x][2] += ppl_str     [ territories[area,1]]
-				else:
-					display_matrix[y][x][2] += ppl_decl_str[-territories[area,1]]
-				if territories[area,3] >= 0:
 					display_matrix[y][x][1] += Style.BRIGHT
+				else:
+					display_matrix[y][x][2] += ppl_decl_str[-territories[area,1]]					
 			elif txt == 2:
 				display_matrix[y][x][2] = Fore.LIGHTBLACK_EX + f'{area:2}'
 			elif txt == 3:
