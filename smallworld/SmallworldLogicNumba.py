@@ -300,6 +300,9 @@ class Board():
 		# Update loser and winner
 		self._switch_territory_from_loser_to_winner(area, player, current_ppl, nb_attacking_ppl)
 
+		# Deal with berserk AFTER attack
+		if current_ppl[2] == BERSERK:
+			self._switch_status_berserk(player, current_ppl, None, PHASE_CONQUEST)
 		# Update winner's status
 		self.status[player, 4] = PHASE_CONQ_WITH_DICE if use_dice else PHASE_CONQUEST
 
@@ -543,7 +546,7 @@ class Board():
 			current_ppl[3] += 2**loser
 			# Update winner's status and #NETWDT
 			self.status[player, 4] = PHASE_CONQUEST
-			current_ppl[2] += 1
+			self.status[player, 2] += 1
 
 		else:
 			raise Exception('Should not happen')
@@ -894,7 +897,10 @@ class Board():
 		elif current_ppl[2] == DIPLOMAT:
 			self._switch_status_diplomat(player, current_ppl, old_status, next_status)
 		elif current_ppl[2] == BERSERK:
-			self._switch_status_berserk(player, current_ppl, old_status, next_status)
+			if old_status == PHASE_CONQUEST:
+				pass # special case if during attack, don't prerun dice yet
+			else:
+				self._switch_status_berserk(player, current_ppl, old_status, next_status)
 
 		if next_status == PHASE_WAIT:
 			if self.status[player, 3] == ACTIVE:
@@ -1157,7 +1163,8 @@ class Board():
 			chosen_ppl = AMAZON ; print('workaround for debug')
 		if chosen_power == NOPOWER:
 			chosen_power = BERSERK ; print('workaround for debug')
-		self.visible_deck[DECK_SIZE-1, :] = [initial_nb_people[chosen_ppl], chosen_ppl, chosen_power, 0, 0]
+		nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
+		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 		available_people[chosen_ppl], available_power[chosen_power] = False, False
 
 		# Update back the bitfield
