@@ -95,7 +95,7 @@ class Board():
 	def init_game(self):
 		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
 		for i in range(NB_AREAS):
-			if descr[i][3]:
+			if descr[i][4]:
 				nb_lt = initial_nb_people[LOST_TRIBE]
 				self.territories[i,:] = [nb_lt, LOST_TRIBE, NOPOWER, 0, 0]
 			else:
@@ -245,14 +245,14 @@ class Board():
 		# Check that territory is close to another owned territory or is on the edge (unless is flying)
 		if current_ppl[2] != FLYING:
 			if np.count_nonzero(territories_of_player) == 0:
-				area_is_on_edge = descr[area][2]
+				area_is_on_edge = descr[area][5]
 				if current_ppl[1] != HALFLING and not area_is_on_edge:
 					return False
 			else:
 				neighbor_areas = connexity_matrix[area]
 				if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
 					caverns = (np.array(descr)[:,0] == CAVERN)
-					if current_ppl[2] == UNDERWORLD and descr[area][1] == CAVERN and np.any(np.logical_and(caverns, territories_of_player)):
+					if current_ppl[2] == UNDERWORLD and descr[area][CAVERN] and np.any(np.logical_and(caverns, territories_of_player)):
 						pass # exception if underworld: all caverns are neighbors
 					else:
 						return False
@@ -785,7 +785,7 @@ class Board():
 
 		# Bonus if: triton + at_edge, giant + border of mountain, commando, mounted + hill|farm,
 		#   underworld + cavern, 
-		if current_ppl[1] == TRITON and descr[area][2]:
+		if current_ppl[1] == TRITON and descr[area][5]:
 			minimum_ppl_for_attack -= 1
 		if current_ppl[1] == GIANT  and self._is_area_border_of(area, MOUNTAIN):
 			minimum_ppl_for_attack -= 1
@@ -793,7 +793,7 @@ class Board():
 			minimum_ppl_for_attack -= 1
 		if current_ppl[2] == MOUNTED and descr[area][0] in [HILLT, FARMLAND]:
 			minimum_ppl_for_attack -= 1
-		if current_ppl[2] == UNDERWORLD and descr[area][1] == CAVERN:
+		if current_ppl[2] == UNDERWORLD and descr[area][CAVERN]:
 			minimum_ppl_for_attack -= 1
 
 		return max(minimum_ppl_for_attack, 1)
@@ -1080,11 +1080,11 @@ class Board():
 				score_for_this_turn += 1
 				# +1 point if: dwarf + mine (even in decline), human + field, wizard + magic, forest + forest,
 				#     hill + hill, swamp + swamp, merchant, fortress
-				if descr[area][1] == MINE     and abs(self.territories[area, 1]) == DWARF:
+				if descr[area][MINE]          and abs(self.territories[area, 1]) == DWARF:
 					score_for_this_turn += 1
 				if descr[area][0] == FARMLAND and     self.territories[area, 1]  == HUMAN:
 					score_for_this_turn += 1
-				if descr[area][1] == MAGIC    and     self.territories[area, 1]  == WIZARD:
+				if descr[area][MAGIC]         and     self.territories[area, 1]  == WIZARD:
 					score_for_this_turn += 1
 				if descr[area][0] == FORESTT  and     self.territories[area, 2]  == FOREST:
 					score_for_this_turn += 1

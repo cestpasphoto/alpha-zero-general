@@ -59,9 +59,13 @@ def add_text(display_matrix, territories):
 				if territories[area,3] >= 0:
 					display_matrix[y][x][1] += Style.BRIGHT
 			elif txt == 2:
-				display_matrix[y][x][2] = Fore.LIGHTBLACK_EX + 'a' + str(area)
+				display_matrix[y][x][2] = Fore.LIGHTBLACK_EX + f'{area:2}'
 			elif txt == 3:
-				display_matrix[y][x][2] = powers_str[ descr[area][1] ] + ' '
+				display_matrix[y][x][2] = ''
+				for i in range(1, 4):
+					if descr[area][i]:
+						display_matrix[y][x][2] += powers_str[i]
+				display_matrix[y][x][2] += ' ' * (2-len(display_matrix[y][x][2]))
 			elif txt == 4 and territories[area, 3:].sum() > 0:
 				if territories[area, 3:].sum() >= FULL_IMMUNITY:
 					display_matrix[y][x][2] = '**'
@@ -76,20 +80,20 @@ def add_text(display_matrix, territories):
 
 def add_legend(display_matrix, peoples):
 	display_matrix[1].append([Style.RESET_ALL, '', '  '])
-	display_matrix[1].append(terrains_str[0] + ['water'])
+	display_matrix[1].append(terrains_str[0] + ['forest'])
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[1] + ['sand'])
+	display_matrix[1].append(terrains_str[1] + ['farmland'])
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[2] + ['farm'])
+	display_matrix[1].append(terrains_str[2] + ['hill'])
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[3] + ['mountain'])
+	display_matrix[1].append(terrains_str[3] + ['swamp'])
 	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[4] + ['meadow'])
+	display_matrix[1].append(terrains_str[4] + ['mountain'])
 
 	legend_power = '  '
-	legend_power += powers_str[1] + ' = water source , '
-	legend_power += powers_str[2] + ' = mine , '
-	legend_power += powers_str[3] + ' = magic , '
+	legend_power += powers_str[1] + ' = cavern , '
+	legend_power += powers_str[2] + ' = magic , '
+	legend_power += powers_str[3] + ' = mine , '
 	display_matrix[2].append([Style.RESET_ALL, '', legend_power])
 
 	legend_ppl = '  '
@@ -136,8 +140,7 @@ def disp_to_str(display_matrix):
 	for y in range(len(display_matrix)):
 		for x in range(len(display_matrix[y])):
 			bgd, fgd, txt = display_matrix[y][x]
-			disp_str += bgd + fgd + txt
-		disp_str += Style.RESET_ALL
+			disp_str += bgd + fgd + txt + Style.RESET_ALL
 		disp_str += ('\n' if y < len(display_matrix)-1 else '')
 	return disp_str
 
