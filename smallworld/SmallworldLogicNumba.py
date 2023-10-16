@@ -399,13 +399,13 @@ class Board():
 
 		declined_id = DECLINED_SPIRIT if current_ppl[2] == SPIRIT else DECLINED
 
-		# Move ppl to decline and keep only 1 ppl per territory
+		# Move ppl to decline and keep only 1 ppl per territory except if ghoul
 		self.peoples[player, declined_id, :] = 0
 		if current_ppl[1] == GHOUL:
-			self.peoples[player, declined_id, :3] = current_ppl[:3]
+			self.peoples[player, declined_id, 0] = current_ppl[0]
 		else:
 			self._gather_current_ppl_but_one(current_ppl)
-			self.peoples[player, declined_id, 1] = current_ppl[1]
+		self.peoples[player, declined_id, 1] = current_ppl[1]
 		current_ppl[:] = [0, NOPPL, NOPOWER, 0, 0]
 		
 		# Flip back ppl tokens on the board and remove defense
