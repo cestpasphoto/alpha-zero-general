@@ -258,7 +258,7 @@ class Board():
 						return False
 
 		# Check that active ppl is not attacking an active diplomat in peace
-		if self.territories[area, 2] == DIPLOMAT:
+		if self.territories[area, 2] == DIPLOMAT and current_ppl[1] > 0:
 			loser_ppl, loser_id = self._ppl_owner_of(area)
 			assert (loser_ppl[4] & 2**6 == 0)
 			if loser_ppl[4] == player:
@@ -1131,9 +1131,9 @@ class Board():
 		# Force weirdest ppl/power
 		print('  Forcing some ppl')
 		available_people[:], available_power[:] = False, False
-		for ppl in [AMAZON, ELF, GHOUL, HALFLING, SORCERER, DWARF, TROLL, SKELETON]:
+		for ppl in [AMAZON, ELF, SORCERER, DWARF, TROLL, SKELETON]:
 			available_people[ppl] = True
-		for pwr in [BERSERK, BIVOUACKING, DIPLOMAT, DRAGONMASTER, FORTIFIED, HEROIC, SEAFARING, SPIRIT, STOUT]:
+		for pwr in [BERSERK, DIPLOMAT, DRAGONMASTER, FORTIFIED, HEROIC, SEAFARING, SPIRIT]:
 			available_power[pwr] = True
 
 		# Draw 6 ppl+power randomly
