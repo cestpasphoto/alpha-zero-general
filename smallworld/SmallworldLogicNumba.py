@@ -429,6 +429,9 @@ class Board():
 		# Check that it is time
 		if self.status[player, 4] != PHASE_READY:
 			return valids
+		# Check not declined ppl
+		if self.status[player, 3] != ACTIVE:
+			return valids
 		# Check that player hasn't a player yet
 		if self.peoples[player, ACTIVE, 1] != NOPPL:
 			return valids
@@ -1061,7 +1064,6 @@ class Board():
 		elif current_ppl[2] == BIVOUACKING:
 			if current_ppl[4] != 0:
 				print('** Hasnt used all campments')
-				breakpoint()
 		elif current_ppl[2] == FORTIFIED:
 			pass # Don't reset it
 		elif current_ppl[2] == HEROIC:
