@@ -900,7 +900,7 @@ class Board():
 		elif current_ppl[2] == DIPLOMAT:
 			self._switch_status_diplomat(player, current_ppl, old_status, next_status)
 		elif current_ppl[2] == BERSERK:
-			if old_status == PHASE_CONQUEST:
+			if next_status == PHASE_CONQUEST:
 				pass # special case if during attack, don't prerun dice yet
 			else:
 				self._switch_status_berserk(player, current_ppl, old_status, next_status)
@@ -1131,15 +1131,20 @@ class Board():
 		# Force weirdest ppl/power
 		print('  Forcing some ppl')
 		available_people[:], available_power[:] = False, False
-		for ppl in [AMAZON, ELF, SORCERER, DWARF, TROLL, SKELETON]:
+		for ppl in [ELF, SORCERER, DWARF, SKELETON]:
 			available_people[ppl] = True
-		for pwr in [BERSERK, DIPLOMAT, DRAGONMASTER, FORTIFIED, HEROIC, SEAFARING, SPIRIT]:
+		for pwr in [BERSERK, FORTIFIED]:
 			available_power[pwr] = True
 
 		# Draw 6 ppl+power randomly
 		for i in range(DECK_SIZE):
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			chosen_power = my_random_choice(available_power / available_power.sum())
+			# Workaround
+			if chosen_ppl == NOPPL:
+				chosen_ppl = DWARF ; print('workaround for debug')
+			if chosen_power == NOPOWER:
+				chosen_power = BERSERK ; print('workaround for debug')
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -1162,9 +1167,9 @@ class Board():
 		chosen_power = my_random_choice(available_power / available_power.sum())
 		# Workaround
 		if chosen_ppl == NOPPL:
-			chosen_ppl = AMAZON ; print('workaround for debug')
+			chosen_ppl = RATMAN ; print('workaround for debug')
 		if chosen_power == NOPOWER:
-			chosen_power = BERSERK ; print('workaround for debug')
+			chosen_power = ALCHEMIST ; print('workaround for debug')
 		nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 		available_people[chosen_ppl], available_power[chosen_power] = False, False
