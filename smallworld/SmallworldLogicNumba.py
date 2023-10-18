@@ -1133,23 +1133,10 @@ class Board():
 		available_power = np.ones(WEALTHY+1, dtype=np.int8)
 		available_power[NOPOWER] = False
 
-		# Force weirdest ppl/power
-		print('  Forcing some ppl')
-		available_people[:], available_power[:] = False, False
-		for ppl in [ELF, DWARF, SKELETON]:
-			available_people[ppl] = True
-		for pwr in [FORTIFIED]:
-			available_power[pwr] = True
-
 		# Draw 6 ppl+power randomly
 		for i in range(DECK_SIZE):
 			chosen_ppl = my_random_choice(available_people / available_people.sum())
 			chosen_power = my_random_choice(available_power / available_power.sum())
-			# Workaround
-			if chosen_ppl == NOPPL:
-				chosen_ppl = DWARF ; print('workaround for debug')
-			if chosen_power == NOPOWER:
-				chosen_power = FORTIFIED ; print('workaround for debug')
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -1170,11 +1157,6 @@ class Board():
 		# Draw a new people for last combination
 		chosen_ppl   = my_random_choice(available_people / available_people.sum())
 		chosen_power = my_random_choice(available_power / available_power.sum())
-		# Workaround
-		if chosen_ppl == NOPPL:
-			chosen_ppl = RATMAN ; print('workaround for debug')
-		if chosen_power == NOPOWER:
-			chosen_power = ALCHEMIST ; print('workaround for debug')
 		nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 		available_people[chosen_ppl], available_power[chosen_power] = False, False
