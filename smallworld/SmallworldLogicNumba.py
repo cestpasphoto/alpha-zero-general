@@ -206,15 +206,17 @@ class Board():
 
 		territories_of_player = self._are_occupied_by(current_ppl)
 		how_many_ppl_available = self._ppl_virtually_available(player, current_ppl, PHASE_CONQUEST, territories_of_player)
+		# Forbid to continue if 0 ppl left in hand
+		if how_many_ppl_available <= 0:
+			return valids
+
+		# Take in account dice when berserk
 		if current_ppl[2] == BERSERK:
 			if _split_pwr_data(current_ppl[4])[1]:
 				how_many_ppl_available += _split_pwr_data(current_ppl[4])[0]
 			else:
 				print(f'No dice before ? {current_ppl[4]}')
 				breakpoint()
-		# Forbid to continue if 0 ppl left in hand
-		if how_many_ppl_available <= 0:
-			return valids
 
 		for area in range(NB_AREAS):
 			valids[area] = self._valid_attack_area(player, area, current_ppl, how_many_ppl_available, territories_of_player)
