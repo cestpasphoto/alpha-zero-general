@@ -104,7 +104,9 @@ def add_legend(display_matrix, peoples):
 				if power != NOPOWER:
 					legend_ppl += f'+{power_long_str[power]}'
 				if pplinfo != 0 or powerinfo != 0:
-					legend_ppl += f' ({pplinfo}-{powerinfo})'
+					pplinfo_str = str(pplinfo) if pplinfo < 64 else (str(pplinfo%64)+'*')
+					pwrinfo_str = str(powerinfo) if powerinfo < 64 else (str(powerinfo%64)+'*')
+					legend_ppl += f' ({pplinfo_str}-{pwrinfo_str})'
 				legend_ppl += f', '
 	display_matrix[3].append([Style.RESET_ALL, '', legend_ppl])
 

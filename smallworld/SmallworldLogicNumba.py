@@ -207,8 +207,8 @@ class Board():
 		territories_of_player = self._are_occupied_by(current_ppl)
 		how_many_ppl_available = self._ppl_virtually_available(player, current_ppl, PHASE_CONQUEST, territories_of_player)
 		if current_ppl[2] == BERSERK:
-			if current_ppl[4] & 2**6:
-				how_many_ppl_available += (current_ppl[4] % 2**6)
+			if _split_pwr_data(current_ppl[4])[1]:
+				how_many_ppl_available += _split_pwr_data(current_ppl[4])[0]
 			else:
 				print(f'No dice before ? {current_ppl[4]}')
 				breakpoint()
@@ -276,8 +276,8 @@ class Board():
 
 		# Use dice if people are needed
 		use_dice = (nb_ppl_of_player < minimum_ppl_for_attack)
-		if current_ppl[2] == BERSERK and current_ppl[4] & 2**6:
-			dice = (current_ppl[4] % 2**6)
+		if current_ppl[2] == BERSERK and _split_pwr_data(current_ppl[4])[1]:
+			dice = _split_pwr_data(current_ppl[4])[0]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				print(f'  Using previous dice, random value is {dice} but fails')
 				self.status[player, 4] = PHASE_CONQ_WITH_DICE
@@ -575,8 +575,9 @@ class Board():
 			if self.status[player, 4] not in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_REDEPLOY]:
 				return valids
 
-			# Check if any fortress remaining
-			if current_ppl[4] <= 0:
+			# Check if any fortress remaining and if no other fortress used in this turn
+			remaining_fort, used_fort = _split_pwr_data(current_ppl[4])
+			if remaining_fort <= 0 or used_fort:
 				return valids
 			
 			for area in range(NB_AREAS):
@@ -649,7 +650,7 @@ class Board():
 			# Param is actually id of other player
 			other_player = area
 			# Check not attacked during this turn
-			assert ((current_ppl[4] & 2**6) or current_ppl[4] == 0)
+			assert (_split_pwr_data(current_ppl[4])[1] or current_ppl[4] == 0)
 			if current_ppl[4] & 2**other_player:
 				return False
 			return True
@@ -689,6 +690,8 @@ class Board():
 			# Put fortress
 			self.territories[area, 4] += 1
 			current_ppl[4]            -= 1
+			# Note that we used a fortress during this turn
+			current_ppl[4]            += 2**6
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
 			self.status[player, 4] = PHASE_REDEPLOY
@@ -704,7 +707,7 @@ class Board():
 		elif current_ppl[2] == DIPLOMAT:
 			other_player = area
 			# Set diplomacy
-			assert ((current_ppl[4] & 2**6) or current_ppl[4] == 0)
+			assert (_split_pwr_data(current_ppl[4])[1] or current_ppl[4] == 0)
 			current_ppl[4] = other_player
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
@@ -965,7 +968,7 @@ class Board():
 			current_ppl[4] = 2**6
 		elif old_status != PHASE_WAIT and next_status == PHASE_WAIT:
 			# If no player chose, set peace with ... self
-			if current_ppl[4] & 2**6:
+			if _split_pwr_data(current_ppl[4])[1]:
 				current_ppl[4] = player
 
 	def _switch_status_berserk(self, player, current_ppl, old_status, next_status):
@@ -1065,12 +1068,14 @@ class Board():
 			if current_ppl[4] != 0:
 				print('** Hasnt used all campments')
 		elif current_ppl[2] == FORTIFIED:
-			pass # Don't reset it
+			# Reset only the "have I used fortress during this turn" part
+			remaining_fort, used_fort = _split_pwr_data(current_ppl[4])
+			current_ppl[4] = remaining_fort
 		elif current_ppl[2] == HEROIC:
 			if current_ppl[4] != 0:
 				print('** Hasnt used all heros')
 		elif current_ppl[2] == DIPLOMAT:
-			if current_ppl[4] & 2**6:
+			if _split_pwr_data(current_ppl[4])[1]:
 				print('** Diplomat still in old mode')
 				breakpoint()
 		else:
@@ -1131,9 +1136,9 @@ class Board():
 		# Force weirdest ppl/power
 		print('  Forcing some ppl')
 		available_people[:], available_power[:] = False, False
-		for ppl in [ELF, SORCERER, DWARF, SKELETON]:
+		for ppl in [ELF, DWARF, SKELETON]:
 			available_people[ppl] = True
-		for pwr in [BERSERK, FORTIFIED]:
+		for pwr in [FORTIFIED]:
 			available_power[pwr] = True
 
 		# Draw 6 ppl+power randomly
@@ -1144,7 +1149,7 @@ class Board():
 			if chosen_ppl == NOPPL:
 				chosen_ppl = DWARF ; print('workaround for debug')
 			if chosen_power == NOPOWER:
-				chosen_power = BERSERK ; print('workaround for debug')
+				chosen_power = FORTIFIED ; print('workaround for debug')
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -1177,3 +1182,11 @@ class Board():
 		# Update back the bitfield
 		self.invisible_deck[:2] = my_packbits(available_people)
 		self.invisible_deck[2:] = my_packbits(available_power)
+
+
+
+def _split_pwr_data(unified_value):
+	dataB, dataA = divmod(unified_value, 2**6)
+	dataB = bool(dataB)
+	return dataA, dataB
+
