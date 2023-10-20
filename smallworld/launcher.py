@@ -90,14 +90,23 @@ def play_one_turn(dump_directory=None):
 				area, action = max(valids_on_each), 'redeployeach'
 			else:
 				area, action = area-MAX_REDEPLOY, 'redeploy1'
-		try:
-			do_action(p, area, action)
-		except:
-			stop = True
-		else:
-			stop = False
-			print_board(b)
-			print()
+		# try:
+		# 	do_action(p, area, action)
+		# except Exception as e:
+		# 	stop = True
+		# 	print(e)
+		# 	breakpoint()
+		# else:
+		# 	stop = False
+		# 	print_board(b)
+		# 	print()
+
+
+		do_action(p, area, action)
+		print_board(b)
+		print()
+		stop = False
+
 
 		if dump_directory:
 			backup_state_after = b.get_state().copy()
@@ -151,7 +160,7 @@ def run_test(dump_file):
 			   (board_state[i][4] & 2**6) != (dump_data['after'][i][4] & 2**6):
 				print(f'error in after, row {i}')
 				breakpoint()
-		if board_state[i] != dump_data['after'][i]:
+		elif board_state[i] != dump_data['after'][i]:
 			print(f'error in after, row {i}')
 			breakpoint()
 
@@ -176,3 +185,8 @@ while not b.check_end_game(p).any():
 print(f'The end: {b.check_end_game(p)}')
 
 run_tests(dump_directory)
+
+
+# for i in range(16):
+# 	dump_directory = f'./dumps/validated{i:03}/'
+# 	run_tests(dump_directory)

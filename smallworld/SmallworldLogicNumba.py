@@ -568,6 +568,10 @@ class Board():
 			# Limited number of campments in the box
 			if current_ppl[4] <= 0:
 				return valids
+
+			# Check there are enough amazons
+			if not self._enough_amazons_to_redeploy(player, current_ppl):
+				return valids
 			
 			for area in range(NB_AREAS):
 				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
@@ -581,6 +585,10 @@ class Board():
 			remaining_fort, used_fort = _split_pwr_data(current_ppl[4])
 			if remaining_fort <= 0 or used_fort:
 				return valids
+
+			# Check there are enough amazons
+			if not self._enough_amazons_to_redeploy(player, current_ppl):
+				return valids
 			
 			for area in range(NB_AREAS):
 				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
@@ -593,6 +601,10 @@ class Board():
 			# Check if any hero remaining
 			if current_ppl[4] <= 0:
 				return valids
+
+			# Check there are enough amazons
+			if not self._enough_amazons_to_redeploy(player, current_ppl):
+				return valids
 			
 			for area in range(NB_AREAS):
 				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
@@ -600,6 +612,10 @@ class Board():
 		elif current_ppl[2] == DIPLOMAT:
 			# Chose when it's the time
 			if self.status[player, 4] not in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
+				return valids
+
+			# Check there are enough amazons
+			if not self._enough_amazons_to_redeploy(player, current_ppl):
 				return valids
 
 			for other_player in range(NUMBER_PLAYERS):
@@ -744,10 +760,8 @@ class Board():
 			return False
 
 		# Check that enough amazon to give back
-		if current_ppl[1] == AMAZON:
-			how_many_ppl_available = self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY)
-			if how_many_ppl_available < 0:
-				return False
+		if not self._enough_amazons_to_redeploy(player, current_ppl):
+			return False
 
 		return True
 
@@ -1167,7 +1181,13 @@ class Board():
 		self.invisible_deck[:2] = my_packbits(available_people)
 		self.invisible_deck[2:] = my_packbits(available_power)
 
-
+	def _enough_amazons_to_redeploy(self, player, current_ppl):
+		# Check that enough amazon to give back
+		if current_ppl[1] == AMAZON:
+			how_many_ppl_available = self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY)
+			if how_many_ppl_available < 0:
+				return False
+		return True
 
 def _split_pwr_data(unified_value):
 	dataB, dataA = divmod(unified_value, 2**6)
