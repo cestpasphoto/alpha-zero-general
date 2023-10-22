@@ -94,13 +94,13 @@ class Board():
 
 	def init_game(self):
 		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
-		for i in range(NB_AREAS):
-			if descr[i][4]:
-				nb_lt = initial_nb_people[LOST_TRIBE]
-				self.territories[i,:] = [nb_lt, LOST_TRIBE, NOPOWER, 0, 0]
-			else:
-				self.territories[i,:] = [0    , NOPPL     , NOPOWER, 0, 0]
 
+		# Fill map with lost tribe
+		nb_lt = initial_nb_people[LOST_TRIBE]
+		for i in range(NB_AREAS):
+			self.territories[i,:] = [nb_lt, LOST_TRIBE, NOPOWER, 0, 0] if descr[i][4] else [0, NOPPL, NOPOWER, 0, 0]
+
+		# Init deck
 		self._init_deck()
 
 		# Init money and status for each player
@@ -138,7 +138,7 @@ class Board():
 
 	def check_end_game(self, next_player):
 		if self.get_round() <= NB_ROUNDS:
-			return np.array([0, 0], dtype=np.float32) # No winner yet
+			return np.full(NUMBER_PLAYERS, 0., dtype=np.float32) # No winner yet
 
 		# Game is ended
 		scores = self.status[:, 0]
@@ -808,9 +808,9 @@ class Board():
 		if abs(self.territories[area, 1]) == TROLL:
 			minimum_ppl_for_attack += 1
 
-		# Bonus if: triton + at_edge, giant + border of mountain, commando, mounted + hill|farm,
-		#   underworld + cavern, 
-		if current_ppl[1] == TRITON and descr[area][5]:
+		# Bonus if: triton + border of water, giant + border of mountain, commando,
+		#   mounted + hill|farm, underworld + cavern, 
+		if current_ppl[1] == TRITON and self._is_area_border_of(area, WATER):
 			minimum_ppl_for_attack -= 1
 		if current_ppl[1] == GIANT  and self._is_area_border_of(area, MOUNTAIN):
 			minimum_ppl_for_attack -= 1

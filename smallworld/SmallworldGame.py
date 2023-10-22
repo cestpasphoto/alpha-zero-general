@@ -5,12 +5,10 @@ from .SmallworldLogicNumba import Board, observation_size, action_size
 from .SmallworldDisplay import move_to_str, print_board
 import numpy as np
 
-NUMBER_PLAYERS = 2
-
 class SmallworldGame(Game):
     def __init__(self):
         self.board = Board(NUMBER_PLAYERS)
-        self.num_players = 2
+        self.num_players = NUMBER_PLAYERS
 
     def getInitBoard(self):
         self.board.init_game()

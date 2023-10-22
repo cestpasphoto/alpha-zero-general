@@ -77,22 +77,22 @@ def add_text(display_matrix, territories):
 	return display_matrix
 
 def add_legend(display_matrix, peoples):
-	display_matrix[1].append([Style.RESET_ALL, '', '  '])
-	display_matrix[1].append(terrains_str[0] + ['forest'])
-	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[1] + ['farmland'])
-	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[2] + ['hill'])
-	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[3] + ['swamp'])
-	display_matrix[1].append([Style.RESET_ALL, '', ' '])
-	display_matrix[1].append(terrains_str[4] + ['mountain'])
+	display_matrix[0].append([Style.RESET_ALL, '', '  '])
+	display_matrix[0].append(terrains_str[0] + ['forest'])
+	display_matrix[0].append([Style.RESET_ALL, '', ' '])
+	display_matrix[0].append(terrains_str[1] + ['farmland'])
+	display_matrix[0].append([Style.RESET_ALL, '', ' '])
+	display_matrix[0].append(terrains_str[2] + ['hill'])
+	display_matrix[0].append([Style.RESET_ALL, '', ' '])
+	display_matrix[0].append(terrains_str[3] + ['swamp'])
+	display_matrix[0].append([Style.RESET_ALL, '', ' '])
+	display_matrix[0].append(terrains_str[4] + ['mountain'])
 
 	legend_power = '  '
 	legend_power += powers_str[1] + ' = cavern , '
 	legend_power += powers_str[2] + ' = magic , '
 	legend_power += powers_str[3] + ' = mine , '
-	display_matrix[2].append([Style.RESET_ALL, '', legend_power])
+	display_matrix[1].append([Style.RESET_ALL, '', legend_power])
 
 	legend_ppl = '  '
 	for i in range(NUMBER_PLAYERS):
@@ -108,7 +108,7 @@ def add_legend(display_matrix, peoples):
 					pwrinfo_str = str(powerinfo) if powerinfo < 64 else (str(powerinfo%64)+'*')
 					legend_ppl += f' ({pplinfo_str}-{pwrinfo_str})'
 				legend_ppl += f', '
-	display_matrix[3].append([Style.RESET_ALL, '', legend_ppl])
+	display_matrix[2].append([Style.RESET_ALL, '', legend_ppl])
 
 	return display_matrix
 
@@ -126,13 +126,16 @@ def add_players_status(display_matrix, peoples, status):
 	return display_matrix
 
 def add_deck(display_matrix, visible_deck):
-	deck_str = f'  Deck:'
-	for i in range(DECK_SIZE):
-		nb, ppl, power, coins = visible_deck[i,0], visible_deck[i,1], visible_deck[i,2], visible_deck[i,3]
-		deck_str += f' {i}={nb}{ppl_long_str[ppl].lower()[:5]}-{power_long_str[power].lower()[:5]}'
-		if coins > 0:
-			deck_str += f'+{coins}'
-	display_matrix[4].append([Style.RESET_ALL, Style.DIM, deck_str])
+	for index, range_beg, range_end in [(3, 0, DECK_SIZE//2), (4, DECK_SIZE//2, DECK_SIZE)]:
+		deck_str = f'  Deck:' if index == 3 else f'       '
+		for i in range(range_beg, range_end):
+			nb, ppl, power, coins = visible_deck[i,0], visible_deck[i,1], visible_deck[i,2], visible_deck[i,3]
+			description = f'{nb}x{ppl_long_str[ppl].lower()[:8]}-{power_long_str[power].lower()[:8]} '
+			if coins > 0:
+				description += f'+{coins}'
+			deck_str += f' {i} = {description:22} '
+		display_matrix[index].append([Style.RESET_ALL, Style.DIM, deck_str])
+
 	return display_matrix
 
 def disp_to_str(display_matrix):

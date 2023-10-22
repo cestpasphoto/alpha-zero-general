@@ -152,7 +152,7 @@ def run_test(dump_file):
 	board_state = b.get_state().tolist()
 	for i in range(len(board_state)):
 		# Do not compare invisible_deck, nor last item of visible deck (random)
-		if ref_action == 'choose' and i in [len(board_state) - 1, len(board_state) - 4]:
+		if ref_action == 'choose' and (i == NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE-1 or i >= NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE):
 			continue
 		# Do not compare prerun dice info for berserk
 		if board_state[i][2] == BERSERK and NB_AREAS <= i < NB_AREAS+3*NUMBER_PLAYERS:
@@ -171,22 +171,33 @@ def run_tests(dump_directory):
 
 ###############################################################################
 
-# Create a new testset
-used_ids = [int(f[3:6]) for f in listdir('./dumps/') if f.startswith('set')]
-new_id = max(used_ids)+1 if len(used_ids) else 0
-dump_directory = f'./dumps/set{new_id:03}/'
-print(f'Dump dir: {dump_directory}')
+import argparse
 
-print_board(b)
-print()
-while not b.check_end_game(p).any():
-	p = play_one_turn(dump_directory=dump_directory)
+parser = argparse.ArgumentParser()
+parser.add_argument('--create', action='store_true')
+parser.add_argument('--tests', action='store_true')
+args = parser.parse_args()
 
-print(f'The end: {b.check_end_game(p)}')
+if args.create:
+	# Create a new testset
+	used_ids = [int(f[3:6]) for f in listdir('./dumps/') if f.startswith('set')]
+	new_id = max(used_ids)+1 if len(used_ids) else 0
+	dump_directory = f'./dumps/set{new_id:03}/'
+	print(f'Dump dir: {dump_directory}')
 
-run_tests(dump_directory)
+	print_board(b)
+	print()
+	while not b.check_end_game(p).any():
+		p = play_one_turn(dump_directory=dump_directory)
 
+	print(f'The end: {b.check_end_game(p)}')
 
-# for i in range(16):
-# 	dump_directory = f'./dumps/validated{i:03}/'
-# 	run_tests(dump_directory)
+	run_tests(dump_directory)
+
+elif args.tests:
+	directories = ['./dumps/'+f+'/' for f in listdir('./dumps/') if f.startswith('validated')]
+	for directory in directories:
+		run_tests(directory)
+
+else:
+	print('No action')

@@ -3,7 +3,7 @@ import numpy as np
 
 ############################# SPECIFIC TO NB_PLAYERS #############################
 
-NUMBER_PLAYERS = 2
+NUMBER_PLAYERS = 2 # Will switch automatically to adequate map
 NB_ROUNDS = 10
 
 ############################# TERRAIN CONSTANTS #############################
