@@ -1,5 +1,7 @@
 from SmallworldConstants import *
 
+NB_ROUNDS = 10
+
 #################### MAP DESCRIPTION ####################
 
 NB_AREAS = 30

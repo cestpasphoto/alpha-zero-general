@@ -96,7 +96,7 @@ class Board():
 		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
 
 		# Fill map with lost tribe
-		nb_lt = initial_nb_people[LOST_TRIBE]
+		nb_lt = initial_nb_people[-LOST_TRIBE]
 		for i in range(NB_AREAS):
 			self.territories[i,:] = [nb_lt, LOST_TRIBE, NOPOWER, 0, 0] if descr[i][4] else [0, NOPPL, NOPOWER, 0, 0]
 
@@ -509,7 +509,7 @@ class Board():
 	def _valid_special_actionppl_area(self, player, area, current_ppl, territories_of_player):
 		if current_ppl[1] == SORCERER:
 			# No attack on water
-			if descr[area][0] == WATER  and current_ppl[2] != SEAFARING:
+			if descr[area][0] == WATER and current_ppl[2] != SEAFARING:
 				return False
 			# People on this area is alone and active
 			if self.territories[area, 0] != 1 or self.territories[area, 1] <= 0:
@@ -1143,8 +1143,8 @@ class Board():
 		self.status[:, 1] += 1
 
 	def _init_deck(self):
-		# All people available except NOPPL and LOST_TRIBE
-		available_people = np.ones(LOST_TRIBE, dtype=np.int8)
+		# All people available except NOPPL
+		available_people = np.ones(WIZARD+1, dtype=np.int8)
 		available_people[NOPPL] = False
 		available_power = np.ones(WEALTHY+1, dtype=np.int8)
 		available_power[NOPOWER] = False

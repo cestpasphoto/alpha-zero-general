@@ -1,10 +1,7 @@
 import numpy as np
 # from numba import njit
 
-############################# SPECIFIC TO NB_PLAYERS #############################
-
 NUMBER_PLAYERS = 2 # Will switch automatically to adequate map
-NB_ROUNDS = 10
 
 ############################# TERRAIN CONSTANTS #############################
 
@@ -61,12 +58,12 @@ SORCERER  = 11 #  remplace pion unique adversaire actif par un sorcier
 TRITON    = 12 #  -1 pour attaque région côtière
 TROLL     = 13 #  +1 défense sur chaque territoire même en déclin
 WIZARD    = 14 #  +1 victoire sur source magique
-LOST_TRIBE= 15
+LOST_TRIBE=-15
 
 MAX_SKELETONS = 20
 MAX_SORCERERS = 18
 #                       1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
-initial_nb_people = [0, 6, 3, 6, 5, 6, 6, 5, 5, 8, 6, 5, 6, 5, 5, 2]
+initial_nb_people = [0, 6, 3, 6, 5, 6, 6, 5, 5, 8, 6, 5, 6, 5, 5, 1]
 initial_tokens    = [0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 
