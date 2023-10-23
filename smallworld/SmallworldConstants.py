@@ -33,13 +33,14 @@ DECLINED_SPIRIT = 0
 DECLINED = 1
 ACTIVE   = 2
 
-PHASE_READY          = 1 # Next action is to play
-PHASE_CHOOSE         = 2 # Chose
-PHASE_ABANDON        = 3 # Abandon
-PHASE_CONQUEST       = 4 # Include preparation, attack, abandon, specialppl
-PHASE_CONQ_WITH_DICE = 5 # Dice (not in berserk case)
-PHASE_REDEPLOY       = 6 # Include redeploy, specialpower
-PHASE_WAIT           = 7 # End of turn (after redeploy, or decline)
+PHASE_READY            = 1 # Next action is to play
+PHASE_CHOOSE           = 2 # Chose
+PHASE_ABANDON          = 3 # Abandon
+PHASE_CONQUEST         = 4 # Include preparation, attack, abandon, specialppl
+PHASE_CONQ_WITH_DICE   = 5 # Dice (not in berserk case)
+PHASE_REDEPLOY         = 6 # Include redeploy, specialpower
+PHASE_STOUT_TO_DECLINE = 7 # Going to decline for stout (count score now), temporary status
+PHASE_WAIT             = 8 # End of turn (after redeploy, or decline)
 
 ############################# PEOPLE CONSTANTS #############################
 

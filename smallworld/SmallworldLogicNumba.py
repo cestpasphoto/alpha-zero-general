@@ -394,6 +394,12 @@ class Board():
 
 	def _do_decline(self, player):
 		current_ppl = self.peoples[player, ACTIVE, :]
+
+		# Count score now for stout
+		if current_ppl[2] == STOUT:
+			self._prepare_for_new_status(player, current_ppl, PHASE_STOUT_TO_DECLINE)
+			self.status[player, 4] = PHASE_STOUT_TO_DECLINE
+
 		# Remove previous declined ppl from the board
 		for area in range(NB_AREAS):
 			if self._is_occupied_by(area, self.peoples[player, DECLINED, :]):
@@ -421,7 +427,8 @@ class Board():
 					self.territories[area, 4] = backup[4]
 
 		self.peoples[player, declined_id, 1:3] = -self.peoples[player, declined_id, 1:3]
-		
+
+		# Count score and switch to next player depending on current status		
 		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
 		self.status[player, 4] = PHASE_WAIT
 
@@ -924,8 +931,15 @@ class Board():
 			else:
 				self._switch_status_berserk(player, current_ppl, old_status, next_status)
 
+		# For stout, compure score BEFORE going to decline, but not switching yet to next player
+		if next_status == PHASE_STOUT_TO_DECLINE:
+			if current_ppl[2] == STOUT:
+				self._compute_and_update_score(player)
+			else:
+				assert "This status should only be valid with power STOUT"
+
 		if next_status == PHASE_WAIT:
-			if self.status[player, 3] == ACTIVE:
+			if self.status[player, 3] == ACTIVE and old_status != PHASE_STOUT_TO_DECLINE:
 				self._compute_and_update_score(player)
 			self._switch_to_next(player, current_ppl)
 
