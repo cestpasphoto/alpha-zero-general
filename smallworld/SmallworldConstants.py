@@ -1,5 +1,4 @@
 import numpy as np
-# from numba import njit
 
 NUMBER_PLAYERS = 2 # Will switch automatically to adequate map
 
@@ -20,7 +19,7 @@ MINE     = 3
 
 ############################# GAME CONSTANTS #############################
 
-DICE_VALUES = [0, 0, 0, 1, 2, 3]
+DICE_VALUES = np.array([0, 0, 0, 1, 2, 3], dtype=np.int8)
 AVG_DICE = 1
 MAX_DICE = 3
 
@@ -63,9 +62,9 @@ LOST_TRIBE=-15
 
 MAX_SKELETONS = 20
 MAX_SORCERERS = 18
-#                       1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
-initial_nb_people = [0, 6, 3, 6, 5, 6, 6, 5, 5, 8, 6, 5, 6, 5, 5, 1]
-initial_tokens    = [0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+#                                1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+initial_nb_people = np.array([0, 6, 3, 6, 5, 6, 6, 5, 5, 8, 6, 5, 6, 5, 5, 1], dtype=np.int8)
+initial_tokens    = np.array([0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0], dtype=np.int8)
 
 
 NOPOWER     = 0
@@ -89,8 +88,6 @@ STOUT       = 17 # Déclin possible juste après tour classique
 SWAMP       = 18 # +1 victoire par marais
 UNDERWORLD  = 19 # -1 attaque caverne, et les cavernes sont adjacentes
 WEALTHY     = 20 # +7 victoire à la fin premier tour
-#                        1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20
-initial_nb_power   = [0, 4, 4, 5, 4, 5, 5, 5, 4, 3, 5, 4, 2, 5, 5, 5, 5, 4, 4, 5, 4]
-initial_tokens_pwr = [0, 0, 0, 5, 0, 0, 0, 0, 0, 6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7]
-
-
+#                                 1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20
+initial_nb_power   = np.array([0, 4, 4, 5, 4, 5, 5, 5, 4, 3, 5, 4, 2, 5, 5, 5, 5, 4, 4, 5, 4], dtype=np.int8)
+initial_tokens_pwr = np.array([0, 0, 0, 5, 0, 0, 0, 0, 0, 6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7], dtype=np.int8)

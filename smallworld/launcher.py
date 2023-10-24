@@ -7,14 +7,14 @@ b = Board(NUMBER_PLAYERS)
 p, it = 0, 0
 
 def compute_valids_all(p, do_print):
-	valids_attack    = b._valids_attack(player=p)
-	valids_specialppl= b._valids_special_actionppl(player=p)
-	valids_abandon   = b._valids_abandon(player=p)
-	valids_redeploy  = b._valids_redeploy(player=p)
-	valids_specialpwr= b._valids_special_actionpwr(player=p)
-	valids_choose    = b._valids_choose_ppl(player=p)
-	valid_decline    = b._valid_decline(player=p)
-	valid_end        = b._valid_end(player=p)
+	valids_attack    = b._valids_attack(p)
+	valids_specialppl= b._valids_special_actionppl(p)
+	valids_abandon   = b._valids_abandon(p)
+	valids_redeploy  = b._valids_redeploy(p)
+	valids_specialpwr= b._valids_special_actionpwr(p)
+	valids_choose    = b._valids_choose_ppl(p)
+	valid_decline    = b._valid_decline(p)
+	valid_end        = b._valid_end(p)
 	if do_print:
 		print_valids(p, valids_attack, valids_specialppl, valids_abandon, valids_redeploy, valids_specialpwr, valids_choose, valid_decline, valid_end)
 
@@ -33,33 +33,33 @@ def compute_valids_all(p, do_print):
 def do_action(p, area, action):
 	if   action == 'attack':
 		print(f'Attacking area {area}')
-		b._do_attack(player=p, area=area)
+		b._do_attack(p, area)
 	elif action == 'specialppl':
 		print(f'Special movePPL on area {area}')
-		b._do_special_actionppl(player=p, area=area)
+		b._do_special_actionppl(p, area)
 	elif action == 'abandon':
 		print(f'Abandonning area {area}')
-		b._do_abandon(player=p, area=area)
+		b._do_abandon(p, area)
 	elif action == 'redeployeach':
 		param = area
 		print(f'Redeploy {area}ppl on each area')
-		b._do_redeploy(player=p, param=param)
+		b._do_redeploy(p, param)
 	elif action == 'redeploy1':
 		param = area+MAX_REDEPLOY
 		print(f'Redeploy on area {area}')
-		b._do_redeploy(player=p, param=param)
+		b._do_redeploy(p, param)
 	elif action == 'specialpwr':
 		print(f'Special movePWR on area {area}')
-		b._do_special_actionpwr(player=p, area=area)
+		b._do_special_actionpwr(p, area)
 	elif action == 'choose':
 		print(f'Choose ppl #{area}')
-		b._do_choose_ppl(player=p, index=area)	
+		b._do_choose_ppl(p, area)	
 	elif action == 'decline':
 		print(f'Decline current ppl')
-		b._do_decline(player=p)
+		b._do_decline(p)
 	elif action == 'end':
 		print('end turn')
-		b._do_end(player=p)
+		b._do_end(p)
 	else:
 		breakpoint()
 

@@ -8,7 +8,7 @@ NB_AREAS = 23
 
 # Area description (terrain)
 #    Terrain    cavern magic  mine lost-tribe at-edge
-descr = [
+descr = np.array([
 	[ WATER   , False, False, False, False,  True ], #0
 	[ MOUNTAIN, True , False, True , False,  True ], #1
 	[ FARMLAND, False, False, False, True ,  True ], #2
@@ -32,7 +32,7 @@ descr = [
 	[ MOUNTAIN, False, False, True , False,  True ], #20
 	[ FORESTT , False, False, False, False,  True ], #21
 	[ FORESTT , False, True , False, True ,  True ], #22
-]
+], dtype=np.int8)
 
 # Describe which areas are neighbours
 connexity_list = [
