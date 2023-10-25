@@ -1,8 +1,8 @@
 import numpy as np
 from colorama import Style, Fore, Back
 from copy import deepcopy
-from SmallworldConstants import *
-from SmallworldMaps import *
+from .SmallworldConstants import *
+from .SmallworldMaps import *
 
 def move_to_str(move, player):
 	return f'Unknown move {move}'
@@ -211,3 +211,7 @@ def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redepl
 		print(f' end turn', end='')
 
 	print('.')
+
+def move_to_str(move):
+	return f'Action {move}'
+

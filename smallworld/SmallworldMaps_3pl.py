@@ -1,4 +1,4 @@
-from SmallworldConstants import *
+from .SmallworldConstants import *
 
 NB_ROUNDS = 10
 

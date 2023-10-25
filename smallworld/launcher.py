@@ -176,6 +176,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--create', action='store_true')
 parser.add_argument('--tests', action='store_true')
+parser.add_argument('--profile', action='store_true')
 args = parser.parse_args()
 
 if args.create:
@@ -198,6 +199,29 @@ elif args.tests:
 	directories = ['./dumps/'+f+'/' for f in listdir('./dumps/') if f.startswith('validated')]
 	for directory in directories:
 		run_tests(directory)
+
+elif args.profile:
+	import cProfile, pstats
+	profiler = cProfile.Profile()
+
+	directories = ['./dumps/'+f+'/' for f in listdir('./dumps/') if f.startswith('validated')]
+	for directory in directories:
+		run_tests(directory)
+
+	profiler.enable()
+	for _ in range(100):
+		for directory in directories:
+			run_tests(directory)
+	profiler.disable()
+
+	profiler.dump_stats('execution.prof')
+	from pstats import Stats, SortKey
+	p = Stats('execution.prof')
+	p.strip_dirs().sort_stats('cumtime').print_stats(20)
+	print()
+	p.strip_dirs().sort_stats('tottime').print_stats(10)
+	breakpoint()
+
 
 else:
 	print('No action')

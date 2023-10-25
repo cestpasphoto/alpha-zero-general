@@ -2,9 +2,9 @@ import numpy as np
 from numba import njit
 import numba
 
-from SmallworldConstants import *
-from SmallworldMaps import *
-from SmallworldDisplay import print_board, print_valids
+from .SmallworldConstants import *
+from .SmallworldMaps import *
+from .SmallworldDisplay import print_board, print_valids
 
 ############################## BOARD DESCRIPTION ##############################
 
@@ -45,13 +45,25 @@ from SmallworldDisplay import print_board, print_valids
 #  Halfling: number of used holes-in-ground
 #  Sorcerer: bitfield of which player has been sorcerized during this turn
 
+############################## ACTION DESCRIPTION #############################
+# We coded 81 actions, taking some shortcuts on combinations of gems that can be
+# got or that can be given back, and forbidding to simultaneously get gems and
+# give some back.
+# Here is description of each action:
+##### Index  Meaning
+#####   0    Buy 1st visible card (bottom left)
+#####   1    Buy 2nd visible card (bottom)
+#####   2    Buy 3rd visible card (bottom)
+#####   3    Buy 4th visible card (bottom right)
+#####   4    Buy 5th visible card (middle left)
+
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
 	return (NB_AREAS + 4*NUMBER_PLAYERS + DECK_SIZE+1, 5)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
-	return 10
+	return 5*NB_AREAS + MAX_REDEPLOY + DECK_SIZE + 2
 
 @njit(cache=True, fastmath=True, nogil=True)
 def my_dot(array1, array2):
@@ -140,17 +152,50 @@ class Board():
 		self.invisible_deck = self.state[NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE                                      ,:]
 
 	def valid_moves(self, player):
-		result = np.zeros(10, dtype=np.bool_)
+		result = np.zeros(action_size(), dtype=np.bool_)
+		result[                       :  NB_AREAS]              = self._valids_abandon(player)
+		result[  NB_AREAS             :2*NB_AREAS]              = self._valids_special_actionppl(player)
+		result[2*NB_AREAS             :3*NB_AREAS]              = self._valids_special_actionpwr(player)
+		result[3*NB_AREAS             :4*NB_AREAS+MAX_REDEPLOY] = self._valids_redeploy(player)
+		result[4*NB_AREAS+MAX_REDEPLOY:4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE] = self._valids_choose_ppl(player)
+		result[4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE]               = self._valid_decline(player)
+		result[4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1]             = self._valid_end(player)
+							
 		return result
 
 	def make_move(self, move, player, deterministic):
+		if   move < NB_AREAS:
+			area = move
+			self._do_abandon(player, area)
+		elif move < 2*NB_AREAS:
+			area = move - NB_AREAS
+			self._do_special_actionppl(player, area)
+		elif move < 3*NB_AREAS:
+			area = move - 2*NB_AREAS
+			self._do_special_actionpwr(player, area)
+		elif move < 4*NB_AREAS+MAX_REDEPLOY:
+			param = move - 3*NB_AREAS
+			self._do_redeploy(player, param)
+		elif move < 4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE:
+			area = move - 4*NB_AREAS-MAX_REDEPLOY
+			self._do_choose_ppl(player, area)	
+		elif move < 4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1:
+			self._do_decline(player)
+		elif move < 4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
+			self._do_end(player)
+		else:
+			print(f'Unknown move {move}')
+			breakpoint()
+
+		if self.status[player, 3] >= 0:
+			return player
 		return (player+1)%NUMBER_PLAYERS
 
 	def get_state(self):
 		return self.state
 
 	def get_round(self):
-		return self.status[0,1]
+		return self.status[0, 1]
 
 	def check_end_game(self, next_player):
 		if self.get_round() <= NB_ROUNDS:

@@ -3,6 +3,7 @@ sys.path.append('..')
 from Game import Game
 from .SmallworldLogicNumba import Board, observation_size, action_size
 from .SmallworldDisplay import move_to_str, print_board
+from .SmallworldConstants import NUMBER_PLAYERS
 import numpy as np
 
 class SmallworldGame(Game):
