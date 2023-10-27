@@ -33,7 +33,7 @@ from .SmallworldDisplay import print_board, print_valids
 #####  35-36 self.status              0      Score of player i
 #####                                 1      Round number (same for all players)
 #####                                 2      #NETWDT = number of Non-Empty Territories Won During Turn
-#####                                 3      Id of people (0 or 1 or 2) current playing, -1 else
+#####                                 3      Id of people current playing (from DECLINED_SPIRIT to ACTIVE), -1 else
 #####                                 4      Status of people (from PHASE_READ to PHASE_WAIT)
 #####   37   self.invisible_deck(1D) 0-1     Bitfield stating if people #i (0-14) is already in deck or used
 #####                                2-4     Bitfield stating if power #i (0-20) is already in deck or used
@@ -46,16 +46,21 @@ from .SmallworldDisplay import print_board, print_valids
 #  Sorcerer: bitfield of which player has been sorcerized during this turn
 
 ############################## ACTION DESCRIPTION #############################
-# We coded 81 actions, taking some shortcuts on combinations of gems that can be
+# We coded 131 actions, taking some shortcuts on combinations of gems that can be
 # got or that can be given back, and forbidding to simultaneously get gems and
 # give some back.
 # Here is description of each action:
-##### Index  Meaning
-#####   0    Buy 1st visible card (bottom left)
-#####   1    Buy 2nd visible card (bottom)
-#####   2    Buy 3rd visible card (bottom)
-#####   3    Buy 4th visible card (bottom right)
-#####   4    Buy 5th visible card (middle left)
+##### Index   Meaning
+#####   0-22  Abandon
+#####  23-45  Attack
+#####  46-68  Special action using people capacity
+#####  69-91  Special action using power
+#####   92    Skip redeploy (no more redeploy)
+#####  93-100 Redeploy N ppl on each area
+##### 100-122 Redeploy 1 ppl on area N
+##### 123-128 Choose a people from deck
+#####   129   Decline
+#####   130   End
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
@@ -154,41 +159,55 @@ class Board():
 	def valid_moves(self, player):
 		result = np.zeros(action_size(), dtype=np.bool_)
 		result[                       :  NB_AREAS]              = self._valids_abandon(player)
-		result[  NB_AREAS             :2*NB_AREAS]              = self._valids_special_actionppl(player)
-		result[2*NB_AREAS             :3*NB_AREAS]              = self._valids_special_actionpwr(player)
-		result[3*NB_AREAS             :4*NB_AREAS+MAX_REDEPLOY] = self._valids_redeploy(player)
-		result[4*NB_AREAS+MAX_REDEPLOY:4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE] = self._valids_choose_ppl(player)
-		result[4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE]               = self._valid_decline(player)
-		result[4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1]             = self._valid_end(player)
+		result[  NB_AREAS             :2*NB_AREAS]              = self._valids_attack(player)
+		result[2*NB_AREAS             :3*NB_AREAS]              = self._valids_special_actionppl(player)
+		result[3*NB_AREAS             :4*NB_AREAS]              = self._valids_special_actionpwr(player)
+		result[4*NB_AREAS             :5*NB_AREAS+MAX_REDEPLOY] = self._valids_redeploy(player)
+		result[5*NB_AREAS+MAX_REDEPLOY:5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE] = self._valids_choose_ppl(player)
+		result[5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE]               = self._valid_decline(player)
+		result[5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1]             = self._valid_end(player)
+
+		if not result.any():
+			breakpoint()
 							
 		return result
 
 	def make_move(self, move, player, deterministic):
+		current_ppl, _ = self._current_ppl(player)
+		# print(f'MOVE {move} by P{player}, dbg: {self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY)} {self.status[player, :]}')
+
 		if   move < NB_AREAS:
 			area = move
 			self._do_abandon(player, area)
 		elif move < 2*NB_AREAS:
 			area = move - NB_AREAS
-			self._do_special_actionppl(player, area)
+			self._do_attack(player, area)
 		elif move < 3*NB_AREAS:
 			area = move - 2*NB_AREAS
+			self._do_special_actionppl(player, area)
+		elif move < 4*NB_AREAS:
+			area = move - 3*NB_AREAS
 			self._do_special_actionpwr(player, area)
-		elif move < 4*NB_AREAS+MAX_REDEPLOY:
-			param = move - 3*NB_AREAS
+		elif move < 5*NB_AREAS+MAX_REDEPLOY:
+			param = move - 4*NB_AREAS
 			self._do_redeploy(player, param)
-		elif move < 4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE:
-			area = move - 4*NB_AREAS-MAX_REDEPLOY
+		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE:
+			area = move - 5*NB_AREAS-MAX_REDEPLOY
 			self._do_choose_ppl(player, area)	
-		elif move < 4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1:
+		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1:
 			self._do_decline(player)
-		elif move < 4*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
+		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
 			self._do_end(player)
 		else:
 			print(f'Unknown move {move}')
 			breakpoint()
 
+		# print(self.status[player, :])
 		if self.status[player, 3] >= 0:
 			return player
+
+		if self.status[(player+1)%NUMBER_PLAYERS, 3] < 0:
+			breakpoint()
 		return (player+1)%NUMBER_PLAYERS
 
 	def get_state(self):
@@ -275,8 +294,6 @@ class Board():
 		if current_ppl[2] == BERSERK:
 			if _split_pwr_data(current_ppl[4])[1]:
 				how_many_ppl_available += _split_pwr_data(current_ppl[4])[0]
-			else:
-				print('No dice before ? {current_ppl[4]}')
 
 		for area in range(NB_AREAS):
 			valids[area] = self._valid_attack_area(player, area, current_ppl, how_many_ppl_available, territories_of_player)
@@ -341,18 +358,14 @@ class Board():
 		if current_ppl[2] == BERSERK and _split_pwr_data(current_ppl[4])[1]:
 			dice = _split_pwr_data(current_ppl[4])[0]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
-				print('  Using previous dice, random value is {dice} but fails')
 				self.status[player, 4] = PHASE_CONQ_WITH_DICE
 				return
-			print('  Using previous dice, random value is {dice} and succeed')
 			nb_attacking_ppl = max(minimum_ppl_for_attack - dice, 1)
 		elif use_dice:
 			dice = DICE_VALUES[3]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
-				print('  Using dice, random value is {dice} but fails')
 				self.status[player, 4] = PHASE_CONQ_WITH_DICE
 				return
-			print('  Using dice, random value is {dice} and succeed')
 			nb_attacking_ppl = nb_ppl_of_player
 		else:
 			nb_attacking_ppl = minimum_ppl_for_attack
@@ -377,7 +390,7 @@ class Board():
 			return valids
 
 		# Check that it is time
-		if self.status[player, 4] == PHASE_WAIT:
+		if self.status[player, 4] in [PHASE_WAIT, PHASE_ABANDON_AMAZONS]:
 			return valids
 
 		# Check there is at least one active territory
@@ -530,7 +543,7 @@ class Board():
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
 		current_ppl, current_id = self._current_ppl(player)
 
-		if self.status[player, 4] not in [PHASE_READY, PHASE_ABANDON]:
+		if self.status[player, 4] not in [PHASE_READY, PHASE_ABANDON, PHASE_ABANDON_AMAZONS]:
 			if current_ppl[1] == AMAZON and self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) < 0:
 				pass # exception if Amazons can't redeploy
 			else:
@@ -548,7 +561,13 @@ class Board():
 		current_ppl, current_id = self._current_ppl(player)
 		self._leave_area(area)
 		if self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
-			pass # exception if Amazons can't redeploy, don't change status
+			# exception if Amazons abandoned because couldn't redeploy
+			if self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) >= 0:
+				self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+				self.status[player, 4] = PHASE_REDEPLOY
+			else:
+				self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON_AMAZONS)
+				self.status[player, 4] = PHASE_ABANDON_AMAZONS
 		else:
 			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON)
 			self.status[player, 4] = PHASE_ABANDON
@@ -833,9 +852,11 @@ class Board():
 		return True
 
 	def _do_end(self, player):
+		# print(self.status[player, :], '->', end='')
 		current_ppl, current_id = self._current_ppl(player)
 		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
 		# Status change already handled by previous function
+		# print(self.status[player, :])
 
 	###########################################################################
 
@@ -953,15 +974,12 @@ class Board():
 
 	def _gather_current_ppl_but_one(self, current_ppl):
 		# Gather all active people in player's hand, leaving only 1 on each territory
-		# print('Prepare / redeploy P{player}:', end='')
-
 		for area in range(NB_AREAS):
 			if self._is_occupied_by(area, current_ppl):
 				nb_ppl_to_gather = max(self.territories[area,0] - 1, 0)
 				if nb_ppl_to_gather > 0:
 					self.territories[area,0] -= nb_ppl_to_gather
 					current_ppl[0]           += nb_ppl_to_gather
-					# print(' {nb_ppl_to_gather}ppl on area{area}', end='')
 
 	# Any change to this function must be reported to _prepare_for_ready() below
 	def _prepare_for_new_status(self, player, current_ppl, next_status):
@@ -969,7 +987,7 @@ class Board():
 
 		if old_status in [PHASE_READY] and next_status in [PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
 			self._gather_current_ppl_but_one(current_ppl)
-		elif old_status in [PHASE_READY, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+		elif old_status in [PHASE_READY, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS] and next_status == PHASE_REDEPLOY:
 			self._gather_current_ppl_but_one(current_ppl)
 
 		# People
@@ -1024,29 +1042,21 @@ class Board():
 			self._switch_status_berserk(player, current_ppl, old_status, next_status)
 
 	def _switch_status_amazon(self, player, current_ppl, old_status, next_status):
-		if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+		if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS] and next_status == PHASE_REDEPLOY:
 			if current_ppl[3] != 0:
-				print('Remove bonus Amazons {current_ppl[0]} --> {current_ppl[0]-current_ppl[3]}')
 				current_ppl[0] -= current_ppl[3]
 				current_ppl[3]  = 0
-			else:
-				print('Bonus Amazone not used ? {current_ppl[3]}')
 
 		elif old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
 			if current_ppl[3] == 0:
-				print('Add bonus Amazons {current_ppl[0]} --> {current_ppl[0]+4}')
 				current_ppl[0] += 4
 				current_ppl[3]  = 4
-			else:
-				print('Bonus Amazone already used ? {current_ppl[3]}')
 
 	def _switch_status_skeleton(self, player, current_ppl, old_status, next_status):
-		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS] and next_status == PHASE_REDEPLOY:
 			if current_ppl[3] == 0:
 				current_ppl[0] += self._limit_added_ppl(current_ppl, self.status[player, 2] // 2, MAX_SKELETONS)
 				current_ppl[3] = 1 # We write that we gave additional ppl already
-			else:
-				print('Skeleton power already used ? {current_ppl[3]}')
 
 	def _switch_status_bivouacking(self, player, current_ppl, old_status, next_status):
 		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
@@ -1054,8 +1064,6 @@ class Board():
 			for area in self._are_occupied_by(current_ppl).nonzero()[0]:
 				current_ppl[4] += self.territories[area, 4]
 				self.territories[area, 4] = 0
-			if current_ppl[4] != 5:
-				print('Some campments were lost ? {current_ppl[4]}')
 
 	def _switch_status_heroic(self, player, current_ppl, old_status, next_status):
 		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
@@ -1064,8 +1072,6 @@ class Board():
 				if self.territories[area, 4] > 0:
 					current_ppl[4] += 1
 					self.territories[area, 4] = 0
-			if current_ppl[4] != 2:
-				print('Some heros were lost ? {current_ppl[4]}')
 
 	def _switch_status_diplomat(self, player, current_ppl, old_status, next_status):
 		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
@@ -1080,7 +1086,6 @@ class Board():
 		if next_status in [PHASE_READY, PHASE_ABANDON, PHASE_CHOOSE, PHASE_CONQUEST]:
 			# pre-run dice
 			dice = np.random.choice(DICE_VALUES)
-			print('Prerun dice, value = {dice}')
 			current_ppl[4] = dice + 2**6
 		else:
 			current_ppl[4] = 0
@@ -1103,79 +1108,67 @@ class Board():
 			if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
 				if current_ppl[3] != 0:
 					how_many_ppl_available -= current_ppl[3]
-				else:
-					print('Bonus Amazone not used ? {current_ppl[3]}')
 
 			elif old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
 				if current_ppl[3] == 0:
 					how_many_ppl_available += 4
-				else:
-					print('Bonus Amazone already used ? {current_ppl[3]}')
 
 		elif current_ppl[1] == SKELETON:
 			if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
 				if current_ppl[3] == 0:
 					how_many_ppl_available += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS, player_territories)
-				else:
-					print('Skeleton power already used ? {current_ppl[3]}')
 		return how_many_ppl_available		
 
 	def _switch_to_next(self, player, current_ppl):
-		if self.status[player, 3] == ACTIVE:				# Next turn is for next player
+		if self.status[player, 3] != ACTIVE:			# Next turn is for same player
+			next_player, next_ppl_id = player, ACTIVE
+		else:											# Next turn is for next player
+			# print(f'dbg _switch_to_next BEG: {self.status[player, :]}')
 			next_player = (player+1) % NUMBER_PLAYERS
-			if next_player == 0:
-				self._update_round()
-
 			if self.peoples[next_player, DECLINED_SPIRIT, 1] == -GHOUL:
 				next_ppl_id = DECLINED_SPIRIT
 			elif self.peoples[next_player, DECLINED, 1] == -GHOUL:
 				next_ppl_id = DECLINED
 			else:
 				next_ppl_id = ACTIVE
-			next_ppl = self.peoples[next_player, next_ppl_id, :]
-
-			self.status[player, 3:] = [-1, PHASE_WAIT]
 			assert self.status[next_player, 3] == -1
 			assert self.status[next_player, 4] == PHASE_WAIT
-			self.status[next_player, 3], self.status[next_player, 4] = next_ppl_id, PHASE_READY
-			self._prepare_for_ready(player, next_ppl)
-		else:  												# Next turn is for same player
-			print('Same player to play with its active ppl now')
-			next_player = player
-			next_ppl = self.peoples[player, ACTIVE, :]
-			self.status[player, 3:] = [ACTIVE, PHASE_READY]
-			self._prepare_for_ready(player, next_ppl)
+
+			# BETTER IF NOT DEPENDS ON STATIC VALUE "0"
+			# UPDATE round for current player only ?
+			if next_player == 0:
+				self._update_round()
+			self.status[player, 3:] = [-1, PHASE_WAIT]
+		
+		next_ppl = self.peoples[next_player, next_ppl_id, :]
+		self.status[next_player, 3:] = [ACTIVE, PHASE_READY]
+		self._prepare_for_ready(next_player, next_ppl)
+
+		# print(f'dbg _switch_to_next END: {self.status[player, :]}')
 
 		# Reset stuff depending on people
 		if current_ppl[1] == SKELETON:
-			if current_ppl[3] != 1:
-				print('** skeleton power hasnt been applied during this turn')
 			current_ppl[3] = 0 # Must be reset
 		elif current_ppl[1] == HALFLING:
 			pass # Don't reset it
 		elif current_ppl[1] == SORCERER:
 			current_ppl[3] = 0 # Must be reset
 		else:
-			if current_ppl[3] != 0:
-				print('People info not null with people={current_ppl[1]}')
+			pass
 
 		# Reset stuff depending on power
 		if current_ppl[2] == WEALTHY:
-			if current_ppl[4] != 0:
-				print('** wealthy power hasnt been applied during this turn')
+			pass
 		elif current_ppl[2] == BIVOUACKING:
-			if current_ppl[4] != 0:
-				print('** Hasnt used all campments')
+			pass
 		elif current_ppl[2] == FORTIFIED:
 			# Reset only the "have I used fortress during this turn" part
 			remaining_fort, used_fort = _split_pwr_data(current_ppl[4])
 			current_ppl[4] = remaining_fort
 		elif current_ppl[2] == HEROIC:
-			if current_ppl[4] != 0:
-				print('** Hasnt used all heros')
+			pass
 		elif current_ppl[2] == DIPLOMAT:
-			if _split_pwr_data(current_ppl[4])[1]:
-				print('** Diplomat still in old mode')
+			pass
 		else:
 			current_ppl[4] = 0
 
@@ -1253,6 +1246,8 @@ class Board():
 		# Give previous combos 1 coin each
 		self.visible_deck[0:index, 3] += 1
 		# Draw a new people for last combination
+		if available_people.sum() < 0 or available_people.sum() > 20:
+			breakpoint()
 		chosen_ppl   = my_random_choice(available_people / available_people.sum())
 		chosen_power = my_random_choice(available_power / available_power.sum())
 		nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]

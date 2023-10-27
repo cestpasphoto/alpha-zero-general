@@ -37,9 +37,10 @@ PHASE_CHOOSE           = 2 # Chose
 PHASE_ABANDON          = 3 # Abandon
 PHASE_CONQUEST         = 4 # Include preparation, attack, abandon, specialppl
 PHASE_CONQ_WITH_DICE   = 5 # Dice (not in berserk case)
-PHASE_REDEPLOY         = 6 # Include redeploy, specialpower
-PHASE_STOUT_TO_DECLINE = 7 # Going to decline for stout (count score now), temporary status
-PHASE_WAIT             = 8 # End of turn (after redeploy, or decline)
+PHASE_ABANDON_AMAZONS  = 6 # Forced to give back some amazons (no more attack allowed)
+PHASE_REDEPLOY         = 7 # Include redeploy, specialpower
+PHASE_STOUT_TO_DECLINE = 8 # Going to decline for stout (count score now), temporary status
+PHASE_WAIT             = 9 # End of turn (after redeploy, or decline)
 
 ############################# PEOPLE CONSTANTS #############################
 
