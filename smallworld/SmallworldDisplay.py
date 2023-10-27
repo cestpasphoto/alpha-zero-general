@@ -31,6 +31,7 @@ status_str = [
 	'abandoned',
 	'attacked',
 	'attacked with dice',
+	'forced to abandon'
 	'redeployed',
 	'is waiting',
 ]

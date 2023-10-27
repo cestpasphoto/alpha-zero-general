@@ -2,6 +2,9 @@ import numpy as np
 from numba import njit
 import numba
 
+OLD_CODE = True
+
+
 from .SmallworldConstants import *
 from .SmallworldMaps import *
 from .SmallworldDisplay import print_board, print_valids
@@ -562,12 +565,19 @@ class Board():
 		self._leave_area(area)
 		if self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
 			# exception if Amazons abandoned because couldn't redeploy
-			if self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) >= 0:
-				self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
-				self.status[player, 4] = PHASE_REDEPLOY
+			if OLD_CODE:
+
+				pass
+
 			else:
-				self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON_AMAZONS)
-				self.status[player, 4] = PHASE_ABANDON_AMAZONS
+
+				if self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) >= 0:
+					self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+					self.status[player, 4] = PHASE_REDEPLOY
+				else:
+					self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON_AMAZONS)
+					self.status[player, 4] = PHASE_ABANDON_AMAZONS
+
 		else:
 			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON)
 			self.status[player, 4] = PHASE_ABANDON
@@ -1120,29 +1130,60 @@ class Board():
 		return how_many_ppl_available		
 
 	def _switch_to_next(self, player, current_ppl):
-		if self.status[player, 3] != ACTIVE:			# Next turn is for same player
-			next_player, next_ppl_id = player, ACTIVE
-		else:											# Next turn is for next player
-			# print(f'dbg _switch_to_next BEG: {self.status[player, :]}')
-			next_player = (player+1) % NUMBER_PLAYERS
-			if self.peoples[next_player, DECLINED_SPIRIT, 1] == -GHOUL:
-				next_ppl_id = DECLINED_SPIRIT
-			elif self.peoples[next_player, DECLINED, 1] == -GHOUL:
-				next_ppl_id = DECLINED
-			else:
-				next_ppl_id = ACTIVE
-			assert self.status[next_player, 3] == -1
-			assert self.status[next_player, 4] == PHASE_WAIT
+		if OLD_CODE:
 
-			# BETTER IF NOT DEPENDS ON STATIC VALUE "0"
-			# UPDATE round for current player only ?
-			if next_player == 0:
-				self._update_round()
-			self.status[player, 3:] = [-1, PHASE_WAIT]
-		
-		next_ppl = self.peoples[next_player, next_ppl_id, :]
-		self.status[next_player, 3:] = [ACTIVE, PHASE_READY]
-		self._prepare_for_ready(next_player, next_ppl)
+			if self.status[player, 3] == ACTIVE:				# Next turn is for next player
+				next_player = (player+1) % NUMBER_PLAYERS
+				if next_player == 0:
+					self._update_round()
+
+				if self.peoples[next_player, DECLINED_SPIRIT, 1] == -GHOUL:
+					next_ppl_id = DECLINED_SPIRIT
+				elif self.peoples[next_player, DECLINED, 1] == -GHOUL:
+					next_ppl_id = DECLINED
+				else:
+					next_ppl_id = ACTIVE
+				next_ppl = self.peoples[next_player, next_ppl_id, :]
+
+				self.status[player, 3:] = [-1, PHASE_WAIT]
+				assert self.status[next_player, 3] == -1
+				assert self.status[next_player, 4] == PHASE_WAIT
+				self.status[next_player, 3], self.status[next_player, 4] = next_ppl_id, PHASE_READY
+				self._prepare_for_new_status(player, next_ppl, PHASE_READY)
+			else:  												# Next turn is for same player
+				print('Same player to play with its active ppl now')
+				next_player = player
+				next_ppl = self.peoples[player, ACTIVE, :]
+				self.status[player, 3:] = [ACTIVE, PHASE_READY]
+				self._prepare_for_new_status(player, next_ppl, PHASE_READY)
+
+		else:
+
+			if self.status[player, 3] != ACTIVE:			# Next turn is for same player
+				next_player, next_ppl_id = player, ACTIVE
+			else:											# Next turn is for next player
+				# print(f'dbg _switch_to_next BEG: {self.status[player, :]}')
+				next_player = (player+1) % NUMBER_PLAYERS
+				if self.peoples[next_player, DECLINED_SPIRIT, 1] == -GHOUL:
+					next_ppl_id = DECLINED_SPIRIT
+				elif self.peoples[next_player, DECLINED, 1] == -GHOUL:
+					next_ppl_id = DECLINED
+				else:
+					next_ppl_id = ACTIVE
+				assert self.status[next_player, 3] == -1
+				assert self.status[next_player, 4] == PHASE_WAIT
+
+				# BETTER IF NOT DEPENDS ON STATIC VALUE "0"
+				# UPDATE round for current player only ?
+				if next_player == 0:
+					self._update_round()
+				self.status[player, 3:] = [-1, PHASE_WAIT]
+			
+			next_ppl = self.peoples[next_player, next_ppl_id, :]
+			self.status[next_player, 3:] = [ACTIVE, PHASE_READY]
+			# self._prepare_for_ready(next_player, next_ppl)
+			self._prepare_for_new_status(player, next_ppl, PHASE_READY)
+
 
 		# print(f'dbg _switch_to_next END: {self.status[player, :]}')
 

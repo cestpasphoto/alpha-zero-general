@@ -1,10 +1,43 @@
 import random
 import json
-from SmallworldLogicNumba import *
+from smallworld.SmallworldLogicNumba import *
+from smallworld.SmallworldGame import SmallworldGame
 from os import listdir, path, mkdir, _exit
 
 b = Board(NUMBER_PLAYERS)
+game = SmallworldGame()
 p, it = 0, 0
+
+########################  GAME VERSION  #######################################
+
+def compute_valids_all_game():
+	global game, b, p
+	valids = game.getValidMoves(b, p)
+	if len(valids) == 0:
+		breakpoint()
+	return valids
+
+def do_action_game(action):
+	global game, b, p
+	b, p = game.getNextState(b, p, action)
+
+def play_one_move_game(dump_directory=None):
+	global game, b, p, it
+	valids = compute_valids_all_game()
+	action = random.choices(range(len(valids)), valids)[0]
+	do_action_game(action)
+	print()
+	print(f'P{p} {action=}, {it=}')
+	print_board(game.board)
+	it += 1
+
+def play_full_game():
+	global game, b, p, it
+	b = game.getInitBoard()
+	while not game.getGameEnded(b, p).any():
+		play_one_move_game()
+
+########################  "DIRECT LOGIC" VERSION ##############################
 
 def compute_valids_all(p, do_print):
 	valids_attack    = b._valids_attack(p)
@@ -174,12 +207,15 @@ def run_tests(dump_directory):
 import argparse
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--game', action='store_true')
 parser.add_argument('--create', action='store_true')
 parser.add_argument('--tests', action='store_true')
 parser.add_argument('--profile', action='store_true')
 args = parser.parse_args()
 
-if args.create:
+if args.game:
+	play_full_game()
+elif args.create:
 	# Create a new testset
 	used_ids = [int(f[3:6]) for f in listdir('./dumps/') if f.startswith('set')]
 	new_id = max(used_ids)+1 if len(used_ids) else 0
