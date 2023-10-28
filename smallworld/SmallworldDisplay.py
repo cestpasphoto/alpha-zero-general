@@ -31,8 +31,9 @@ status_str = [
 	'abandoned',
 	'attacked',
 	'attacked with dice',
-	'forced to abandon'
+	'forced to abandon (amazon)',
 	'redeployed',
+	'to decline (stout)',
 	'is waiting',
 ]
 
@@ -214,5 +215,35 @@ def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redepl
 	print('.')
 
 def move_to_str(move):
-	return f'Action {move}'
+	if   move < NB_AREAS:
+		area = move
+		return f'Abandon {area}'
+	elif move < 2*NB_AREAS:
+		area = move - NB_AREAS
+		return f'Attack {area}'
+	elif move < 3*NB_AREAS:
+		area = move - 2*NB_AREAS
+		return f'Special ppl move {area}'
+	elif move < 4*NB_AREAS:
+		area = move - 3*NB_AREAS
+		return f'Special power {area}'
+	elif move < 5*NB_AREAS+MAX_REDEPLOY:
+		param = move - 4*NB_AREAS
+		if param == 0:
+			return f'skip redeploy'
+		elif param < MAX_REDEPLOY:
+			return f'Redeploy {param}ppl on each area'
+		else:
+			return f'Redeploy 1ppl on area {param-MAX_REDEPLOY}'
+	elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE:
+		area = move - 5*NB_AREAS-MAX_REDEPLOY
+		return f'Choose people {area}'
+	elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1:
+		return f'Decline'
+	elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
+		return f'Is done'
+	else:
+		print(f'Unknown move {move}')
+		breakpoint()
+
 

@@ -7,7 +7,7 @@ OLD_CODE = True
 
 from .SmallworldConstants import *
 from .SmallworldMaps import *
-from .SmallworldDisplay import print_board, print_valids
+from .SmallworldDisplay import print_board, print_valids, move_to_str
 
 ############################## BOARD DESCRIPTION ##############################
 
@@ -451,11 +451,6 @@ class Board():
 			current_ppl[0]            -= 1
 			self.territories[area, 0] += 1
 
-		# Trigger end of turn if no more to redeploy
-		# if current_ppl[0] == 0:
-		# 	self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
-			# Status already changed by previous function
-
 	def _valid_decline(self, player):
 		# Going to decline permitted only for active_ppl
 		if self.status[player, 3] != ACTIVE or self.peoples[player, ACTIVE, 1] == NOPPL:
@@ -873,7 +868,7 @@ class Board():
 	def _current_ppl(self, player):
 		current_id = self.status[player, 3]
 		if current_id < 0:
-			raise Exception('No ppl to play for P{player}')
+			raise Exception(f'No ppl to play for P{player}')
 		return self.peoples[player, current_id, :], current_id
 
 	def _ppl_owner_of(self, area):
@@ -881,7 +876,7 @@ class Board():
 			return None, -1
 		result = np.argwhere(self.peoples[:,:,1] == self.territories[area, 1])
 		if result.shape[0] != 1:
-			raise Exception('Could not find which ppl this area belongs ({area=} {self.territories[area, 1]=} {result=})')
+			raise Exception(f'Could not find which ppl this area belongs ({area=} {self.territories[area, 1]=} {result=})')
 		return self.peoples[result[0][0], result[0][1], :], result[0][0]
 
 	def _is_occupied_by(self, area, current_ppl):
