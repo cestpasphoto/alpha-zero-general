@@ -74,10 +74,16 @@ def compare_move_to_reference(dump_file, print_at_begin=False):
 
 	def do_if_difference(action=None):
 		if action:
+			reference_board_before = Board(NUMBER_PLAYERS)
+			reference_board_before.copy_state(np.array(reference['before'], dtype=np.int8), True)
+			print_board(reference_board_before)
 			print(f'P{reference["player"]} {move_to_str(action)} {action=}')
+			reference_board_after = Board(NUMBER_PLAYERS)
+			reference_board_after.copy_state(np.array(reference['after'], dtype=np.int8), True)
+			print_board(reference_board_after)
 		else:
 			print(f'P{reference["player"]}')
-		print_board(game.board)
+			print_board(game.board)
 		breakpoint()
 
 	b = np.array(reference['before'], dtype=np.int8)
