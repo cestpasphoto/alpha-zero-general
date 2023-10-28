@@ -25,8 +25,8 @@ def play_one_move_game(dump_directory=None):
 
 	if dump_directory:
 		backup_state_before = b.copy()
-		current_player = p
-
+		
+	current_player = p
 	valids = compute_valids_all_game()
 	action = random.choice([i for i,v in enumerate(valids) if v])
 
@@ -117,6 +117,28 @@ def compare_to_references(dump_directory):
 		print('\r'+dump_file+' ', end='')
 		compare_move_to_reference(dump_file)
 
+def detect_infinite_loops():
+	global game, b, p, it
+	b = game.getInitBoard()
+
+	actions_list = []
+	while not game.getGameEnded(b, p).any():
+		action = play_one_move_game()
+		actions_list.append(action)
+
+		# Check if one of the prev actions are still possible
+		valids = compute_valids_all_game()
+		for i in range(2, 4):
+			if len(actions_list) < i:
+				continue
+			if all([92<=a<=122 for a in actions_list[-i:]]): # If ongoing redeploy, that's normal if previous action is the same
+				continue
+			previous_action = actions_list[-i]
+			if valids[previous_action]:
+				print(f'Warning action {previous_action} "{move_to_str(previous_action)}" is still possible ({-i})')
+				breakpoint()
+
+
 ###############################################################################
 
 def pretty_write_json(data_dict, filename):
@@ -132,6 +154,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--game', action='store_true')
 parser.add_argument('--tests', action='store_true')
 parser.add_argument('-t')
+parser.add_argument('--loops', action='store_true')
 args = parser.parse_args()
 
 main_directory = './smallworld/dumps/'
@@ -149,6 +172,9 @@ elif args.tests:
 
 elif args.t:
 	compare_move_to_reference(args.t, print_at_begin=True)
+
+elif args.loops:
+	detect_infinite_loops()
 
 else:
 	print('No action')
