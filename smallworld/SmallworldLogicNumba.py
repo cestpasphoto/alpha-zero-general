@@ -2,7 +2,7 @@ import numpy as np
 from numba import njit
 import numba
 
-OLD_CODE = False
+OLD_CODE = True
 
 
 from .SmallworldConstants import *
@@ -430,6 +430,7 @@ class Board():
 		if param == 0: # Special case, skip redeploy
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
 			self.status[player, 4] = PHASE_REDEPLOY
+			assert current_ppl[0] >= 0
 			# self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
 			# Status already changed by previous function
 			return
@@ -451,6 +452,8 @@ class Board():
 
 			current_ppl[0]            -= 1
 			self.territories[area, 0] += 1
+
+			assert current_ppl[0] >= 0
 
 	def _valid_decline(self, player):
 		# Going to decline permitted only for active_ppl
@@ -474,27 +477,20 @@ class Board():
 
 		declined_id = DECLINED_SPIRIT if current_ppl[2] == SPIRIT else DECLINED
 
-		if OLD_CODE:
-
+		# If we are going to replace declined ppl...
+		if self.peoples[player, declined_id, 1] != NOPPL:
+			# Remove previous declined ppl from the board
 			for area in range(NB_AREAS):
-				if self._is_occupied_by(area, self.peoples[player, DECLINED, :]):
+				if self._is_occupied_by(area, self.peoples[player, declined_id, :]):
 					self.territories[area] = [0, NOPPL, NOPOWER, 0, 0]
 
-		else:
-
-			# If we are going to replace declined ppl...
-			if self.peoples[player, declined_id, 1] != NOPPL:
-				# Remove previous declined ppl from the board
-				for area in range(NB_AREAS):
-					if self._is_occupied_by(area, self.peoples[player, declined_id, :]):
-						self.territories[area] = [0, NOPPL, NOPOWER, 0, 0]
-
-				# Mark previous declined ppl as available again for deck
-				available_people = my_unpackbits(self.invisible_deck[:2])
+			# Mark previous declined ppl as available again for deck
+			available_people = my_unpackbits(self.invisible_deck[:2])
+			available_people[ abs(self.peoples[player, declined_id, 1]) ] = True
+			self.invisible_deck[:2] = my_packbits(available_people)
+			if self.peoples[player, declined_id, 2] != NOPOWER:
 				available_power  = my_unpackbits(self.invisible_deck[2:])
-				available_people[ abs(self.peoples[player, declined_id, 1]) ] = True
 				available_power [ abs(self.peoples[player, declined_id, 2]) ] = True
-				self.invisible_deck[:2] = my_packbits(available_people)
 				self.invisible_deck[2:] = my_packbits(available_power)
 
 		# Move ppl to decline and keep only 1 ppl per territory except if ghoul
@@ -577,11 +573,7 @@ class Board():
 	def _do_abandon(self, player, area):
 		current_ppl, current_id = self._current_ppl(player)
 		self._leave_area(area)
-		if OLD_CODE:
-			statuses = [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]
-		else:
-			statuses = [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS]
-		if self.status[player, 4] in statuses:
+		if self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS]:
 			# exception if Amazons abandoned because couldn't redeploy
 			if self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) >= 0:
 				self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
@@ -1154,24 +1146,9 @@ class Board():
 			assert self.status[next_player, 3] == -1
 			assert self.status[next_player, 4] == PHASE_WAIT
 
-			# BETTER IF NOT DEPENDS ON STATIC VALUE "0"
-			# UPDATE round for current player only ?
-			if OLD_CODE:
-				if next_player == 0:
-					self._update_round()
-			else:
-				self.status[player, 1] += 1
+			self.status[player, 1] += 1
 			self.status[player, 3:] = [-1, PHASE_WAIT]
 			# print(f' switch to next: oldP{player} {self.status[player, :]}')
-		
-		if OLD_CODE:
-			next_ppl = self.peoples[next_player, next_ppl_id, :]
-			self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
-			# self._prepare_for_ready(next_player, next_ppl)
-			self._prepare_for_new_status(player, next_ppl, PHASE_READY)
-			# print(f' switch to next: newP{next_player} {self.status[next_player, :]}')
-		else:
-			pass
 
 		# Reset stuff depending on people
 		if current_ppl[1] == SKELETON:
@@ -1202,14 +1179,11 @@ class Board():
 		# Reset #NETWDT
 		self.status[player, 2] = 0
 
-
-		if OLD_CODE:
-			pass
-		else:
-			next_ppl = self.peoples[next_player, next_ppl_id, :]
-			self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
-			self._prepare_for_new_status(next_player, next_ppl, PHASE_READY)
-			# print(f' switch to next: newP{next_player} {self.status[next_player, :]}')
+		# Switch next ppl to new state
+		next_ppl = self.peoples[next_player, next_ppl_id, :]
+		self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
+		self._prepare_for_new_status(next_player, next_ppl, PHASE_READY)
+		# print(f' switch to next: newP{next_player} {self.status[next_player, :]}')
 
 	def _compute_and_update_score(self, player):
 		score_for_this_turn = 0
