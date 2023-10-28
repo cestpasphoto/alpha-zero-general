@@ -28,7 +28,7 @@ def play_one_move_game(dump_directory=None):
 		current_player = p
 
 	valids = compute_valids_all_game()
-	action = random.choices(range(len(valids)), valids)[0]
+	action = random.choice([i for i,v in enumerate(valids) if v])
 
 	if 123 <= action <= 128 and p == 1:
 		# Force P1 to choose amazons
@@ -74,9 +74,9 @@ def compare_move_to_reference(dump_file, print_at_begin=False):
 
 	def do_if_difference(action=None):
 		if action:
-			print(f'{p=} {move_to_str(action)} {action=}')
+			print(f'P{reference["player"]} {move_to_str(action)} {action=}')
 		else:
-			print(f'{p=}')
+			print(f'P{reference["player"]}')
 		print_board(game.board)
 		breakpoint()
 
@@ -89,7 +89,7 @@ def compare_move_to_reference(dump_file, print_at_begin=False):
 
 	valids = compute_valids_all_game()
 	if valids.tolist() != reference['valids']:
-		print('error in valids')
+		print('⚠️ error in valids')
 		do_if_difference()
 		return
 
@@ -105,10 +105,10 @@ def compare_move_to_reference(dump_file, print_at_begin=False):
 		if board_state[i][2] == BERSERK and NB_AREAS <= i < NB_AREAS+3*NUMBER_PLAYERS:
 			if (board_state[i][:4] != reference['after'][i][:4]) or \
 			   (board_state[i][4] & 2**6) != (reference['after'][i][4] & 2**6):
-				print(f'error in prerun data after action {action}, row {i}')
+				print(f'⚠️ error in prerun data on row {i}: before={reference["before"][i]} ref={reference["after"][i]} new={board_state[i]} ')
 				do_if_difference(action)
 		elif board_state[i] != reference['after'][i]:
-			print(f'error in state after action {action}, row {i}')
+			print(f'⚠️ error in state row {i}: before={reference["before"][i]} ref={reference["after"][i]} new={board_state[i]} ')
 			do_if_difference(action)	
 
 def compare_to_references(dump_directory):

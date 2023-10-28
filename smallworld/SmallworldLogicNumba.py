@@ -1175,7 +1175,7 @@ class Board():
 				self.status[player, 3:] = [-1, PHASE_WAIT]
 			
 			next_ppl = self.peoples[next_player, next_ppl_id, :]
-			self.status[next_player, 3:] = [ACTIVE, PHASE_READY]
+			self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
 			# self._prepare_for_ready(next_player, next_ppl)
 			self._prepare_for_new_status(player, next_ppl, PHASE_READY)
 
