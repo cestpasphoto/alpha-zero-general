@@ -34,7 +34,7 @@ from .SmallworldDisplay import print_board, print_valids, move_to_str
 #####                                 3      Number of victory points to win with such combo
 #####                                 4      - empty -
 #####  35-36 self.status              0      Score of player i
-#####                                 1      Round number (same for all players)
+#####                                 1      Round (may be different depending on players)
 #####                                 2      #NETWDT = number of Non-Empty Territories Won During Turn
 #####                                 3      Id of people current playing (from DECLINED_SPIRIT to ACTIVE), -1 else
 #####                                 4      Status of people (from PHASE_READ to PHASE_WAIT)
@@ -177,7 +177,7 @@ class Board():
 
 	def make_move(self, move, player, deterministic):
 		current_ppl, _ = self._current_ppl(player)
-		# print(f'MOVE {move} by P{player}, dbg: {self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY)} {self.status[player, :]}')
+		# print(f'{move_to_str(move)} move{move} by P{player}, dbg: {self.status}')
 
 		if   move < NB_AREAS:
 			area = move
@@ -205,19 +205,20 @@ class Board():
 			print(f'Unknown move {move}')
 			breakpoint()
 
-		# print(self.status[player, :])
 		if self.status[player, 3] >= 0:
+			# print(f' dbg end of make_move(): {player=} {self.status[player, :]}, same player')
 			return player
 
 		if self.status[(player+1)%NUMBER_PLAYERS, 3] < 0:
 			breakpoint()
+		# print(f' dbg end of make_move(): {player=} {self.status[player, :]}, next player')
 		return (player+1)%NUMBER_PLAYERS
 
 	def get_state(self):
 		return self.state
 
 	def get_round(self):
-		return self.status[0, 1]
+		return self.status[:, 1].max()
 
 	def check_end_game(self, next_player):
 		if self.get_round() <= NB_ROUNDS:
@@ -471,12 +472,30 @@ class Board():
 			self._prepare_for_new_status(player, current_ppl, PHASE_STOUT_TO_DECLINE)
 			self.status[player, 4] = PHASE_STOUT_TO_DECLINE
 
-		# Remove previous declined ppl from the board
-		for area in range(NB_AREAS):
-			if self._is_occupied_by(area, self.peoples[player, DECLINED, :]):
-				self.territories[area] = [0, NOPPL, NOPOWER, 0, 0]
-
 		declined_id = DECLINED_SPIRIT if current_ppl[2] == SPIRIT else DECLINED
+
+		if OLD_CODE:
+
+			for area in range(NB_AREAS):
+				if self._is_occupied_by(area, self.peoples[player, DECLINED, :]):
+					self.territories[area] = [0, NOPPL, NOPOWER, 0, 0]
+
+		else:
+
+			# If we are going to replace declined ppl...
+			if self.peoples[player, declined_id, 1] != NOPPL:
+				# Remove previous declined ppl from the board
+				for area in range(NB_AREAS):
+					if self._is_occupied_by(area, self.peoples[player, declined_id, :]):
+						self.territories[area] = [0, NOPPL, NOPOWER, 0, 0]
+
+				# Mark previous declined ppl as available again for deck
+				available_people = my_unpackbits(self.invisible_deck[:2])
+				available_power  = my_unpackbits(self.invisible_deck[2:])
+				available_people[ abs(self.peoples[player, declined_id, 1]) ] = True
+				available_power [ abs(self.peoples[player, declined_id, 2]) ] = True
+				self.invisible_deck[:2] = my_packbits(available_people)
+				self.invisible_deck[2:] = my_packbits(available_power)
 
 		# Move ppl to decline and keep only 1 ppl per territory except if ghoul
 		self.peoples[player, declined_id, :] = 0
@@ -558,7 +577,11 @@ class Board():
 	def _do_abandon(self, player, area):
 		current_ppl, current_id = self._current_ppl(player)
 		self._leave_area(area)
-		if self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
+		if OLD_CODE:
+			statuses = [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]
+		else:
+			statuses = [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS]
+		if self.status[player, 4] in statuses:
 			# exception if Amazons abandoned because couldn't redeploy
 			if self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) >= 0:
 				self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
@@ -1133,14 +1156,22 @@ class Board():
 
 			# BETTER IF NOT DEPENDS ON STATIC VALUE "0"
 			# UPDATE round for current player only ?
-			if next_player == 0:
-				self._update_round()
+			if OLD_CODE:
+				if next_player == 0:
+					self._update_round()
+			else:
+				self.status[player, 1] += 1
 			self.status[player, 3:] = [-1, PHASE_WAIT]
+			# print(f' switch to next: oldP{player} {self.status[player, :]}')
 		
-		next_ppl = self.peoples[next_player, next_ppl_id, :]
-		self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
-		# self._prepare_for_ready(next_player, next_ppl)
-		self._prepare_for_new_status(player, next_ppl, PHASE_READY)
+		if OLD_CODE:
+			next_ppl = self.peoples[next_player, next_ppl_id, :]
+			self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
+			# self._prepare_for_ready(next_player, next_ppl)
+			self._prepare_for_new_status(player, next_ppl, PHASE_READY)
+			# print(f' switch to next: newP{next_player} {self.status[next_player, :]}')
+		else:
+			pass
 
 		# Reset stuff depending on people
 		if current_ppl[1] == SKELETON:
@@ -1170,6 +1201,15 @@ class Board():
 
 		# Reset #NETWDT
 		self.status[player, 2] = 0
+
+
+		if OLD_CODE:
+			pass
+		else:
+			next_ppl = self.peoples[next_player, next_ppl_id, :]
+			self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
+			self._prepare_for_new_status(next_player, next_ppl, PHASE_READY)
+			# print(f' switch to next: newP{next_player} {self.status[next_player, :]}')
 
 	def _compute_and_update_score(self, player):
 		score_for_this_turn = 0
@@ -1242,7 +1282,7 @@ class Board():
 		# Give previous combos 1 coin each
 		self.visible_deck[0:index, 3] += 1
 		# Draw a new people for last combination
-		if available_people.sum() < 0 or available_people.sum() > 20:
+		if available_people.sum() <= 0 or not np.isfinite(available_people.sum()):
 			breakpoint()
 		chosen_ppl   = my_random_choice(available_people / available_people.sum())
 		chosen_power = my_random_choice(available_power / available_power.sum())
