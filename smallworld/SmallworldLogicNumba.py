@@ -484,17 +484,10 @@ class Board():
 				if self._is_occupied_by(area, self.peoples[player, declined_id, :]):
 					self.territories[area] = [0, NOPPL, NOPOWER, 0, 0]
 
-			# Mark previous declined ppl as available again for deck
-			available_people = my_unpackbits(self.invisible_deck[:2])
-			available_people[ abs(self.peoples[player, declined_id, 1]) ] = True
-			self.invisible_deck[:2] = my_packbits(available_people)
-			if self.peoples[player, declined_id, 2] != NOPOWER:
-				available_power  = my_unpackbits(self.invisible_deck[2:])
-				available_power [ abs(self.peoples[player, declined_id, 2]) ] = True
-				self.invisible_deck[2:] = my_packbits(available_power)
+			self.peoples[player, declined_id, :] = 0
+			self._update_deck_after_decline()
 
 		# Move ppl to decline and keep only 1 ppl per territory except if ghoul
-		self.peoples[player, declined_id, :] = 0
 		if current_ppl[1] == GHOUL:
 			self.peoples[player, declined_id, 0] = current_ppl[0]
 		else:
@@ -1265,6 +1258,28 @@ class Board():
 		available_people[chosen_ppl], available_power[chosen_power] = False, False
 
 		# Update back the bitfield
+		self.invisible_deck[:2] = my_packbits(available_people)
+		self.invisible_deck[2:] = my_packbits(available_power)
+
+	def _update_deck_after_decline(self):
+		# Note all people as available
+		available_people = np.ones(WIZARD+1, dtype=np.int8)
+		available_people[NOPPL] = False
+		available_power = np.ones(WEALTHY+1, dtype=np.int8)
+		available_power[NOPOWER] = False
+
+		# And disable the ones currently used (in deck and in current peoples)
+		for ppl in self.visible_deck[:, 1]:
+			available_people[ ppl ] = False
+		for pwr in self.visible_deck[:, 2]:
+			available_power [ pwr ] = False
+		for ppl in self.peoples[:, :, 1].flat:
+			if ppl != NOPPL:
+				available_people[ abs(ppl) ] = False
+		for pwr in self.peoples[:, :, 2].flat:
+			if pwr != NOPOWER:
+				available_power[ abs(pwr) ] = False		
+
 		self.invisible_deck[:2] = my_packbits(available_people)
 		self.invisible_deck[2:] = my_packbits(available_power)
 
