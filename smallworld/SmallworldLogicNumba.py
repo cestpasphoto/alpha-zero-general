@@ -1105,13 +1105,13 @@ class Board():
 		if old_status in [PHASE_READY] and next_status in [PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
 			# Simulate redeploy: add people on the boards, except 1 per territory
 			how_many_ppl_available += my_dot(np.maximum(self.territories[:,0]-1,0), player_territories)
-		elif old_status in [PHASE_READY, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+		elif old_status in [PHASE_READY, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS] and next_status == PHASE_REDEPLOY:
 			# Simulate redeploy: add people on the boards, except 1 per territory
 			how_many_ppl_available += my_dot(np.maximum(self.territories[:,0]-1,0), player_territories)
 
 		# Additional people depending on people and game status
 		if current_ppl[1] == AMAZON:
-			if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+			if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS] and next_status == PHASE_REDEPLOY:
 				if current_ppl[3] != 0:
 					how_many_ppl_available -= current_ppl[3]
 
@@ -1120,7 +1120,7 @@ class Board():
 					how_many_ppl_available += 4
 
 		elif current_ppl[1] == SKELETON:
-			if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE] and next_status == PHASE_REDEPLOY:
+			if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS] and next_status == PHASE_REDEPLOY:
 				if current_ppl[3] == 0:
 					how_many_ppl_available += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS, player_territories)
 		return how_many_ppl_available		
