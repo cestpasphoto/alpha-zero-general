@@ -2,9 +2,6 @@ import numpy as np
 from numba import njit
 import numba
 
-OLD_CODE = True
-
-
 from .SmallworldConstants import *
 from .SmallworldMaps import *
 from .SmallworldDisplay import print_board, print_valids, move_to_str
@@ -174,15 +171,12 @@ class Board():
 		result[5*NB_AREAS+MAX_REDEPLOY:5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE] = self._valids_choose_ppl(player)
 		result[5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE]               = self._valid_decline(player)
 		result[5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1]             = self._valid_end(player)
-
-		if not result.any():
-			breakpoint()
 							
 		return result
 
 	def make_move(self, move, player, deterministic):
 		current_ppl, _ = self._current_ppl(player)
-		# print(f'{move_to_str(move)} move{move} by P{player}, dbg: {self.status}')
+		# print('{move_to_str(move)} move{move} by P{player}, dbg: {self.status}')
 
 		if   move < NB_AREAS:
 			area = move
@@ -207,16 +201,12 @@ class Board():
 		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
 			self._do_end(player)
 		else:
-			print(f'Unknown move {move}')
-			breakpoint()
+			print('Unknown move {move}')
 
 		if self.status[player, 3] >= 0:
-			# print(f' dbg end of make_move(): {player=} {self.status[player, :]}, same player')
+			# print(' dbg end of make_move(): {player=} {self.status[player, :]}, same player')
 			return player
-
-		if self.status[(player+1)%NUMBER_PLAYERS, 3] < 0:
-			breakpoint()
-		# print(f' dbg end of make_move(): {player=} {self.status[player, :]}, next player')
+		# print(' dbg end of make_move(): {player=} {self.status[player, :]}, next player')
 		return (player+1)%NUMBER_PLAYERS
 
 	def get_state(self):
@@ -877,7 +867,7 @@ class Board():
 	def _current_ppl(self, player):
 		current_id = self.status[player, 3]
 		if current_id < 0:
-			raise Exception(f'No ppl to play for P{player}')
+			raise Exception('No ppl to play for P{player}')
 		return self.peoples[player, current_id, :], current_id
 
 	def _ppl_owner_of(self, area):
@@ -885,7 +875,7 @@ class Board():
 			return None, -1
 		result = np.argwhere(self.peoples[:,:,1] == self.territories[area, 1])
 		if result.shape[0] != 1:
-			raise Exception(f'Could not find which ppl this area belongs ({area=} {self.territories[area, 1]=} {result=})')
+			raise Exception('Could not find which ppl this area belongs ({area=} {self.territories[area, 1]=} {result=})')
 		return self.peoples[result[0][0], result[0][1], :], result[0][0]
 
 	def _is_occupied_by(self, area, current_ppl):
@@ -1169,7 +1159,7 @@ class Board():
 
 			self.status[player, 1] += 1
 			self.status[player, 3:] = [-1, PHASE_WAIT]
-			# print(f' switch to next: oldP{player} {self.status[player, :]}')
+			# print(' switch to next: oldP{player} {self.status[player, :]}')
 
 		# Reset stuff depending on people
 		if current_ppl[1] == SKELETON:
@@ -1205,7 +1195,7 @@ class Board():
 		self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
 		# self._prepare_for_new_status(next_player, next_ppl, PHASE_READY) # Numba doesn't allow recursion on jitclass
 		self._prepare_for_ready(next_player, next_ppl)
-		# print(f' switch to next: newP{next_player} {self.status[next_player, :]}')
+		# print(' switch to next: newP{next_player} {self.status[next_player, :]}')
 
 	def _compute_and_update_score(self, player):
 		score_for_this_turn = 0
@@ -1278,8 +1268,6 @@ class Board():
 		# Give previous combos 1 coin each
 		self.visible_deck[0:index, 3] += 1
 		# Draw a new people for last combination
-		if available_people.sum() <= 0 or not np.isfinite(available_people.sum()):
-			breakpoint()
 		chosen_ppl   = my_random_choice(available_people / available_people.sum())
 		chosen_power = my_random_choice(available_power / available_power.sum())
 		nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
