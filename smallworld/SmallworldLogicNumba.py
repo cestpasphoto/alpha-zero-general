@@ -47,6 +47,11 @@ from .SmallworldDisplay import print_board, print_valids, move_to_str
 #  Skeleton: 1 if their power was applied this turn
 #  Halfling: number of used holes-in-ground
 #  Sorcerer: bitfield of which player has been sorcerized during this turn
+#
+# How is used self.peoples[:,:,4] depending on power:
+#  Diplomat: during turn   = bitfield of people who played attacked + 2^6 to differentiate with next case
+#            between turns = ID of people who diplomacy applies to (self is no diplomacy set)
+#  Bivouacking, fortified, heroic: number of bonus "defense" left
 
 ############################## ACTION DESCRIPTION #############################
 # We coded 131 actions, taking some shortcuts on combinations of gems that can be
@@ -232,39 +237,38 @@ class Board():
 	# if n=1, transform P0 to Pn, P1 to P0, ... and Pn to Pn-1
 	# else do this action n times
 	def swap_players(self, nb_swaps):
-		# No need to roll territories, visible_deck and invisible_deck
-		def _roll_in_place_axis0_1d(array):
-			tmp_copy = array.copy()
-			size0 = array.shape[0]
-			for i in range(size0):
-				array[i] = tmp_copy[(i+nb_swaps)%size0]
 		def _roll_in_place_axis0_2d(array):
 			tmp_copy = array.copy()
-			size0 = array.shape[0]
-			for i in range(size0):
-				array[i,:] = tmp_copy[(i+nb_swaps)%size0,:]
+			for i in range(array.shape[0]):
+				array[i,:] = tmp_copy[(i+nb_swaps)%NUMBER_PLAYERS,:]
 		def _roll_in_place_axis0_3d(array):
 			tmp_copy = array.copy()
-			size0 = array.shape[0]
-			for i in range(size0):
-				array[i,:,:] = tmp_copy[(i+nb_swaps)%size0,:,:]
+			for i in range(array.shape[0]):
+				array[i,:,:] = tmp_copy[(i+nb_swaps)%NUMBER_PLAYERS,:,:]
 
 		# "Roll" peoples and status
 		_roll_in_place_axis0_2d(self.status)
 		_roll_in_place_axis0_3d(self.peoples)
+		# No need to roll territories, visible_deck and invisible_deck
 
 		# Update other references to player ids
-		for p in range(NUMBER_PLAYERS):
-			for i in range(ACTIVE):
-				if self.peoples[p, i, 1] == SORCERER:
-					data = my_unpackbits(self.peoples[p, i, 3])
-					new_data = my_packbits(_roll_in_place_axis0_1d(data))
-					self.peoples[p, i, 3] = new_data
+		def _roll_bitfield_1d(value):
+			result = np.int8(0)
+			if value != 0:
+				for p in range(NUMBER_PLAYERS):
+					if value & 2**( (p+nb_swaps)% NUMBER_PLAYERS ):
+						result += 2**p
+			return result
 
-				if self.peoples[p, i, 2] == DIPLOMAT and self.peoples[p, i, 4] & 2**6:
-					data = my_unpackbits(self.peoples[p, i, 4] - 2**6)
-					new_data = my_packbits(_roll_in_place_axis0_1d(data))
-					self.peoples[p, i, 4] = (new_data + 2**6)
+		for p in range(NUMBER_PLAYERS):
+			for i in range(ACTIVE+1):
+				if self.peoples[p, i, 1] == SORCERER:
+					self.peoples[p, i, 3] = _roll_bitfield_1d(self.peoples[p, i, 3])
+				elif self.peoples[p, i, 2] == DIPLOMAT:
+					if self.peoples[p, i, 4] & 2**6:
+						self.peoples[p, i, 4] = _roll_bitfield_1d(self.peoples[p, i, 4] - 2**6) + 2**6
+					else:
+						self.peoples[p, i, 4] = (self.peoples[p, i, 4] - nb_swaps) % NUMBER_PLAYERS
 
 	def get_symmetries(self, policy, valids):
 		# Always called on canonical board, meaning player = 0
