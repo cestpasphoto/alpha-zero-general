@@ -433,6 +433,7 @@ class Board():
 			assert current_ppl[0] >= 0
 			# self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
 			# Status already changed by previous function
+			self._end_turn_if_possible(player, current_ppl)
 			return
 
 		self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
@@ -454,6 +455,8 @@ class Board():
 			self.territories[area, 0] += 1
 
 			assert current_ppl[0] >= 0
+
+		self._end_turn_if_possible(player, current_ppl)
 
 	def _valid_decline(self, player):
 		# Going to decline permitted only for active_ppl
@@ -842,9 +845,10 @@ class Board():
 			raise Exception('Should not happen')
 
 	def _valid_end(self, player):
-		valid = False
 		current_ppl, current_id = self._current_ppl(player)
+		return self._valid_end_aux(player, current_ppl)
 
+	def _valid_end_aux(self, player, current_ppl):
 		# Check it's time
 		if self.status[player, 4] != PHASE_REDEPLOY:
 			return False
@@ -987,7 +991,7 @@ class Board():
 					self.territories[area,0] -= nb_ppl_to_gather
 					current_ppl[0]           += nb_ppl_to_gather
 
-	# Any change to this function must be reported to _prepare_for_ready() below
+	# All changes in this function must be reported in _prepare_for_ready(x,y) = _prepare_for_new_status(x,y,PHASE_READY)
 	def _prepare_for_new_status(self, player, current_ppl, next_status):
 		old_status = self.status[player, 4]
 
@@ -1046,6 +1050,26 @@ class Board():
 			self._switch_status_diplomat(player, current_ppl, old_status, next_status)
 		elif current_ppl[2] == BERSERK:
 			self._switch_status_berserk(player, current_ppl, old_status, next_status)
+
+	def _end_turn_if_possible(self, player, current_ppl):
+		# Still people left to deploy
+		if current_ppl[0] > 0:
+			return False
+
+		# Stout may want to decline
+		if current_ppl[2] == STOUT:
+			return False
+
+		# May want to put another bivouack, fortification or hero (if any left)
+		if current_ppl[2] in [BIVOUACKING, FORTIFIED, HEROIC] and current_ppl[4] > 0:
+			return False
+
+		# Check proper phase and non-negative number of amazons
+		if not self._valid_end_aux(player, current_ppl):
+			return False
+
+		self._do_end(player)
+		return True
 
 	def _switch_status_amazon(self, player, current_ppl, old_status, next_status):
 		if old_status in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS] and next_status == PHASE_REDEPLOY:
@@ -1175,7 +1199,8 @@ class Board():
 		# Switch next ppl to new state
 		next_ppl = self.peoples[next_player, next_ppl_id, :]
 		self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
-		self._prepare_for_new_status(next_player, next_ppl, PHASE_READY)
+		# self._prepare_for_new_status(next_player, next_ppl, PHASE_READY) # Numba doesn't allow recursion on jitclass
+		self._prepare_for_ready(next_player, next_ppl)
 		# print(f' switch to next: newP{next_player} {self.status[next_player, :]}')
 
 	def _compute_and_update_score(self, player):
@@ -1290,4 +1315,3 @@ class Board():
 			if how_many_ppl_available < 0:
 				return False
 		return True
-

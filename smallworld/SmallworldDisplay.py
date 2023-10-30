@@ -4,9 +4,6 @@ from copy import deepcopy
 from .SmallworldConstants import *
 from .SmallworldMaps import *
 
-def move_to_str(move, player):
-	return f'Unknown move {move}'
-
 ############################# PRINT GAME ######################################
 
 terrains_str = [
@@ -214,7 +211,7 @@ def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redepl
 
 	print('.')
 
-def move_to_str(move):
+def move_to_str(move, player=0):
 	if   move < NB_AREAS:
 		area = move
 		return f'Abandon {area}'
