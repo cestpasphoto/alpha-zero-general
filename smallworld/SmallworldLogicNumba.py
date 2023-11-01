@@ -127,7 +127,7 @@ class Board():
 		self.init_game()
 
 	def get_score(self, player):
-		return self.status[player, 0]
+		return self.status[player, 0] + SCORE_OFFSET
 
 	def init_game(self):
 		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
@@ -141,7 +141,7 @@ class Board():
 		self._init_deck()
 
 		# Init money and status for each player
-		self.status[:, 0] = 5
+		self.status[:, 0] = SCORE_INIT - SCORE_OFFSET
 		self.status[0, 3:] = [ACTIVE, PHASE_READY]
 		self.status[1:, 3] = -1
 		self.status[1:, 4] = PHASE_WAIT
@@ -176,44 +176,41 @@ class Board():
 
 	def make_move(self, move, player, deterministic):
 		current_ppl, _ = self._current_ppl(player)
-		# print('{move_to_str(move)} move{move} by P{player}, dbg: {self.status}')
 
 		if   move < NB_AREAS:
 			area = move
-			self._do_abandon(player, area)
+			self._do_abandon(player, area, deterministic)
 		elif move < 2*NB_AREAS:
 			area = move - NB_AREAS
-			self._do_attack(player, area)
+			self._do_attack(player, area, deterministic)
 		elif move < 3*NB_AREAS:
 			area = move - 2*NB_AREAS
-			self._do_special_actionppl(player, area)
+			self._do_special_actionppl(player, area, deterministic)
 		elif move < 4*NB_AREAS:
 			area = move - 3*NB_AREAS
-			self._do_special_actionpwr(player, area)
+			self._do_special_actionpwr(player, area, deterministic)
 		elif move < 5*NB_AREAS+MAX_REDEPLOY:
 			param = move - 4*NB_AREAS
-			self._do_redeploy(player, param)
+			self._do_redeploy(player, param, deterministic)
 		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE:
 			area = move - 5*NB_AREAS-MAX_REDEPLOY
-			self._do_choose_ppl(player, area)	
+			self._do_choose_ppl(player, area, deterministic)	
 		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1:
-			self._do_decline(player)
+			self._do_decline(player, deterministic)
 		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
-			self._do_end(player)
+			self._do_end(player, deterministic)
 		else:
 			print('Unknown move {move}')
 
 		if self.status[player, 3] >= 0:
-			# print(' dbg end of make_move(): {player=} {self.status[player, :]}, same player')
 			return player
-		# print(' dbg end of make_move(): {player=} {self.status[player, :]}, next player')
 		return (player+1)%NUMBER_PLAYERS
 
 	def get_state(self):
 		return self.state
 
 	def get_round(self):
-		return self.status[:, 1].max()
+		return self.status[:, 1].min()
 
 	def check_end_game(self, next_player):
 		if self.get_round() <= NB_ROUNDS:
@@ -328,8 +325,7 @@ class Board():
 			else:
 				neighbor_areas = connexity_matrix[area]
 				if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
-					caverns = (descr[:,0] == CAVERN)
-					if current_ppl[2] == UNDERWORLD and descr[area][CAVERN] and np.any(np.logical_and(caverns, territories_of_player)):
+					if current_ppl[2] == UNDERWORLD and descr[area][CAVERN] and np.any(np.logical_and(descr[:,CAVERN], territories_of_player)):
 						pass # exception if underworld: all caverns are neighbors
 					else:
 						return False
@@ -337,17 +333,16 @@ class Board():
 		# Check that active ppl is not attacking an active diplomat in peace
 		if self.territories[area, 2] == DIPLOMAT and current_ppl[1] > 0:
 			loser_ppl, loser_id = self._ppl_owner_of(area)
-			assert (loser_ppl[4] & 2**6 == 0)
 			if loser_ppl[4] == player:
 				return False
 
 		return True
 
-	def _do_attack(self, player, area):
+	def _do_attack(self, player, area, deterministic):
 		current_ppl, current_id = self._current_ppl(player)
 
 		# If 1st action of the turn, prepare people
-		self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST)
+		self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, deterministic)
 
 		nb_ppl_of_player, minimum_ppl_for_attack = current_ppl[0],self._minimum_ppl_for_attack(area, current_ppl)
 
@@ -360,7 +355,7 @@ class Board():
 				return
 			nb_attacking_ppl = max(minimum_ppl_for_attack - dice, 1)
 		elif use_dice:
-			dice = DICE_VALUES[3]
+			dice = np.random.choice(DICE_VALUES) if not deterministic else DICE_VALUES[3]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				self.status[player, 4] = PHASE_CONQ_WITH_DICE
 				return
@@ -375,7 +370,7 @@ class Board():
 
 		# Deal with berserk AFTER attack
 		if current_ppl[2] == BERSERK:
-			self._switch_status_berserk(player, current_ppl, None, PHASE_CONQUEST)
+			self._switch_status_berserk(player, current_ppl, None, PHASE_CONQUEST, deterministic)
 		# Update winner's status
 		self.status[player, 4] = PHASE_CONQ_WITH_DICE if use_dice else PHASE_CONQUEST
 
@@ -418,39 +413,32 @@ class Board():
 
 		return valids
 
-	def _do_redeploy(self, player, param):
+	def _do_redeploy(self, player, param, deterministic):
 		current_ppl, current_id = self._current_ppl(player)
 
 		if param == 0: # Special case, skip redeploy
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.status[player, 4] = PHASE_REDEPLOY
-			assert current_ppl[0] >= 0
-			# self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
 			# Status already changed by previous function
-			self._end_turn_if_possible(player, current_ppl)
+			self._end_turn_if_possible(player, current_ppl, deterministic)
 			return
 
-		self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+		self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 		self.status[player, 4] = PHASE_REDEPLOY
 
 		if param < MAX_REDEPLOY:
 			# Deploy X ppl on all active areas
 			how_many_to_deploy = param
-
 			territories_of_player = self._are_occupied_by(current_ppl)
 			current_ppl[0] -= how_many_to_deploy * np.count_nonzero(territories_of_player)
-			assert current_ppl[0] >= 0
 			self.territories[:, 0] += how_many_to_deploy*territories_of_player
 		else:
 			# Deploy 1 ppl on 1 area
 			area = param - MAX_REDEPLOY
-
 			current_ppl[0]            -= 1
 			self.territories[area, 0] += 1
 
-			assert current_ppl[0] >= 0
-
-		self._end_turn_if_possible(player, current_ppl)
+		self._end_turn_if_possible(player, current_ppl, deterministic)
 
 	def _valid_decline(self, player):
 		# Going to decline permitted only for active_ppl
@@ -464,12 +452,12 @@ class Board():
 				return False
 		return True
 
-	def _do_decline(self, player):
+	def _do_decline(self, player, deterministic):
 		current_ppl = self.peoples[player, ACTIVE, :]
 
 		# Count score now for stout
 		if current_ppl[2] == STOUT:
-			self._prepare_for_new_status(player, current_ppl, PHASE_STOUT_TO_DECLINE)
+			self._prepare_for_new_status(player, current_ppl, PHASE_STOUT_TO_DECLINE, deterministic)
 			self.status[player, 4] = PHASE_STOUT_TO_DECLINE
 
 		declined_id = DECLINED_SPIRIT if current_ppl[2] == SPIRIT else DECLINED
@@ -505,7 +493,7 @@ class Board():
 		self.peoples[player, declined_id, 1:3] = -self.peoples[player, declined_id, 1:3]
 
 		# Count score and switch to next player depending on current status		
-		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
+		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT, deterministic)
 		self.status[player, 4] = PHASE_WAIT
 
 	def _valids_choose_ppl(self, player):
@@ -523,11 +511,11 @@ class Board():
 
 		for index in range(DECK_SIZE):
 			# Check that index is valid and player can pay
-		 	valids[index] = (self.visible_deck[index, 1] != NOPPL) and (self.status[player, 0] >= index)
+			valids[index] = (self.visible_deck[index, 1] != NOPPL) and (self.status[player, 0] + SCORE_OFFSET >= index)
 
 		return valids
 
-	def _do_choose_ppl(self, player, index):
+	def _do_choose_ppl(self, player, index, deterministic):
 		current_ppl = self.peoples[player, ACTIVE, :]
 
 		current_ppl[:]  = 0
@@ -538,9 +526,9 @@ class Board():
 		# Earn money but also pay what's needed
 		self.status[player, 0] += self.visible_deck[index, 3] - index
 
-		self._prepare_for_new_status(player, current_ppl, PHASE_CHOOSE)
+		self._prepare_for_new_status(player, current_ppl, PHASE_CHOOSE, deterministic)
 		self.status[player, 4] = PHASE_CHOOSE
-		self._update_deck_after_chose(index)
+		self._update_deck_after_chose(index, deterministic)
 
 	def _valids_abandon(self, player):
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
@@ -560,19 +548,19 @@ class Board():
 
 		return valids
 
-	def _do_abandon(self, player, area):
+	def _do_abandon(self, player, area, deterministic):
 		current_ppl, current_id = self._current_ppl(player)
 		self._leave_area(area)
 		if self.status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS]:
 			# exception if Amazons abandoned because couldn't redeploy
 			if self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) >= 0:
-				self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+				self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 				self.status[player, 4] = PHASE_REDEPLOY
 			else:
-				self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON_AMAZONS)
+				self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON_AMAZONS, deterministic)
 				self.status[player, 4] = PHASE_ABANDON_AMAZONS
 		else:
-			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON)
+			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON, deterministic)
 			self.status[player, 4] = PHASE_ABANDON
 
 	def _valids_special_actionppl(self, player):
@@ -627,13 +615,13 @@ class Board():
 		else:
 			return False
 
-	def _do_special_actionppl(self, player, area):
+	def _do_special_actionppl(self, player, area, deterministic):
 		current_ppl, current_id = self._current_ppl(player)
 
 		if current_ppl[1] == SORCERER:
 			loser_ppl, loser = self._ppl_owner_of(area)
 			# Prepare people if 1st action of the turn
-			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST)
+			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, deterministic)
 			# Replace
 			self.territories[area,:] = [1, SORCERER, current_ppl[2], 0, 0]
 			# Note that loser have been 'sorcerized'
@@ -757,7 +745,6 @@ class Board():
 			# Param is actually id of other player
 			other_player = area
 			# Check not attacked during this turn
-			assert (_split_pwr_data(current_ppl[4])[1] or current_ppl[4] == 0)
 			if current_ppl[4] & 2**other_player:
 				return False
 			return True
@@ -782,7 +769,7 @@ class Board():
 		else:
 			return False
 
-	def _do_special_actionpwr(self, player, area):
+	def _do_special_actionpwr(self, player, area, deterministic):
 		current_ppl, current_id = self._current_ppl(player)
 
 		if current_ppl[2] == BIVOUACKING:
@@ -790,7 +777,7 @@ class Board():
 			self.territories[area, 4] += 1
 			current_ppl[4]            -= 1
 
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.status[player, 4] = PHASE_REDEPLOY
 
 		elif current_ppl[2] == FORTIFIED:
@@ -800,7 +787,7 @@ class Board():
 			# Note that we used a fortress during this turn
 			current_ppl[4]            += 2**6
 
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.status[player, 4] = PHASE_REDEPLOY
 
 		elif current_ppl[2] == HEROIC:
@@ -808,23 +795,22 @@ class Board():
 			self.territories[area, 4] = IMMUNITY
 			current_ppl[4]            -= 1
 
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.status[player, 4] = PHASE_REDEPLOY
 
 		elif current_ppl[2] == DIPLOMAT:
 			other_player = area
 			# Set diplomacy
-			assert (_split_pwr_data(current_ppl[4])[1] or current_ppl[4] == 0)
 			current_ppl[4] = other_player
 
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.status[player, 4] = PHASE_REDEPLOY
 
 		elif current_ppl[2] == DRAGONMASTER:
 			# Remove previous dragon
 			for area_ in self._are_occupied_by(current_ppl).nonzero()[0]:
 				self.territories[area_, 4] = 0
-			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST)
+			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, deterministic)
 			
 			# Update loser and winner, and add dragon
 			self._switch_territory_from_loser_to_winner(area, player, current_ppl, nb_attacking_ppl=1)
@@ -855,12 +841,10 @@ class Board():
 
 		return True
 
-	def _do_end(self, player):
-		# print(self.status[player, :], '->', end='')
+	def _do_end(self, player, deterministic):
 		current_ppl, current_id = self._current_ppl(player)
-		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT)
+		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT, deterministic)
 		# Status change already handled by previous function
-		# print(self.status[player, :])
 
 	###########################################################################
 
@@ -934,7 +918,6 @@ class Board():
 		# Give back people to the loser (if any)
 		loser_ppl, loser_id = self._ppl_owner_of(area)
 		if loser_ppl is not None:
-			assert nb_initial_ppl > 0
 			# Lose 1 ppl unless you are elf and active
 			nb_ppl_to_lose = 1 if self.territories[area,1] != ELF else 0
 			loser_ppl[0] += self.territories[area,0] - nb_ppl_to_lose
@@ -946,7 +929,6 @@ class Board():
 				self.territories[area, 4] = 0
 			# Note successful attack if diplomat
 			if winner_ppl[2] == DIPLOMAT:
-				assert (winner_ppl[4] & 2**6)
 				winner_ppl[4] += 2**loser_id
 
 		# Install people from the winner
@@ -954,7 +936,6 @@ class Board():
 		self.territories[area,1:3] = winner_ppl[1:3]
 		self.territories[area,3:] = 0
 		winner_ppl[0] -= nb_attacking_ppl
-		assert winner_ppl[0] >= 0
 		# Add specific tokens
 		if winner_ppl[1] == HALFLING and winner_ppl[3] > 0:
 			self.territories[area, 3] = IMMUNITY
@@ -986,7 +967,7 @@ class Board():
 					current_ppl[0]           += nb_ppl_to_gather
 
 	# All changes in this function must be reported in _prepare_for_ready(x,y) = _prepare_for_new_status(x,y,PHASE_READY)
-	def _prepare_for_new_status(self, player, current_ppl, next_status):
+	def _prepare_for_new_status(self, player, current_ppl, next_status, deterministic):
 		old_status = self.status[player, 4]
 
 		if old_status in [PHASE_READY] and next_status in [PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
@@ -1011,22 +992,20 @@ class Board():
 			if next_status == PHASE_CONQUEST:
 				pass # special case if during attack, don't prerun dice yet
 			else:
-				self._switch_status_berserk(player, current_ppl, old_status, next_status)
+				self._switch_status_berserk(player, current_ppl, old_status, next_status, deterministic)
 
 		# For stout, compure score BEFORE going to decline, but not switching yet to next player
 		if next_status == PHASE_STOUT_TO_DECLINE:
 			if current_ppl[2] == STOUT:
 				self._compute_and_update_score(player)
-			else:
-				assert "This status should only be valid with power STOUT"
 
 		if next_status == PHASE_WAIT:
 			if self.status[player, 3] == ACTIVE and old_status != PHASE_STOUT_TO_DECLINE:
 				self._compute_and_update_score(player)
-			self._switch_to_next(player, current_ppl)
+			self._switch_to_next(player, current_ppl, deterministic)
 
 	# Exactly same function as above but needed anyway since Numba doesn't allow recursion in _switch_to_next()
-	def _prepare_for_ready(self, player, current_ppl):
+	def _prepare_for_ready(self, player, current_ppl, deterministic):
 		old_status, next_status = self.status[player, 4], PHASE_READY
 
 		# People
@@ -1043,9 +1022,9 @@ class Board():
 		elif current_ppl[2] == DIPLOMAT:
 			self._switch_status_diplomat(player, current_ppl, old_status, next_status)
 		elif current_ppl[2] == BERSERK:
-			self._switch_status_berserk(player, current_ppl, old_status, next_status)
+			self._switch_status_berserk(player, current_ppl, old_status, next_status, deterministic)
 
-	def _end_turn_if_possible(self, player, current_ppl):
+	def _end_turn_if_possible(self, player, current_ppl, deterministic):
 		# Still people left to deploy
 		if current_ppl[0] > 0:
 			return False
@@ -1062,7 +1041,7 @@ class Board():
 		if not self._valid_end_aux(player, current_ppl):
 			return False
 
-		self._do_end(player)
+		self._do_end(player, deterministic)
 		return True
 
 	def _switch_status_amazon(self, player, current_ppl, old_status, next_status):
@@ -1106,10 +1085,10 @@ class Board():
 			if _split_pwr_data(current_ppl[4])[1]:
 				current_ppl[4] = player
 
-	def _switch_status_berserk(self, player, current_ppl, old_status, next_status):
+	def _switch_status_berserk(self, player, current_ppl, old_status, next_status, deterministic):
 		if next_status in [PHASE_READY, PHASE_ABANDON, PHASE_CHOOSE, PHASE_CONQUEST]:
 			# pre-run dice
-			dice = np.random.choice(DICE_VALUES)
+			dice = np.random.choice(DICE_VALUES) if not deterministic else DICE_VALUES[3]
 			current_ppl[4] = dice + 2**6
 		else:
 			current_ppl[4] = 0
@@ -1143,7 +1122,7 @@ class Board():
 					how_many_ppl_available += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS, player_territories)
 		return how_many_ppl_available		
 
-	def _switch_to_next(self, player, current_ppl):
+	def _switch_to_next(self, player, current_ppl, deterministic):
 		if self.status[player, 3] != ACTIVE:			# Next turn is for same player
 			next_player, next_ppl_id = player, ACTIVE
 		else:											# Next turn is for next player
@@ -1154,12 +1133,9 @@ class Board():
 				next_ppl_id = DECLINED
 			else:
 				next_ppl_id = ACTIVE
-			assert self.status[next_player, 3] == -1
-			assert self.status[next_player, 4] == PHASE_WAIT
 
 			self.status[player, 1] += 1
 			self.status[player, 3:] = [-1, PHASE_WAIT]
-			# print(' switch to next: oldP{player} {self.status[player, :]}')
 
 		# Reset stuff depending on people
 		if current_ppl[1] == SKELETON:
@@ -1193,9 +1169,8 @@ class Board():
 		# Switch next ppl to new state
 		next_ppl = self.peoples[next_player, next_ppl_id, :]
 		self.status[next_player, 3:] = [next_ppl_id, PHASE_READY]
-		# self._prepare_for_new_status(next_player, next_ppl, PHASE_READY) # Numba doesn't allow recursion on jitclass
-		self._prepare_for_ready(next_player, next_ppl)
-		# print(' switch to next: newP{next_player} {self.status[next_player, :]}')
+		# self._prepare_for_new_status(next_player, next_ppl, PHASE_READY, deterministic) # Numba doesn't allow recursion on jitclass
+		self._prepare_for_ready(next_player, next_ppl, deterministic)
 
 	def _compute_and_update_score(self, player):
 		score_for_this_turn = 0
@@ -1234,7 +1209,10 @@ class Board():
 			score_for_this_turn += self.peoples[player, ACTIVE, 4]
 			self.peoples[player, ACTIVE, 4] = 0
 
+		backup_score = self.status[player, 0]
 		self.status[player, 0] += score_for_this_turn
+		if self.status[player, 0] < backup_score:
+			self.status[player, 0] = 127 # Overflow protection
 
 	def _update_round(self):
 		self.status[:, 1] += 1
@@ -1258,7 +1236,7 @@ class Board():
 		self.invisible_deck[:2] = my_packbits(available_people)
 		self.invisible_deck[2:] = my_packbits(available_power)
 
-	def _update_deck_after_chose(self, index):
+	def _update_deck_after_chose(self, index, deterministic):
 		# Read bitfield
 		available_people = my_unpackbits(self.invisible_deck[:2])
 		available_power  = my_unpackbits(self.invisible_deck[2:])
@@ -1268,8 +1246,11 @@ class Board():
 		# Give previous combos 1 coin each
 		self.visible_deck[0:index, 3] += 1
 		# Draw a new people for last combination
-		chosen_ppl   = my_random_choice(available_people / available_people.sum())
-		chosen_power = my_random_choice(available_power / available_power.sum())
+		if deterministic:
+			chosen_ppl, chosen_power = available_people.nonzero()[0][0], available_power.nonzero()[0][0]
+		else:
+			chosen_ppl   = my_random_choice(available_people / available_people.sum())
+			chosen_power = my_random_choice(available_power / available_power.sum())			
 		nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 		available_people[chosen_ppl], available_power[chosen_power] = False, False

@@ -112,7 +112,7 @@ def add_legend(display_matrix, peoples):
 
 def add_players_status(display_matrix, peoples, status):
 	for p in range(NUMBER_PLAYERS):
-		description = f'  P{p}: sc={status[p,0]:2} #{status[p,1]} netwdt={status[p,2]}'
+		description = f'  P{p}: sc={status[p,0]+SCORE_OFFSET:2} #{status[p,1]} netwdt={status[p,2]}'
 		description += f' - has {peoples[p,ACTIVE,0]}ppl "{ppl_str[peoples[p,ACTIVE,1]]}"'
 		if peoples[p,DECLINED,1] != NOPPL:
 			description += f' and "{ppl_decl_str[-peoples[p,DECLINED,1]]}"'
