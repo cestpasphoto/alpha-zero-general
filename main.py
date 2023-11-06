@@ -123,7 +123,7 @@ def main():
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
-	parser.add_argument('--dropout'         , '-D' , action='store', default=0.5  , type=float  , help='')
+	parser.add_argument('--dropout'         , '-D' , action='store', default=0.   , type=float  , help='')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 
 	### Advanced params ###
@@ -141,7 +141,7 @@ def main():
 	
 	args = parser.parse_args()
 	args.numIters = 50
-	args.arenaCompare = 30 if args.numEps < 500 else 50
+	args.arenaCompare = 30
 	args.maxlenOfQueue = int(2.5e6/((2 if args.no_compression else 0.5)*args.numItersHistory)) # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
 	if args.stop_after_N_fail < 0:
 		args.stop_after_N_fail = -args.stop_after_N_fail * args.numItersHistory
