@@ -6,6 +6,8 @@ from .SmallworldConstants import *
 from .SmallworldMaps import *
 from .SmallworldDisplay import print_board, print_valids, move_to_str
 
+USERANDOM = False
+
 ############################## BOARD DESCRIPTION ##############################
 
 # Board is described by a NB_AREAS+4*NUMBER_PLAYERS+7 x 5 array
@@ -26,12 +28,12 @@ from .SmallworldDisplay import print_board, print_valids, move_to_str
 #####                              0    4    Various info related to special power for declined+spirit people in player 0's hand
 #####   24                         1   0-4   Same for declined (non-spirit) people in player 0's hand
 #####   25                         2   0-4   Same for active people in player 0's hand
-#####  26-28                       0-2 0-4   Same info for peoples in player 1's hand
+#####  26-28                      0-2  0-4   Same info for peoples in player 1's hand
 #####  29-34 self.visible_deck       0-2     Generic info (nb, type, power) for each combo on deck
 #####                                 3      Number of victory points to win with such combo
 #####                                 4      - empty -
 #####  35-36 self.status              0      Score of player i
-#####                                 1      Round (may be different depending on players)
+#####                                 1      Round (may be different depending on players) from 1 to 10
 #####                                 2      #NETWDT = number of Non-Empty Territories Won During Turn
 #####                                 3      Id of people current playing (from DECLINED_SPIRIT to ACTIVE), -1 else
 #####                                 4      Status of people (from PHASE_READ to PHASE_WAIT)
@@ -100,11 +102,6 @@ def my_unpackbits(values):
 	for i, v in enumerate(values):
 		result[i, :] = (np.bitwise_and(v, mask) != 0)
 	return result.flatten()
-
-@njit(cache=True, fastmath=True, nogil=True)
-def my_random_choice(prob):
-	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
-	return result
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _split_pwr_data(unified_value):
@@ -219,7 +216,8 @@ class Board():
 		# Game is ended
 		scores = self.status[:, 0]
 		best_score = scores.max()
-		return np.where(scores == best_score, 1, -1).astype(np.float32)
+		several_winners = ((scores == best_score).sum() > 1)
+		return np.where(scores == best_score, 0.01 if several_winners else 1., -1.).astype(np.float32)
 
 	# if n=1, transform P0 to Pn, P1 to P0, ... and Pn to Pn-1
 	# else do this action n times
@@ -244,7 +242,7 @@ class Board():
 			if value != 0:
 				for p in range(NUMBER_PLAYERS):
 					if value & 2**( (p+nb_swaps)% NUMBER_PLAYERS ):
-						result += 2**p
+						result |= 2**p
 			return result
 
 		for p in range(NUMBER_PLAYERS):
@@ -355,7 +353,7 @@ class Board():
 				return
 			nb_attacking_ppl = max(minimum_ppl_for_attack - dice, 1)
 		elif use_dice:
-			dice = np.random.choice(DICE_VALUES) if not deterministic else DICE_VALUES[3]
+			dice = np.random.choice(DICE_VALUES) if not deterministic and USERANDOM else DICE_VALUES[3]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				self.status[player, 4] = PHASE_CONQ_WITH_DICE
 				return
@@ -625,7 +623,7 @@ class Board():
 			# Replace
 			self.territories[area,:] = [1, SORCERER, current_ppl[2], 0, 0]
 			# Note that loser have been 'sorcerized'
-			current_ppl[3] += 2**loser
+			current_ppl[3] |= 2**loser
 			# Update winner's status and #NETWDT
 			self.status[player, 4] = PHASE_CONQUEST
 			self.status[player, 2] += 1
@@ -785,7 +783,7 @@ class Board():
 			self.territories[area, 4] += 1
 			current_ppl[4]            -= 1
 			# Note that we used a fortress during this turn
-			current_ppl[4]            += 2**6
+			current_ppl[4]            |= 2**6
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.status[player, 4] = PHASE_REDEPLOY
@@ -929,7 +927,7 @@ class Board():
 				self.territories[area, 4] = 0
 			# Note successful attack if diplomat
 			if winner_ppl[2] == DIPLOMAT:
-				winner_ppl[4] += 2**loser_id
+				winner_ppl[4] |= 2**loser_id
 
 		# Install people from the winner
 		self.territories[area,0] = nb_attacking_ppl
@@ -1088,7 +1086,7 @@ class Board():
 	def _switch_status_berserk(self, player, current_ppl, old_status, next_status, deterministic):
 		if next_status in [PHASE_READY, PHASE_ABANDON, PHASE_CHOOSE, PHASE_CONQUEST]:
 			# pre-run dice
-			dice = np.random.choice(DICE_VALUES) if not deterministic else DICE_VALUES[3]
+			dice = np.random.choice(DICE_VALUES) if not deterministic and USERANDOM else DICE_VALUES[3]
 			current_ppl[4] = dice + 2**6
 		else:
 			current_ppl[4] = 0
@@ -1226,8 +1224,8 @@ class Board():
 
 		# Draw 6 ppl+power randomly
 		for i in range(DECK_SIZE):
-			chosen_ppl = my_random_choice(available_people / available_people.sum())
-			chosen_power = my_random_choice(available_power / available_power.sum())
+			chosen_ppl = np.random.choice(np.flatnonzero(available_people))
+			chosen_power = np.random.choice(np.flatnonzero(available_power))
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 			self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 			available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -1246,12 +1244,14 @@ class Board():
 		# Give previous combos 1 coin each
 		self.visible_deck[0:index, 3] += 1
 		# Draw a new people for last combination
-		if deterministic:
-			chosen_ppl, chosen_power = available_people.nonzero()[0][0], available_power.nonzero()[0][0]
+		avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
+		if not USERANDOM or deterministic:
+			chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
+			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		else:
-			chosen_ppl   = my_random_choice(available_people / available_people.sum())
-			chosen_power = my_random_choice(available_power / available_power.sum())			
-		nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
+			chosen_ppl = np.random.choice(avail_people_id)
+			chosen_power = np.random.choice(avail_power_id)		
+			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0]
 		available_people[chosen_ppl], available_power[chosen_power] = False, False
 

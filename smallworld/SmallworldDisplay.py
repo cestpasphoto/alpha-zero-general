@@ -34,6 +34,8 @@ status_str = [
 	'is waiting',
 ]
 
+last_board, last_board_already_displayed = None, False
+
 def generate_background():
 	display_matrix = deepcopy(map_display)
 	for y in range(DISPLAY_HEIGHT):
@@ -145,15 +147,35 @@ def disp_to_str(display_matrix):
 		disp_str += ('\n' if y < len(display_matrix)-1 else '')
 	return disp_str
 
+def which_board_to_print(prev_board, cur_board):
+	if prev_board is None:
+		return cur_board
+
+	prev_player = np.argwhere(prev_board.status[:, 4] != PHASE_WAIT)[0][0]
+	prev_phase, cur_phase = prev_board.status[prev_player, 4], cur_board.status[prev_player, 4]
+	if prev_phase == cur_phase or (prev_phase, cur_phase) in [(PHASE_ABANDON, PHASE_CONQUEST)]:
+		return None
+	if cur_phase in [PHASE_CHOOSE, PHASE_CONQ_WITH_DICE, PHASE_WAIT]:
+		return cur_board
+	return prev_board
+
 def print_board(b):
-	display_matrix = generate_background()
-	display_matrix = add_text(display_matrix, b.territories)
-	display_matrix = add_legend(display_matrix, b.peoples)
-	display_matrix = add_deck(display_matrix, b.visible_deck)
-	display_matrix = add_players_status(display_matrix, b.peoples, b.status)
-	
-	display_str = disp_to_str(display_matrix)
-	print(display_str)
+	global last_board, last_board_already_displayed
+	board_to_print = which_board_to_print(last_board, b)
+	if board_to_print is not None and not (last_board is not None and np.array_equal(board_to_print.state, last_board.state) and last_board_already_displayed):
+		display_matrix = generate_background()
+		display_matrix = add_text(display_matrix, board_to_print.territories)
+		display_matrix = add_legend(display_matrix, board_to_print.peoples)
+		display_matrix = add_deck(display_matrix, board_to_print.visible_deck)
+		display_matrix = add_players_status(display_matrix, board_to_print.peoples, board_to_print.status)
+		
+		display_str = disp_to_str(display_matrix)
+		print(display_str)
+
+		last_board_already_displayed = np.array_equal(board_to_print.state, b.state)		
+	else:
+		last_board_already_displayed = False
+	last_board = deepcopy(b)
 
 # Used for debug purposes
 def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_specialpwr, valids_choose, valid_decline, valid_end):
