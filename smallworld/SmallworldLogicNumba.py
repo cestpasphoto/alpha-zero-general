@@ -260,7 +260,89 @@ class Board():
 		symmetries = [(self.state.copy(), policy.copy(), valids.copy())]
 		state_backup, policy_backup, valids_backup = symmetries[0]
 
-		# I found no symmetry for this game
+		# Whatever the score difference is
+		scores = self.status[:, 0]
+		for _ in range(2):
+			mini, maxi = -127-scores.min(), 127-scores.max()
+			if mini >= maxi:
+				print('symmetrie scores:', mini, maxi)
+			else:
+				random_offset = np.random.randint(mini, maxi)
+				self.status[:, 0] += random_offset
+				symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+				self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+		# # (Approximate symmetry, remove when NN is strong)
+		# # Declined people all have same effects (with some exceptions), we can swap
+		# blacklist_ppl = [DWARF, GHOUL, TROLL]
+		# available_people = my_unpackbits(self.invisible_deck[:2])
+		# if available_people.sum() != 0:
+		# 	for ppl in blacklist_ppl:
+		# 		available_people[ppl] = False
+		# 	for p in range(NUMBER_PLAYERS):
+		# 		declined_ppl_type = self.peoples[p, DECLINED, 1]
+		# 		if declined_ppl_type == NOPPL or -declined_ppl_type in blacklist_ppl:
+		# 			continue
+		# 		# Swap type with another random one
+		# 		new_ppl_type = -np.random.choice(np.flatnonzero(available_people))
+		# 		for area in range(NB_AREAS):
+		# 			if self.territories[area, 1] == declined_ppl_type:
+		# 				self.territories[area, 1] = new_ppl_type
+		# 		self.peoples[p, DECLINED, 1] = new_ppl_type
+
+		# 		symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+		# 		self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+			
+		# (Approximate symmetry, remove when NN is strong)
+		# For non-playing peoples, N people on a territory + p defense is like
+		# having N+p people on it
+		for area in range(NB_AREAS):
+			# Check that this isn't one of current player ppl (current player = 0)
+			if self.territories[area, 1] in self.peoples[0, :, 1]:
+				continue
+			# Except if current player is sorcerer and only 1 ppl on current area
+			if self.territories[area, 0] == 1 and self.peoples[0, ACTIVE, 1] == SORCERER:
+				continue
+			bonus_defense = self.territories[area, 3] + self.territories[area, 4]
+			if 0 < bonus_defense < IMMUNITY:
+				self.territories[area, 0] += bonus_defense
+				self.territories[area, 3], self.territories[area, 4] = 0, 0
+				
+				symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+				self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+			elif bonus_defense >= IMMUNITY:
+				if self.territories[area, 0] > 1:
+					self.territories[area, 0] = 1
+
+					symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+					self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+				self.territories[area, 0] = 100
+				self.territories[area, 3], self.territories[area, 4] = 0, 0
+				
+				symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+				self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+
+		# # (Approximate symmetry, remove when NN is strong)
+		# # Having n declined ppl in hand is like having none at all, unless ghoul
+		# for p in range(NUMBER_PLAYERS):
+		# 	for ppl_id in [DECLINED, DECLINED_SPIRIT]:
+		# 		if self.peoples[p, ppl_id, 0] > 0 and self.peoples[p, ppl_id, 1] != -GHOUL:
+		# 			self.peoples[p, ppl_id, 0] = 0
+
+		# 			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+		# 			self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
+		# # (Approximate symmetry, remove when NN is strong)
+		# # For non-playing peoples, having n active ppl in hand is like having none at all
+		# for p in range(1, NUMBER_PLAYERS):
+		# 	if self.peoples[p, ACTIVE, 0] > 0:
+		# 		self.peoples[p, ACTIVE, 0] = 0
+
+		# 		symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+		# 		self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+
 		return symmetries
 
 	###########################################################################
