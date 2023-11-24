@@ -98,23 +98,23 @@ class SmallworldNNet(nn.Module):
 		if self.version == 10: # Small but wide
 			self.first_layer = LinearNormActivation(self.nb_vect, 64, None)
 			confs  = []
-			confs += [InvertedResidual1d(64, 192, 64, 5, False, "RE")]
+			confs += [InvertedResidual1d(64, 192, 64, 8, False, "RE")]
 			self.trunk = nn.Sequential(*confs)
 
 			n_filters = 64
 			head_PI = [
-				InvertedResidual1d(64, 192, 64, 5, True, "HS", setype='avg'),
+				InvertedResidual1d(64, 192, 64, 8, True, "HS", setype='avg'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *5, self.action_size),
+				nn.Linear(n_filters *8, self.action_size),
 				nn.ReLU(),
 				nn.Linear(self.action_size, self.action_size),
 			]
 			self.output_layers_PI = nn.Sequential(*head_PI)
 
 			head_V = [
-				InvertedResidual1d(64, 192, 64, 5, True, "HS", setype='avg'),
+				InvertedResidual1d(64, 192, 64, 8, True, "HS", setype='avg'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *5, self.num_players),
+				nn.Linear(n_filters *8, self.num_players),
 				nn.ReLU(),
 				nn.Linear(self.num_players, self.num_players),
 			]
@@ -123,26 +123,26 @@ class SmallworldNNet(nn.Module):
 		elif self.version == 20: # Like V10 but bigger in all dimensions
 			self.first_layer = LinearNormActivation(self.nb_vect, 128, None)
 			confs  = []
-			confs += [InvertedResidual1d(128, 192, 128, 5, False, "RE")]
-			confs += [InvertedResidual1d(128, 192, 128, 5, False, "RE")]
+			confs += [InvertedResidual1d(128, 192, 128, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 192, 128, 8, False, "RE")]
 			self.trunk = nn.Sequential(*confs)
 
 			n_filters = 64
 			head_PI = [
-				InvertedResidual1d(128, 192, 128, 5, True, "HS", setype='avg'),
-				InvertedResidual1d(128, 192,  64, 5, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 192,  64, 8, True, "HS", setype='avg'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *5, self.action_size),
+				nn.Linear(n_filters *8, self.action_size),
 				nn.ReLU(),
 				nn.Linear(self.action_size, self.action_size),
 			]
 			self.output_layers_PI = nn.Sequential(*head_PI)
 
 			head_V = [
-				InvertedResidual1d(128, 192, 128, 5, True, "HS", setype='avg'),
-				InvertedResidual1d(128, 192,  64, 5, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 192,  64, 8, True, "HS", setype='avg'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *5, self.num_players),
+				nn.Linear(n_filters *8, self.num_players),
 				nn.ReLU(),
 				nn.Linear(self.num_players, self.num_players),
 			]
@@ -155,44 +155,44 @@ class SmallworldNNet(nn.Module):
 			)
 
 			confs  = []
-			confs += [InvertedResidual1d(23, 192, 64, 5, False, "RE")]
+			confs += [InvertedResidual1d(23, 192, 64, 8, False, "RE")]
 			self.trunk = nn.Sequential(*confs)
 
 			n_filters = 64
 			head_PI = [
-				InvertedResidual1d(64, 192, 64, 5, True, "HS", setype='avg'),
+				InvertedResidual1d(64, 192, 64, 8, True, "HS", setype='avg'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *5, n_filters *5),
+				nn.Linear(n_filters *8, n_filters *8),
 			]
 			self.output_layers_PI = nn.Sequential(*head_PI)
 
 			head_V = [
-				InvertedResidual1d(64, 192, 64, 5, True, "HS", setype='avg'),
+				InvertedResidual1d(64, 192, 64, 8, True, "HS", setype='avg'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *5, n_filters *5),
+				nn.Linear(n_filters *8, n_filters *8),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
 			self.trunk_rest = nn.Sequential(
 				nn.Flatten(1),
-				nn.Linear(15*5, 30*5),
+				nn.Linear(15*8, 30*8),
 				nn.ReLU(),
-				nn.Linear(30*5, 30*5),
+				nn.Linear(30*8, 30*8),
 			)
 			self.output_layers_PI_rest = nn.Sequential(
-				nn.Linear(30*5, n_filters*5),
+				nn.Linear(30*8, n_filters*8),
 				nn.ReLU(),
 			)
 			self.output_layers_V_rest = nn.Sequential(
-				nn.Linear(30*5, n_filters*5),
+				nn.Linear(30*8, n_filters*8),
 				nn.ReLU(),
 			)
 
 			self.final_layers_PI = nn.Sequential(
-				nn.Linear(n_filters*5, self.action_size),
+				nn.Linear(n_filters*8, self.action_size),
 			)
 			self.final_layers_V = nn.Sequential(
-				nn.Linear(n_filters*5, self.num_players),
+				nn.Linear(n_filters*8, self.num_players),
 			)
 
 		elif self.version == 40: # Only dense layer, no convolution
@@ -206,7 +206,7 @@ class SmallworldNNet(nn.Module):
 			n_filters = 128
 			head_PI = [
 				nn.Flatten(1),
-				nn.Linear(n_filters *5, n_filters *3),
+				nn.Linear(n_filters *8, n_filters *3),
 				nn.ReLU(),
 				nn.Linear(n_filters *3, n_filters *2),
 				nn.ReLU(),
@@ -218,7 +218,7 @@ class SmallworldNNet(nn.Module):
 
 			head_V = [
 				nn.Flatten(1),
-				nn.Linear(n_filters *5, n_filters *3),
+				nn.Linear(n_filters *8, n_filters *3),
 				nn.ReLU(),
 				nn.Linear(n_filters *3, n_filters *2),
 				nn.ReLU(),

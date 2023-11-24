@@ -66,11 +66,11 @@ def add_text(display_matrix, territories):
 					if descr[area][i]:
 						display_matrix[y][x][2] += powers_str[i]
 				display_matrix[y][x][2] += ' ' * (2-len(display_matrix[y][x][2]))
-			elif txt == 4 and territories[area, 3:].sum() > 0:
-				if territories[area, 3:].sum() >= IMMUNITY:
+			elif txt == 4 and territories[area, 3:5].sum() > 0:
+				if territories[area, 3:5].sum() >= IMMUNITY:
 					display_matrix[y][x][2] = '**'
 				else:
-					display_matrix[y][x][2] = '+' + str(territories[area, 3:].sum())
+					display_matrix[y][x][2] = '+' + str(territories[area, 3:5].sum())
 			else:
 				display_matrix[y][x][2] = '  '
 				
@@ -97,7 +97,7 @@ def add_legend(display_matrix, peoples):
 	legend_ppl = '  '
 	for i in range(NUMBER_PLAYERS):
 		for j in range(3):
-			ppl, power, pplinfo, powerinfo = abs(peoples[i,j,1:])
+			ppl, power, pplinfo, powerinfo = abs(peoples[i,j,1:5])
 			if ppl != NOPPL:
 				short_str = ppl_str[ppl] if j == ACTIVE else ppl_decl_str[ppl]
 				legend_ppl += f'{short_str} = {ppl_long_str[ppl]}'
@@ -112,16 +112,16 @@ def add_legend(display_matrix, peoples):
 
 	return display_matrix
 
-def add_players_status(display_matrix, peoples, status):
+def add_players_status(display_matrix, peoples, round_status, game_status):
 	for p in range(NUMBER_PLAYERS):
-		description = f'  P{p}: sc={status[p,0]+SCORE_OFFSET:2} #{status[p,1]} netwdt={status[p,2]}'
+		description = f'  P{p}: sc={game_status[p,6]+SCORE_OFFSET:2} #{game_status[p,3]} netwdt={round_status[p,3]}'
 		description += f' - has {peoples[p,ACTIVE,0]}ppl "{ppl_str[peoples[p,ACTIVE,1]]}"'
 		if peoples[p,DECLINED,1] != NOPPL:
 			description += f' and "{ppl_decl_str[-peoples[p,DECLINED,1]]}"'
 		if peoples[p,DECLINED_SPIRIT,1] != NOPPL:
 			description += f' and "{ppl_decl_str[-peoples[p,DECLINED_SPIRIT,1]]}"'
-		if status[p, 4] != PHASE_WAIT:
-			description += f', {ac_or_dec_str[status[p, 3]]} {status_str[status[p, 4]]}'
+		if round_status[p, 4] != PHASE_WAIT:
+			description += f', {ac_or_dec_str[game_status[p, 4]]} {status_str[round_status[p, 4]]}'
 		display_matrix[6+p].append([Style.RESET_ALL, '', description])
 	return display_matrix
 
@@ -129,11 +129,11 @@ def add_deck(display_matrix, visible_deck):
 	for index, range_beg, range_end in [(3, 0, DECK_SIZE//2), (4, DECK_SIZE//2, DECK_SIZE)]:
 		deck_str = f'  Deck:' if index == 3 else f'       '
 		for i in range(range_beg, range_end):
-			nb, ppl, power, coins = visible_deck[i,0], visible_deck[i,1], visible_deck[i,2], visible_deck[i,3]
-			description = f'{nb}x{ppl_long_str[ppl].lower()[:8]}-{power_long_str[power].lower()[:8]} '
+			nb, ppl, power, coins = visible_deck[i,0], visible_deck[i,1], visible_deck[i,2], visible_deck[i,6]
+			description = f'{nb}x{ppl_long_str[ppl].lower()[:8]}-{power_long_str[power].lower()[:8]}'
 			if coins > 0:
 				description += f'+{coins}'
-			deck_str += f' {i} = {description:22} '
+			deck_str += f' {i} = {description:22}'
 		display_matrix[index].append([Style.RESET_ALL, Style.DIM, deck_str])
 
 	return display_matrix
@@ -151,8 +151,8 @@ def which_board_to_print(prev_board, cur_board):
 	if prev_board is None:
 		return cur_board
 
-	prev_player = np.argwhere(prev_board.status[:, 4] != PHASE_WAIT)[0][0]
-	prev_phase, cur_phase = prev_board.status[prev_player, 4], cur_board.status[prev_player, 4]
+	prev_player = np.argwhere(prev_board.round_status[:, 4] != PHASE_WAIT)[0][0]
+	prev_phase, cur_phase = prev_board.round_status[prev_player, 4], cur_board.round_status[prev_player, 4]
 	if prev_phase == cur_phase or (prev_phase, cur_phase) in [(PHASE_ABANDON, PHASE_CONQUEST)]:
 		return None
 	if cur_phase in [PHASE_CHOOSE, PHASE_CONQ_WITH_DICE, PHASE_WAIT]:
@@ -167,7 +167,7 @@ def print_board(b):
 		display_matrix = add_text(display_matrix, board_to_print.territories)
 		display_matrix = add_legend(display_matrix, board_to_print.peoples)
 		display_matrix = add_deck(display_matrix, board_to_print.visible_deck)
-		display_matrix = add_players_status(display_matrix, board_to_print.peoples, board_to_print.status)
+		display_matrix = add_players_status(display_matrix, board_to_print.peoples, board_to_print.round_status, board_to_print.game_status)
 		
 		display_str = disp_to_str(display_matrix)
 		print(display_str)
