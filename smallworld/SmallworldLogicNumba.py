@@ -359,46 +359,40 @@ class Board():
 			if _split_pwr_data(current_ppl[4])[1]:
 				how_many_ppl_available += _split_pwr_data(current_ppl[4])[0]
 
-		for area in range(NB_AREAS):
+		# Compute list of conceivable areas to be checked further
+		# Area must not be current people
+		conditions = np.logical_not(territories_of_player)
+		# Area must have no immunity
+		conditions = np.logical_and(conditions, self.territories[:, 5] < IMMUNITY)
+		# Area must no be water
+		if current_ppl[2] != SEAFARING:
+			conditions = np.logical_and(conditions, descr[:, 0] != WATER)
+		# Area must be close to owned areas, or on the edge if first conquest
+		if current_ppl[2] != FLYING:
+			if np.count_nonzero(territories_of_player) == 0:
+				if current_ppl[1] != HALFLING:
+					conditions = np.logical_and(conditions, descr[:, 5] != 0)
+			else:
+				# neighbor_areas = np.logical_or.reduce(connexity_matrix[territories_of_player])
+				neighbor_areas = (connexity_matrix[territories_of_player].sum(axis=0) != 0)
+				if current_ppl[2] == UNDERWORLD:
+					# All caverns are neighbors for underworlds
+					if np.any(np.logical_and(descr[:,CAVERN], territories_of_player)):
+						neighbor_areas = np.logical_or(neighbor_areas, descr[:, CAVERN])
+				conditions = np.logical_and(conditions, neighbor_areas)
+
+		conceivable_areas = np.flatnonzero(conditions)
+		for area in conceivable_areas:
 			valids[area] = self._valid_attack_area(player, area, current_ppl, how_many_ppl_available, territories_of_player)
 
 		return valids
 
 	def _valid_attack_area(self, player, area, current_ppl, how_many_ppl_available, territories_of_player):
-		# No attack on water
-		if descr[area][0] == WATER and current_ppl[2] != SEAFARING:
-			return False
-
-		# No attack on current people
-		if self._is_occupied_by(area, current_ppl):
-			return False
-
-		# Check no immunity
-		if self.territories[area, 3] >= IMMUNITY or self.territories[area, 4] >= IMMUNITY:
-			return False
-
-		# Check that player has a chance to win	
+		# Check that player has a chance to win	(no 2nd dice for berserk)
 		minimum_ppl_for_attack = self._minimum_ppl_for_attack(area, current_ppl)
-		if how_many_ppl_available + MAX_DICE < minimum_ppl_for_attack:
+		if how_many_ppl_available + (0 if current_ppl[2] == BERSERK else MAX_DICE) < minimum_ppl_for_attack:
 			return False
-		# No 2nd dice for berserk
-		if current_ppl[2] == BERSERK and how_many_ppl_available < minimum_ppl_for_attack:
-			return False
-
-		# Check that territory is close to another owned territory or is on the edge (unless is flying)
-		if current_ppl[2] != FLYING:
-			if np.count_nonzero(territories_of_player) == 0:
-				area_is_on_edge = descr[area][5]
-				if current_ppl[1] != HALFLING and not area_is_on_edge:
-					return False
-			else:
-				neighbor_areas = connexity_matrix[area]
-				if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
-					if current_ppl[2] == UNDERWORLD and descr[area][CAVERN] and np.any(np.logical_and(descr[:,CAVERN], territories_of_player)):
-						pass # exception if underworld: all caverns are neighbors
-					else:
-						return False
-
+		
 		# Check that active ppl is not attacking a diplomat in peace
 		if self.territories[area, 2] == DIPLOMAT and current_ppl[1] > 0:
 			loser_ppl, loser_id = self._ppl_owner_of(area)
@@ -442,7 +436,7 @@ class Board():
 			self._switch_status_berserk(player, current_ppl, None, PHASE_CONQUEST, deterministic)
 		# Update winner's status
 		self.round_status[player, 4] = PHASE_CONQ_WITH_DICE if use_dice else PHASE_CONQUEST
-		self._update_round_status()
+		self._update_round_status(current_ppl, player)
 
 	def _valids_redeploy(self, player):
 		valids = np.zeros(NB_AREAS + MAX_REDEPLOY, dtype=np.bool_)
@@ -490,6 +484,7 @@ class Board():
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.round_status[player, 4] = PHASE_REDEPLOY
 			# Status already changed by previous function
+			self._update_round_status(current_ppl, player)
 			self._end_turn_if_possible(player, current_ppl, deterministic)
 			return
 
@@ -511,8 +506,8 @@ class Board():
 			self.territories[area, 0] += 1
 			self.territories[area, 5] += 1
 
+		self._update_round_status(current_ppl, player)
 		self._end_turn_if_possible(player, current_ppl, deterministic)
-		self._update_round_status()
 
 	def _valid_decline(self, player):
 		# Going to decline permitted only for active_ppl
@@ -568,9 +563,9 @@ class Board():
 		self.peoples[player, declined_id, 1:3] = -self.peoples[player, declined_id, 1:3]
 
 		# Count score and switch to next player depending on current status		
+		self._update_round_status(self.peoples[player, declined_id, :], player)
 		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT, deterministic)
 		self.round_status[player, 4] = PHASE_WAIT
-		self._update_round_status()
 
 	def _valids_choose_ppl(self, player):
 		valids = np.zeros(DECK_SIZE, dtype=np.bool_)
@@ -639,7 +634,7 @@ class Board():
 			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON, deterministic)
 			self.round_status[player, 4] = PHASE_ABANDON
 
-		self._update_round_status()
+		self._update_round_status(current_ppl, player)
 
 	def _valids_special_actionppl(self, player):
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
@@ -708,8 +703,9 @@ class Board():
 			self.round_status[player, 4] = PHASE_CONQUEST
 			self.round_status[player, 3] += 1
 
+			self._update_territory_after_win_or_decline(loser_ppl, loser, area)
 			self._update_territory_after_win_or_decline(current_ppl, player, area)
-			self._update_round_status()
+			self._update_round_status(current_ppl, player)
 		else:
 			raise Exception('Should not happen')
 
@@ -860,19 +856,20 @@ class Board():
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.round_status[player, 4] = PHASE_REDEPLOY
-			self._update_round_status()
+			self._update_round_status(current_ppl, player)
 
 		elif current_ppl[2] == FORTIFIED:
 			# Put fortress
 			self.territories[area, 4] += 1
 			self.territories[area, 5] += 1
+			self.territories[area, 6] += 1
 			current_ppl[4]            -= 1
 			# Note that we used a fortress during this turn
 			current_ppl[4]            |= 2**6
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.round_status[player, 4] = PHASE_REDEPLOY
-			self._update_round_status()
+			self._update_round_status(current_ppl, player)
 
 		elif current_ppl[2] == HEROIC:
 			# Put hero
@@ -882,7 +879,7 @@ class Board():
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
 			self.round_status[player, 4] = PHASE_REDEPLOY
-			self._update_round_status()
+			self._update_round_status(current_ppl, player)
 
 		elif current_ppl[2] == DIPLOMAT:
 			other_player_relative_id = area
@@ -908,7 +905,7 @@ class Board():
 			current_ppl[4] = 1
 			self.round_status[player, 4] = PHASE_CONQUEST
 
-			self._update_round_status()
+			self._update_round_status(current_ppl, player)
 
 		else:
 			raise Exception('Should not happen')
@@ -938,6 +935,7 @@ class Board():
 
 	def _do_end(self, player, deterministic):
 		current_ppl, current_id = self._current_ppl(player)
+		self._update_round_status(current_ppl, player)
 		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT, deterministic)
 		# Status change already handled by previous function
 
@@ -1025,6 +1023,9 @@ class Board():
 		self.territories[area,3:7] = 0
 		self.territories[area,7] = player
 		winner_ppl[0] -= nb_attacking_ppl
+
+		if loser_ppl is not None:
+			self._update_round_status(loser_ppl, loser_id)
 		self._update_territory_after_win_or_decline(winner_ppl, player, area)
 
 		# Update #NETWDT
@@ -1265,8 +1266,9 @@ class Board():
 		self._prepare_for_ready(next_player, next_ppl, deterministic)
 
 	def _compute_and_update_score(self, player):
+		current_ppl, _ = self._current_ppl(player)
+		self._update_round_status(current_ppl, player)
 		score_for_this_turn = 0
-		self._update_round_status()
 
 		# Iterate on areas and count score
 		for area in range(NB_AREAS):
@@ -1300,10 +1302,10 @@ class Board():
 			score_for_this_turn += 2
 		if self.peoples[player, ACTIVE, 2] == WEALTHY and self.peoples[player, ACTIVE, 4] > 0:
 			score_for_this_turn += self.peoples[player, ACTIVE, 4]
-			self.peoples[player, ACTIVE, 4] = 0
+			self.peoples[player, ACTIVE, 4] = 0 # Reset value at this stage
 
-		#if score_for_this_turn != self.round_status[player, 6]:
-		#	print(f'Je tombe sur {score_for_this_turn} alors que le calcul itératif donne {self.round_status[player, 6]}')
+		if score_for_this_turn != self.round_status[player, 6]:
+			print(f'Je tombe sur {score_for_this_turn} alors que le calcul itératif donne {self.round_status[player, 6]}')
 			# breakpoint()
 
 		backup_score = self.game_status[player, 6]
@@ -1425,32 +1427,38 @@ class Board():
 		# Compute 7
 		self.territories[area, 7] = player
 
-	def _update_round_status(self):
-		self.peoples[:, :, 6] = 0
-		self.round_status[:, 0] = 0
-		self.round_status[:, 5] = 0
-		self.round_status[:, 6] = 0
-		for area in range(NB_AREAS):
-			ppl, ppl_id = self._ppl_owner_of(area)
-			if ppl is None:
-				continue
-			# Compute peoples[:,:,6]
-			ppl[6] += self.territories[area, 6]
-			# Compute round_status[0]
-			self.round_status[ppl_id, 0] += self.territories[area, 0]
-			# Compute round_status[5]
-			self.round_status[ppl_id, 5] += self.territories[area, 5]
+	def _update_round_status(self, current_ppl, player):
+		current_ppl[6] = 0
+		self.round_status[player, 0] = 0
+		self.round_status[player, 5] = 0
+		self.round_status[player, 6] = 0
 
-		for player in range(NUMBER_PLAYERS):
+		territories_of_player = self._are_occupied_by(current_ppl)
+		for area in np.flatnonzero(territories_of_player):
+			# Compute peoples[:,:,6]
+			current_ppl[6] += self.territories[area, 6]
+			# Compute round_status[0]
+			self.round_status[player, 0] += self.territories[area, 0]
+			# Compute round_status[5]
+			# if self.territories[area, 5] > IMMUNITY+10:
+			# 	print(f'Overflow protection on IMMUNITY {self.territories[area, 5]}')
+			# self.round_status[player, 5] += min(self.territories[area, 5], IMMUNITY+10)
+			self.round_status[player, 5] += self.territories[area, 5]
+			if self.round_status[player, 5] < 0:
+				print(f'Overflow protection on round_status {self.territories[area, 5]} {self.round_status[player, 5]}')
+				self.round_status[player, 5] = 127
+
+		if current_ppl[1] >= 0:
 			# Bonus points if: orc (+NETWDT), pillaging (+NETWDT), alchemist (+2), wealthy+1stRound (+7)
-			if self.peoples[player, ACTIVE, 1] == ORC:
-				self.peoples[player, ACTIVE, 6] += self.round_status[player, 3]
-			if self.peoples[player, ACTIVE, 2] == PILLAGING:
-				self.peoples[player, ACTIVE, 6] += self.round_status[player, 3]
-			if self.peoples[player, ACTIVE, 2] == ALCHEMIST:
-				self.peoples[player, ACTIVE, 6] += 2
-			if self.peoples[player, ACTIVE, 2] == WEALTHY and self.peoples[player, ACTIVE, 4] > 0:
-				self.peoples[player, ACTIVE, 6] += self.peoples[player, ACTIVE, 4]
-				# self.peoples[player, ACTIVE, 4] = 0
-			# Compute round_status[6]
-			self.round_status[player, 6] = self.peoples[player, :, 6].sum()
+			if current_ppl[1] == ORC:
+				current_ppl[6] += self.round_status[player, 3]
+			if current_ppl[2] == PILLAGING:
+				current_ppl[6] += self.round_status[player, 3]
+			if current_ppl[2] == ALCHEMIST:
+				current_ppl[6] += 2
+			if current_ppl[2] == WEALTHY and current_ppl[4] > 0:
+				current_ppl[6] += current_ppl[4]
+				# Reset current_ppl[4] only at the end, in _compute_and_update_score()
+
+		# Compute round_status[6]
+		self.round_status[player, 6] = self.peoples[player, :, 6].sum()
