@@ -6,7 +6,7 @@ from .SmallworldConstants import *
 from .SmallworldMaps import *
 from .SmallworldDisplay import print_board, print_valids, move_to_str
 
-USERANDOM = False
+USERANDOM = True
 
 ############################## BOARD DESCRIPTION ##############################
 
@@ -54,7 +54,9 @@ USERANDOM = False
 #####                                 7      Player id (i)
 #####   39   self.invisible_deck     0-1     Bitfield stating if people #i (0-14) is already in deck or used
 #####                                2-4     Bitfield stating if power #i (0-20) is already in deck or used
-#####                                5-7     - empty -
+#####                                 5      Number of dice usage
+#####                                 6      Number of random usage for deck
+#####                                 7      - empty -
 # Indexes above are assuming 2 players, you can have more details in copy_state().
 #
 # How is used self.peoples[:,:,3] depending on people:
@@ -253,11 +255,11 @@ class Board():
 		def _roll_in_place_axis0_2d(array):
 			tmp_copy = array.copy()
 			for i in range(array.shape[0]):
-				array[i,:] = tmp_copy[(i+nb_swaps)%NUMBER_PLAYERS,:]
+				array[i,:7] = tmp_copy[(i+nb_swaps)%NUMBER_PLAYERS,:7]
 		def _roll_in_place_axis0_3d(array):
 			tmp_copy = array.copy()
 			for i in range(array.shape[0]):
-				array[i,:,:] = tmp_copy[(i+nb_swaps)%NUMBER_PLAYERS,:,:]
+				array[i,:,:7] = tmp_copy[(i+nb_swaps)%NUMBER_PLAYERS,:,:7]
 		def _roll_in_place_territories(territories):
 			for area in range(territories.shape[0]):
 				if territories[area, 7] < 0:
@@ -269,11 +271,6 @@ class Board():
 		_roll_in_place_axis0_2d(self.round_status)
 		_roll_in_place_axis0_2d(self.game_status)
 		_roll_in_place_axis0_3d(self.peoples)
-		for ppl_id in range(ACTIVE+1):
-			self.peoples[:, ppl_id, 7] = np.arange(NUMBER_PLAYERS)
-		self.round_status[:, 7] = np.arange(NUMBER_PLAYERS)
-		self.game_status[:, 7] = np.arange(NUMBER_PLAYERS)
-
 
 	def get_symmetries(self, policy, valids):
 		# Always called on canonical board, meaning player = 0
@@ -418,7 +415,17 @@ class Board():
 				return
 			nb_attacking_ppl = max(minimum_ppl_for_attack - dice, 1)
 		elif use_dice:
-			dice = np.random.choice(DICE_VALUES) if not deterministic and USERANDOM else DICE_VALUES[3]
+			if USERANDOM:
+				if deterministic == 0:
+					dice = np.random.choice(DICE_VALUES)
+				else:
+					# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
+					# m=6, c=5, a=1980+1
+					rnd_value = (1981 * (deterministic+self.invisible_deck[5]) + 5) % 6
+					dice = DICE_VALUES[rnd_value]
+				self.invisible_deck[5] += 1
+			else:
+				dice = DICE_VALUES[3]
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				self.round_status[player, 4] = PHASE_CONQ_WITH_DICE
 				return
@@ -1179,7 +1186,17 @@ class Board():
 	def _switch_status_berserk(self, player, current_ppl, old_status, next_status, deterministic):
 		if next_status in [PHASE_READY, PHASE_ABANDON, PHASE_CHOOSE, PHASE_CONQUEST]:
 			# pre-run dice
-			dice = np.random.choice(DICE_VALUES) if not deterministic and USERANDOM else DICE_VALUES[3]
+			if USERANDOM:
+				if deterministic == 0:
+					dice = np.random.choice(DICE_VALUES)
+				else:
+					# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
+					# m=6, c=5, a=1980+1
+					rnd_value = (1981 * (deterministic+self.invisible_deck[5]) + 5) % 6
+					dice = DICE_VALUES[rnd_value]
+				self.invisible_deck[5] += 1
+			else:
+				dice = DICE_VALUES[3]
 			current_ppl[4] = dice + 2**6
 		else:
 			current_ppl[4] = 0
@@ -1347,13 +1364,21 @@ class Board():
 		self.visible_deck[0:index, 6] += 1
 		# Draw a new people for last combination
 		avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
-		if not USERANDOM or deterministic:
-			chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
-			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
+		if USERANDOM:
+			if deterministic == 0:
+				chosen_ppl = np.random.choice(avail_people_id)
+				chosen_power = np.random.choice(avail_power_id)
+			else:
+				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
+				# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
+				rnd_value = (4594591 * (deterministic+self.invisible_deck[6])) % avail_people_id.size
+				chosen_ppl = avail_people_id[rnd_value]
+				rnd_value = (4594591 * (deterministic+self.invisible_deck[6])) % avail_power_id.size
+				chosen_power = avail_power_id[rnd_value]
+			self.invisible_deck[6] += 1
 		else:
-			chosen_ppl = np.random.choice(avail_people_id)
-			chosen_power = np.random.choice(avail_power_id)		
-			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
+			chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
+		nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]
 		available_people[chosen_ppl], available_power[chosen_power] = False, False
 

@@ -21,7 +21,7 @@ class SmallworldGame(Game):
     def getActionSize(self):
         return action_size()
 
-    def getNextState(self, board, player, action, deterministic=False):
+    def getNextState(self, board, player, action, deterministic=0):
         self.board.copy_state(board, True)
         next_player = self.board.make_move(action, player, deterministic)
         return (self.board.get_state(), next_player)

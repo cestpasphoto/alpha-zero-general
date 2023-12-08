@@ -48,6 +48,7 @@ def create_player(name, args):
 		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
 		'fpu'             : args.fpu if args.fpu else additional_keys.get('fpu', 0.),
 		'cpuct'           : args.cpuct if args.cpuct else cpuct,
+		'universes'       : additional_keys.get('universes', 0),
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
 		'no_mem_optim'    : False,
