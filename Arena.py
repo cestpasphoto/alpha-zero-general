@@ -3,6 +3,8 @@ log = logging.getLogger(__name__)
 
 import bisect
 from tqdm import trange
+import zlib
+import base64
 
 from MCTS import MCTS
 
@@ -28,7 +30,7 @@ class Arena():
         self.game = game
         self.display = display
 
-    def playGame(self, verbose=False, other_way=False):
+    def playGame(self, initial_state="", verbose=False, other_way=False):
         """
         Executes one episode of a game.
 
@@ -50,16 +52,23 @@ class Arena():
             players = [self.player1]+[self.player2]*(self.game.getNumberOfPlayers()-1)
         else:
             players = [self.player2]+[self.player1]*(self.game.getNumberOfPlayers()-1)
-        curPlayer = 0
+        curPlayer, it = 0, 0
         board = self.game.getInitBoard()
-        it = 0
+
+        # Load initial state
+        if initial_state != "":
+            from numpy import frombuffer, int8
+            data = zlib.decompress(base64.b64decode(initial_state), wbits=-15)
+            board = frombuffer(data[:-3], dtype=int8).reshape(board.shape)
+            curPlayer, it = int(data[-3]), int.from_bytes(data[-2:])
+
         while not self.game.getGameEnded(board, curPlayer).any():
             it += 1
             if verbose:
                 if self.display:
                     self.display(board)
                 print()
-                print(f'Turn {it} Player {curPlayer}: ', end='')
+                print(f'Turn {it} Player {curPlayer}: ', end='')        
                 
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
             action = players[curPlayer](canonical_board, it)
@@ -71,16 +80,24 @@ class Arena():
             if valids[action] == 0:
                 assert valids[action] > 0
             board, curPlayer = self.game.getNextState(board, curPlayer, action)
+
+            if verbose:
+                data = board.tobytes() + curPlayer.to_bytes(1) + it.to_bytes(2)
+                compressed_board = base64.b64encode(zlib.compress(data, level=9, wbits=-15))
+                print(f'state = "{str(compressed_board, "UTF-8")}"')
         if verbose:
             if self.display:
                 self.display(board)
             print("Game over: Turn ", str(it), "Result ", self.game.getGameEnded(board, curPlayer))
+        else:
+            if initial_state != "":
+                print(f"Game over: {self.game.getScore(board, 0)} - {self.game.getScore(board, 1)}")
 
         MCTS.reset_all_search_trees()
             
         return self.game.getGameEnded(board, curPlayer)[0]
 
-    def playGames(self, num, verbose=False):
+    def playGames(self, num, initial_state="", verbose=False):
         """
         Plays num games in which player1 starts num/2 games and player2 starts
         num/2 games.
@@ -100,9 +117,9 @@ class Arena():
             # considered as fair as the last games (2vs1). Switching between 
             # 1vs2 and 2vs1 like below seems more fair:
             # 1 2 2 1   1 2 2 1  ...
-            one_vs_two = (i%4 == 0) or (i%4 == 3)
+            one_vs_two = (i%4 == 0) or (i%4 == 3) or (initial_state != "")
             t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'), refresh=False)
-            gameResult = self.playGame(verbose=verbose, other_way=not one_vs_two)
+            gameResult = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
             if gameResult == (1. if one_vs_two else -1.):
                 oneWon += 1
             elif gameResult == (-1. if one_vs_two else 1.):

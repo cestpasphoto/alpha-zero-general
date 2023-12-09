@@ -64,7 +64,7 @@ def play(args):
 	player1, player2 = create_player(players[0], args), create_player(players[1], args)
 	human = 'human' in players
 	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
-	result = arena.playGames(args.num_games, verbose=args.display or human)
+	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
 	return result
 
 def play_age(args):
@@ -191,6 +191,7 @@ def main():
 	parser.add_argument('--num-games'          , '-n' , action='store', default=30   , type=int  , help='')
 	parser.add_argument('--profile'                   , action='store_true', help='enable profiling')
 	parser.add_argument('--display'                   , action='store_true', help='display')
+	parser.add_argument('--state'              , '-s' , action='store', default="", type=str, help='State to load')
 
 	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None, type=int  , help='Number of games moves for MCTS to simulate.')
 	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, help='cpuct value')
