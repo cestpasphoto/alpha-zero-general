@@ -120,6 +120,31 @@ class SmallworldNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
+		elif self.version == 11: # Same as 10 but with max for S&E instead of avg
+			self.first_layer = LinearNormActivation(self.nb_vect, 64, None)
+			confs  = []
+			confs += [InvertedResidual1d(64, 192, 64, 8, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 64
+			head_PI = [
+				InvertedResidual1d(64, 192, 64, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(64, 192, 64, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
 		elif self.version == 20: # Like V10 but bigger in all dimensions
 			self.first_layer = LinearNormActivation(self.nb_vect, 128, None)
 			confs  = []
@@ -148,81 +173,68 @@ class SmallworldNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
-		elif self.version == 30: # Split input
-			self.first_layer = nn.Sequential(
-				LinearNormActivation(self.nb_vect, self.nb_vect, None),
-				LinearNormActivation(self.nb_vect, self.nb_vect, None),
-			)
-
+		elif self.version == 21: # Like V20 but with 'max' instead of 'avg'
+			self.first_layer = LinearNormActivation(self.nb_vect, 128, None)
 			confs  = []
-			confs += [InvertedResidual1d(23, 192, 64, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 192, 128, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 192, 128, 8, False, "RE")]
 			self.trunk = nn.Sequential(*confs)
 
 			n_filters = 64
 			head_PI = [
-				InvertedResidual1d(64, 192, 64, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 192,  64, 8, True, "HS", setype='max'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *8, n_filters *8),
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [
-				InvertedResidual1d(64, 192, 64, 8, True, "HS", setype='avg'),
-				nn.Flatten(1),
-				nn.Linear(n_filters *8, n_filters *8),
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-			self.trunk_rest = nn.Sequential(
-				nn.Flatten(1),
-				nn.Linear(15*8, 30*8),
-				nn.ReLU(),
-				nn.Linear(30*8, 30*8),
-			)
-			self.output_layers_PI_rest = nn.Sequential(
-				nn.Linear(30*8, n_filters*8),
-				nn.ReLU(),
-			)
-			self.output_layers_V_rest = nn.Sequential(
-				nn.Linear(30*8, n_filters*8),
-				nn.ReLU(),
-			)
-
-			self.final_layers_PI = nn.Sequential(
-				nn.Linear(n_filters*8, self.action_size),
-			)
-			self.final_layers_V = nn.Sequential(
-				nn.Linear(n_filters*8, self.num_players),
-			)
-
-		elif self.version == 40: # Only dense layer, no convolution
-			self.first_layer = nn.Sequential(
-				LinearNormActivation(self.nb_vect, 128, None),
-				LinearNormActivation(128         , 128, nn.ReLU),
-				LinearNormActivation(128         , 128, nn.ReLU),
-				LinearNormActivation(128         , 128, nn.ReLU),
-			)
-			self.trunk = nn.Identity()
-			n_filters = 128
-			head_PI = [
-				nn.Flatten(1),
-				nn.Linear(n_filters *8, n_filters *3),
-				nn.ReLU(),
-				nn.Linear(n_filters *3, n_filters *2),
-				nn.ReLU(),
-				nn.Linear(n_filters *2, self.action_size),
+				nn.Linear(n_filters *8, self.action_size),
 				nn.ReLU(),
 				nn.Linear(self.action_size, self.action_size),
 			]
 			self.output_layers_PI = nn.Sequential(*head_PI)
 
 			head_V = [
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 192,  64, 8, True, "HS", setype='max'),
 				nn.Flatten(1),
-				nn.Linear(n_filters *8, n_filters *3),
+				nn.Linear(n_filters *8, self.num_players),
 				nn.ReLU(),
-				nn.Linear(n_filters *3, n_filters *2),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+
+		elif self.version == 31: # Like V21 but in bigger
+			self.first_layer = LinearNormActivation(self.nb_vect, 256, None)
+			confs  = []
+			confs += [InvertedResidual1d(256, 384, 256, 8, False, "RE")]
+			confs += [InvertedResidual1d(256, 384, 256, 8, False, "RE")]
+			confs += [InvertedResidual1d(256, 384, 256, 8, False, "RE")]
+			confs += [InvertedResidual1d(256, 384, 256, 8, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 128
+			head_PI = [
+				InvertedResidual1d(256, 384, 256, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(256, 384, 256, 8, True, "HS", setype='max'),
+				InvertedResidual1d(256, 384, 256, 8, True, "HS", setype='max'),
+				InvertedResidual1d(256, 384, 128, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, n_filters *8),
 				nn.ReLU(),
-				nn.Linear(n_filters *2, self.num_players),
+				nn.Linear(n_filters *8, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(256, 384, 256, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(256, 384, 256, 8, True, "HS", setype='max'),
+				InvertedResidual1d(256, 384, 256, 8, True, "HS", setype='max'),
+				InvertedResidual1d(256, 384, 128, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, n_filters *8),
+				nn.ReLU(),
+				nn.Linear(n_filters *8, self.num_players),
 				nn.ReLU(),
 				nn.Linear(self.num_players, self.num_players),
 			]
@@ -241,27 +253,12 @@ class SmallworldNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		if self.version in [10, 20, 40]: # Use input as is
+		if self.version in [10, 11, 20, 21, 31]: # Use input as is
 			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
 			x = self.first_layer(x)
 			x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
 			v = self.output_layers_V(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
-
-		elif self.version in [30]: # Split input
-			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
-			
-			x = self.first_layer(x)
-			x_territories, x_rest = x.split([23,15], dim=1)
-
-			x_territories = F.dropout(self.trunk(x_territories), p=self.args['dropout'], training=self.training)
-			pi_territories, v_territories = self.output_layers_PI(x_territories), self.output_layers_V(x_territories)
-
-			x_rest = F.dropout(self.trunk_rest(x_rest), p=self.args['dropout'], training=self.training)
-			pi_rest, v_rest = self.output_layers_PI_rest(x_rest), self.output_layers_V_rest(x_rest)
-			
-			v = self.final_layers_V(v_territories + v_rest)
-			pi = torch.where(valid_actions, self.final_layers_PI(pi_territories + pi_rest), self.lowvalue)
 
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
