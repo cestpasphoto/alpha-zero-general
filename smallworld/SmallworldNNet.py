@@ -201,7 +201,6 @@ class SmallworldNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
-
 		elif self.version == 31: # Like V21 but in bigger
 			self.first_layer = LinearNormActivation(self.nb_vect, 256, None)
 			confs  = []
@@ -240,6 +239,114 @@ class SmallworldNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
+		elif self.version == 32: # Like V31 but narrower
+			self.first_layer = LinearNormActivation(self.nb_vect, 128, None)
+			confs  = []
+			confs += [InvertedResidual1d(128, 192, 128, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 192, 128, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 192, 128, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 192, 128, 8, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 64
+			head_PI = [
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 192, 64, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, n_filters *8),
+				nn.ReLU(),
+				nn.Linear(n_filters *8, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 192, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 192, 64, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, n_filters *8),
+				nn.ReLU(),
+				nn.Linear(n_filters *8, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		elif self.version == 33: # Like V31 but narrower
+			self.first_layer = LinearNormActivation(self.nb_vect, 128, None)
+			confs  = []
+			confs += [InvertedResidual1d(128, 384, 128, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 384, 128, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 384, 128, 8, False, "RE")]
+			confs += [InvertedResidual1d(128, 384, 128, 8, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 64
+			head_PI = [
+				InvertedResidual1d(128, 384, 128, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 384, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 384, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 384, 64, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, n_filters *8),
+				nn.ReLU(),
+				nn.Linear(n_filters *8, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(128, 384, 128, 8, True, "HS", setype='avg'),
+				InvertedResidual1d(128, 384, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 384, 128, 8, True, "HS", setype='max'),
+				InvertedResidual1d(128, 384, 64, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, n_filters *8),
+				nn.ReLU(),
+				nn.Linear(n_filters *8, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
+		elif self.version == 34: # Like V31 but shallower
+			self.first_layer = LinearNormActivation(self.nb_vect, 256, None)
+			confs  = []
+			confs += [InvertedResidual1d(256, 384, 256, 8, False, "RE")]
+			confs += [InvertedResidual1d(256, 384, 256, 8, False, "RE")]
+			self.trunk = nn.Sequential(*confs)
+
+			n_filters = 128
+			head_PI = [
+				InvertedResidual1d(256, 384, 256, 8, True, "HS", setype='max'),
+				InvertedResidual1d(256, 384, 128, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, n_filters *8),
+				nn.ReLU(),
+				nn.Linear(n_filters *8, self.action_size),
+				nn.ReLU(),
+				nn.Linear(self.action_size, self.action_size),
+			]
+			self.output_layers_PI = nn.Sequential(*head_PI)
+
+			head_V = [
+				InvertedResidual1d(256, 384, 256, 8, True, "HS", setype='max'),
+				InvertedResidual1d(256, 384, 128, 8, True, "HS", setype='max'),
+				nn.Flatten(1),
+				nn.Linear(n_filters *8, n_filters *8),
+				nn.ReLU(),
+				nn.Linear(n_filters *8, self.num_players),
+				nn.ReLU(),
+				nn.Linear(self.num_players, self.num_players),
+			]
+			self.output_layers_V = nn.Sequential(*head_V)
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -253,7 +360,7 @@ class SmallworldNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		if self.version in [10, 11, 20, 21, 31]: # Use input as is
+		if self.version in [10, 11, 20, 21, 31, 32, 33, 34]: # Use input as is
 			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
 			x = self.first_layer(x)
 			x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
