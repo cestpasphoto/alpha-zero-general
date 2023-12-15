@@ -1,6 +1,3 @@
-<details>
-  <summary>Click here to see details in this section</summary>
-
 * [x] Support games with **more than 2 players**
 * Speed/memory optimized - Reaching **about 3000 rollouts/sec per CPU core**, meaning about 5 sec/game during self-play (using 800 rollouts per move), with an i5 from 2019 without GPU. All in all, that is a 25x to 100x speed improvement compared to initial repo, see [details here](santorini/README.md).
   * [x] MCTS and logic optimized thanks to Numba, NN inference is now >70% time spent during self-plays based on profiler analysis
@@ -24,11 +21,17 @@
   * [x] Upgrade to KL-divergence loss instead of crossentropy
 
 What I tried but didn't worked:
-* MCTS: advanced cpuct formula (using init and base), and surprise weight - https://github.com/lightvector/KataGo/blob/master/docs/KataGoMethods.md
+* MCTS: advanced cpuct formula (using init and base), [surprise weight](https://github.com/lightvector/KataGo/blob/master/docs/KataGoMethods.md), and handle different training with Z and Q values (not averaging) like [this article](https://doi.org/10.48550/arXiv.2103.17228)
 * NN: SGD optimizer, ReduceLROnPlateau scheduler
-* NN architecture: Dropout, BatchNorm2D, GARB [article](https://www.mdpi.com/2079-9292/10/13/1533), regular architectures like EfficientNet, ResNet, ResNet v2, Squeeze-Excitation, Inception, ResNext, ...
+* NN architecture: Dropout, BatchNorm2D (BatchNorm works), GARB [article](https://www.mdpi.com/2079-9292/10/13/1533), regular architectures like EfficientNet, ResNet, ResNet v2, Squeeze-Excitation, Inception, ResNext, ...
 * Performance improvements: new memory allocator (TBB, TC, JE, ...)
 
 Others changes: parameters can be set in cmdline (added new parameters like time limit) and improved prints (logging, tqdm, colored bards depending on current Arena results). Output an ELO-like ranking
 
-Still todo: set up HyperParameters Optimization (like Hyperband or Population-Based Traininginclude), and 
+Still todo:
+  * [ ] PC-PIMC or what I call "universes" (https://doi.org/10.3389/frai.2023.1014561)
+  * [ ] Auto dirichlet at each iteration, or auto-dirichlet at each move
+  * [ ] Run full random move in 1% of game to increase diversity 
+  * [ ] HyperParameters Optimization (like Hyperband or Population-Based Traininginclude)
+  * [ ] Multiprocessing to use several cores during self play
+  * [ ] KLD-thresholding (https://github.com/LeelaChessZero/lc0/pull/721)

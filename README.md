@@ -84,6 +84,12 @@ Compared to initial version, I target a smaller network but more MCTS simulation
 * Initiate training with lower simulations number and less episodes per round
 * `-b 32 -l 0.0003 -p 1 -D 0.3`: define batch size, learning rate, number of epochs and dropout. Larger number of epochs may degrade performance, same for larger batch sizes so you only need to tune roughly dropout value (0., 0.3 or 0.3).
 
+My baseline of training scenario is the following:
+1. `-m 100 -q 0.  -l 0.003  -e 200  -i 2     -f 0.1`
+2. `-m 200 -q 0.5 -l 0.001  -e 200  -i 4     -f 0.1`
+3. `-m 400 -q 0.5 -l 0.0003 -e 500  -i 8  -F -f 0.1`
+4. `-m 800 -q 1.0 -l 0.0003 -e 1500 -i 10 -F -f 0.1`
+
 ![Sample training](splendor/sample_training.jpg)
 
 Of course you need to tune parameters depending on the game, especially cpuct, FPU, dirichlet noise. The option `-V` allows you to switch between different NN architectures. If you specify a previous checkpoint using a different architecture, it will still try loading weights as much as possible. It allows me starting first steps of training with small/fast networks and then I experiment larger networks.
