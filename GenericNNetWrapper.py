@@ -58,6 +58,19 @@ class GenericNNetWrapper(NeuralNet):
 			for i_batch in range(batch_count):
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False)
 				boards, pis, vs, valid_actions, qs = self.pick_examples(examples, sample_ids)
+
+				# Modify training set:
+				# duplicate each set with "vs" on one hand and "qs" on the other hand, not averaging them
+				# idea from https://arxiv.org/abs/2103.17228
+				# boards = tuple(list(boards) + list(boards))
+				# pis = tuple(list(pis) + list(pis))
+				# valid_actions = tuple(list(valid_actions) + list(valid_actions))
+				# # vs = tuple(list(vs) + list(qs))
+				# # qs = vs
+				# vs = tuple(list(vs) + list(vs))
+				# qs = tuple(list(qs) + list(qs))
+
+
 				boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
