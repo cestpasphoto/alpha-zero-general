@@ -418,6 +418,8 @@ class Board():
 			if USERANDOM:
 				if deterministic == 0:
 					dice = np.random.choice(DICE_VALUES)
+				elif deterministic == -1:
+					dice = DICE_VALUES[3]
 				else:
 					# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 					# m=6, c=5, a=1980+1
@@ -1189,6 +1191,8 @@ class Board():
 			if USERANDOM:
 				if deterministic == 0:
 					dice = np.random.choice(DICE_VALUES)
+				elif deterministic == -1:
+					dice = DICE_VALUES[3]
 				else:
 					# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 					# m=6, c=5, a=1980+1
@@ -1368,6 +1372,8 @@ class Board():
 			if deterministic == 0:
 				chosen_ppl = np.random.choice(avail_people_id)
 				chosen_power = np.random.choice(avail_power_id)
+			elif deterministic == -1:
+				chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
 			else:
 				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 				# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1

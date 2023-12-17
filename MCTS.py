@@ -58,10 +58,10 @@ class MCTS():
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
 
-        nb_universes = self.args.universes if is_full_search else 1
-        random_seeds = [randrange(2**16) for _ in range(nb_universes)]
+        nb_universes = abs(self.args.universes)
+        random_seeds = [randrange(1, 2**16) for _ in range(nb_universes)] if self.args.universes > 0 else [1984, 31415, 3108, 1411][:nb_universes]
         for self.step in range(nb_MCTS_sims):
-            self.random_seed = random_seeds[self.step % nb_universes] if nb_universes > 0 else 1984
+            self.random_seed = random_seeds[self.step % nb_universes] if self.args.universes != 0 else -1
             dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
             self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
 
