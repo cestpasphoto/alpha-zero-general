@@ -2,8 +2,6 @@ import logging
 import math
 import numpy as np
 import gc
-from random import randrange
-from copy import deepcopy
 
 from numba import njit
 
@@ -43,7 +41,6 @@ class MCTS():
         self.step = 0
         self.last_cleaning = 0
         self.batch_info = batch_info
-        self.random_seed = 0
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -57,28 +54,27 @@ class MCTS():
         is_full_search = force_full_search or (self.rng.random() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
-
-        nb_universes = self.args.universes if is_full_search else 1
-        random_seeds = [randrange(2**16) for _ in range(nb_universes)]
         for self.step in range(nb_MCTS_sims):
-            self.random_seed = random_seeds[self.step % nb_universes] if nb_universes > 0 else 1984
             dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
             self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
 
         s = self.game.stringRepresentation(canonicalBoard)
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
+
+        # Compute Q at root node
+        q_player0 = self.nodes_data[s][7]
+        q = [q_player0 if n == 0 else -q_player0/(self.game.num_players-1) for n in range(self.game.num_players)]
+
         # Policy target pruning
         if forced_playouts:
             best_count = max(counts)
             Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
             adjusted_counts = [Nsa-int(math.sqrt(k*Psa*nb_MCTS_sims)) if Nsa != best_count else Nsa for (Nsa, Psa) in zip(counts, Psas)]
-            counts = [c if c > 1 else 0 for c in adjusted_counts]
-        counts = np.array(counts)
-        probs = counts / counts.sum()
+            adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
+            counts = adjusted_counts
 
-        # Compute Q at root node
-        q_player0 = self.nodes_data[s][7]
-        q = np.array([q_player0 if n == 0 else -q_player0/(self.game.num_players-1) for n in range(self.game.num_players)])
+        probs = np.array(counts)
+        probs = probs / probs.sum()
 
         # Clean search tree from very old moves = less memory footprint and less keys to search into
         if not self.args.no_mem_optim:
@@ -91,12 +87,13 @@ class MCTS():
         if temp == 0:
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
             bestA = np.random.choice(bestAs)
-            probs = np.zeros(self.game.getActionSize())
+            probs = [0] * len(counts)
             probs[bestA] = 1
             return probs, q, is_full_search
 
-        probs = counts ** (1. / temp)
-        probs = probs / probs.sum()
+        counts = [x ** (1. / temp) for x in counts]
+        counts_sum = float(sum(counts))
+        probs = [x / counts_sum for x in counts]
         return probs, q, is_full_search
 
     def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False):
@@ -166,7 +163,6 @@ class MCTS():
             forced_playouts,
             self.step,
             self.args.fpu,
-            self.random_seed,
         )
 
         v = self.search(next_s)
@@ -224,12 +220,12 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, n_ite
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, n_iter, fpu, random_seed):
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, n_iter, fpu):
     a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, n_iter, fpu)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)
-    next_player = gameboard.make_move(a, 0, deterministic=random_seed)
+    next_player = gameboard.make_move(a, 0, deterministic=True)
     # next_s = gameboard.get_state()
 
     # Get canonical form
