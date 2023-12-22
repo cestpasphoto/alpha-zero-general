@@ -1,6 +1,6 @@
 import numpy as np
 
-NUMBER_PLAYERS = 2 # Will automatically switch to adequate map
+NUMBER_PLAYERS = 4 # Will automatically switch to adequate map
 
 ############################# TERRAIN CONSTANTS #############################
 

@@ -6,7 +6,7 @@ from .SmallworldConstants import *
 from .SmallworldMaps import *
 from .SmallworldDisplay import print_board, print_valids, move_to_str
 
-USERANDOM = False
+USERANDOM = True
 
 ############################## BOARD DESCRIPTION ##############################
 
@@ -539,7 +539,7 @@ class Board():
 					self.territories[area] = [0, NOPPL, NOPOWER, 0, 0, 0, 0, -1]
 
 			self.peoples[player, declined_id, :7] = 0
-			self._update_deck_after_decline()
+			self._update_deck_after_decline(deterministic)
 
 		# Move ppl to decline and keep only 1 ppl per territory except if ghoul
 		if current_ppl[1] == GHOUL:
@@ -1345,9 +1345,11 @@ class Board():
 		self.visible_deck[index:DECK_SIZE-1, :] = self.visible_deck[index+1:DECK_SIZE, :]
 		# Give previous combos 1 coin each
 		self.visible_deck[0:index, 6] += 1
-		# Draw a new people for last combination
+		# Draw a new people
 		avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
-		if not USERANDOM or deterministic:
+		if avail_people_id.size == 0:
+			chosen_ppl, chosen_power, nb_of_ppl = NOPPL, NOPOWER, 0
+		elif not USERANDOM or deterministic:
 			chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		else:
@@ -1361,7 +1363,7 @@ class Board():
 		self.invisible_deck[0:2] = my_packbits(available_people)
 		self.invisible_deck[2:5] = my_packbits(available_power)
 
-	def _update_deck_after_decline(self):
+	def _update_deck_after_decline(self, deterministic):
 		# Note all people as available
 		available_people = np.ones(WIZARD+1, dtype=np.int8)
 		available_people[NOPPL] = False
@@ -1378,7 +1380,23 @@ class Board():
 				available_people[ abs(ppl) ] = False
 		for pwr in self.peoples[:, :, 2].flat:
 			if pwr != NOPOWER:
-				available_power[ abs(pwr) ] = False		
+				available_power[ abs(pwr) ] = False
+
+		# Draw people if needed
+		avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
+		if avail_people_id.size > 0:
+			for i in range(DECK_SIZE):
+				if self.visible_deck[i, 0] == NOPPL:
+					if not USERANDOM or deterministic:
+						chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
+						nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
+					else:
+						chosen_ppl = np.random.choice(avail_people_id)
+						chosen_power = np.random.choice(avail_power_id)		
+						nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
+					self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]
+					available_people[chosen_ppl], available_power[chosen_power] = False, False
+					avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
 
 		self.invisible_deck[0:2] = my_packbits(available_people)
 		self.invisible_deck[2:5] = my_packbits(available_power)
