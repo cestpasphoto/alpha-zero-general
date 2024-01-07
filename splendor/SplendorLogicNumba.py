@@ -89,7 +89,7 @@ import numba
 # of MCTS tree go deeper and training data is more relevant. Even on truly
 # random pit, the training result behaves better than before.
 # Enable it ONLY FOR TRAINING.
-REPEATABLE_RANDOM = False
+REPEATABLE_RANDOM = True
 
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
