@@ -117,7 +117,7 @@ def main():
 	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves after which changing temperature')
 	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.25, 0.8], type=float, nargs=2, help='Softmax temp: 1 = to apply before MCTS, 3 = after MCTS, only used for selection not for learning')
 	parser.add_argument('--cpuct'           , '-c' , action='store', default=1.25 , type=float, help='cpuct value')
-	parser.add_argument('--dirichletAlpha'  , '-d' , action='store', default=0.2  , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position')    
+	parser.add_argument('--dirichletAlpha'  , '-d' , action='store', default=-1   , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position. 0 to disable. -1 for auto.')
 	parser.add_argument('--fpu'             , '-f' , action='store', default=0.   , type=float, help='Value for FPU (first play urgency): negative value for absolute value, positive value for parent-based reduction')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	

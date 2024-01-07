@@ -28,7 +28,7 @@ class Coach():
 		self.nnet = nnet
 		self.pnet = self.nnet.__class__(self.game, self.nnet.args)  # the competitor network
 		self.args = args
-		self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0))
+		self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
 		self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
 		self.skipFirstSelfPlay = nnet.requestKnowledgeTransfer  # can be overriden in loadTrainExamples()
 		self.consecutive_failures = 0
@@ -96,7 +96,7 @@ class Coach():
 		while shared_memory[-1] == 0: # Signal 0 means to continue computing
 			my_game = self.game.__class__()
 			my_game.getInitBoard()
-			my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0), batch_info=batch_info)
+			my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info)
 			episode = self.executeEpisode(my_mcts, my_game)
 			self.examplesQueue.put(episode)
 
@@ -110,7 +110,7 @@ class Coach():
 		if self.nb_threads == 1:
 			for _ in trange(self.args.numEps, desc="Self Play", ncols=120):
 				iterationTrainExamples += self.executeEpisode()
-				self.MCTS = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha>0))
+				self.MCTS = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
 				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
 					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
 					break
@@ -172,7 +172,7 @@ class Coach():
 				# Check average number of valid moves, and compare to Dirichlet
 				nb_valid_moves = [sum(pickle.loads(zlib.decompress(x))[3]) for x in iterationTrainExamples]
 				avg_valid_moves = sum(nb_valid_moves) / len(nb_valid_moves)
-				if not (1/1.5 < self.args.dirichletAlpha / (10/avg_valid_moves) < 1.5):
+				if self.args.dirichletAlpha > 0 and not (1/1.5 < self.args.dirichletAlpha / (10/avg_valid_moves) < 1.5):
 					print(f'There are about {avg_valid_moves:.1f} valid moves per state, so I advise to set dirichlet to {10/avg_valid_moves:.1f} instead')
 
 			if self.args.profile:

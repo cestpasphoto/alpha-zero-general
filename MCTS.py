@@ -178,7 +178,11 @@ class MCTS():
 
 
     def applyDirNoise(self, Ps, Vs):
-        dir_values = self.rng.dirichlet([self.args.dirichletAlpha] * np.count_nonzero(Vs))
+        if self.args.dirichletAlpha > 0:
+            dir_values = self.rng.dirichlet([self.args.dirichletAlpha] * np.count_nonzero(Vs))
+        elif self.args.dirichletAlpha < 0:
+            # Automatic value
+            dir_values = self.rng.dirichlet([10 / np.count_nonzero(Vs)] * np.count_nonzero(Vs))
         dir_idx = 0
         for idx in range(len(Ps)):
             if Vs[idx]:
