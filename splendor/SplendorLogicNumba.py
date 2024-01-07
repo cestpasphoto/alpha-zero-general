@@ -89,7 +89,6 @@ import numba
 # of MCTS tree go deeper and training data is more relevant. Even on truly
 # random pit, the training result behaves better than before.
 # Enable it ONLY FOR TRAINING.
-REPEATABLE_RANDOM = True
 
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
@@ -196,9 +195,6 @@ class Board():
 		return result
 
 	def make_move(self, move, player, deterministic):
-		if REPEATABLE_RANDOM:
-			deterministic = False
-
 		if   move < 12:
 			self._buy(move, player, deterministic)
 		elif move < 12+15:
@@ -314,22 +310,31 @@ class Board():
 	def get_round(self):
 		return self.bank[0].astype(np.uint8)[idx_points]
 
-	def _get_deck_card(self, tier):
+	def _get_deck_card(self, tier, deterministic):
 		nb_remaining_cards_per_color = self.nb_deck_tiers[2*tier,:idx_gold]
 		if nb_remaining_cards_per_color.sum() == 0: # no more cards
 			return None
 		
-		if REPEATABLE_RANDOM and self.bank[0][idx_points] > 6:
-			remaining_cards_all = [ (c,i) for c in range(5) for i,b in enumerate(my_unpackbits(self.nb_deck_tiers[2*tier+1, c])) if b]
-			seed = (self.nb_deck_tiers[2*tier+1, :idx_gold].astype(np.uint8) * mask2).sum()
-			np.random.seed(seed)
-			color, card_index = remaining_cards_all[ np.random.randint(len(remaining_cards_all)) ]
-			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
-		else:
+		if deterministic == 0:
 			# First we chose color randomly, then we pick a card 
 			color = my_random_choice(nb_remaining_cards_per_color/nb_remaining_cards_per_color.sum())
 			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
 			card_index = my_random_choice(remaining_cards/remaining_cards.sum())
+			# print(f'TRUE RANDOM')
+
+		elif deterministic == -1:
+			# empty card
+			print('SHOULD NOT HAPPEN - deterministic = -1')
+		
+		else:
+			# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
+			# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
+			remaining_cards_all = [ (c,i) for c in range(5) for i,b in enumerate(my_unpackbits(self.nb_deck_tiers[2*tier+1, c])) if b]
+			seed = (self.nb_deck_tiers[2*tier+1, :idx_gold].astype(np.uint8) * mask2).sum()
+			fake_random_index = (4594591 * (deterministic+seed)) % len(remaining_cards_all)
+			# print(f'{fake_random_index=} {seed=}')
+			color, card_index = remaining_cards_all[fake_random_index]
+			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
 
 		# Update internals
 		remaining_cards[card_index] = 0
@@ -346,8 +351,8 @@ class Board():
 
 	def _fill_new_card(self, tier, index, deterministic):
 		self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = 0
-		if not deterministic:
-			card = self._get_deck_card(tier)
+		if deterministic != -1:
+			card = self._get_deck_card(tier, deterministic)
 			if card is not None:
 				self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = card
 
@@ -402,9 +407,9 @@ class Board():
 			self.players_reserved[empty_slot:empty_slot+2] = self.cards_tiers[8*tier+2*index:8*tier+2*index+2]
 			self._fill_new_card(tier, index, deterministic)
 		else:      # reserve from deck
-			if not deterministic:
+			if deterministic != -1:
 				tier = i - 12
-				self.players_reserved[empty_slot:empty_slot+2] = self._get_deck_card(tier)
+				self.players_reserved[empty_slot:empty_slot+2] = self._get_deck_card(tier, deterministic)
 		
 		if self.bank[0][idx_gold] > 0 and self.players_gems[player].sum() <= 9:
 			self.players_gems[player][idx_gold] += 1

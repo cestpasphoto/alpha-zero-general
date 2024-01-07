@@ -2,6 +2,8 @@ import logging
 import math
 import numpy as np
 import gc
+from random import randrange
+from copy import deepcopy
 
 from numba import njit
 
@@ -41,6 +43,7 @@ class MCTS():
         self.step = 0
         self.last_cleaning = 0
         self.batch_info = batch_info
+        self.random_seed = 0
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -54,7 +57,11 @@ class MCTS():
         is_full_search = force_full_search or (self.rng.random() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
+
+        nb_universes = abs(self.args.universes)
+        random_seeds = [randrange(1, 2**16) for _ in range(nb_universes)] if self.args.universes >= 0 else [1984, 31415, 3108, 1411][:nb_universes]
         for self.step in range(nb_MCTS_sims):
+            self.random_seed = random_seeds[self.step % nb_universes] if self.args.universes != 0 else -1
             dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
             self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
 
@@ -163,6 +170,7 @@ class MCTS():
             forced_playouts,
             self.step,
             self.args.fpu,
+            self.random_seed,
         )
 
         v = self.search(next_s)
@@ -224,12 +232,12 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, n_ite
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, n_iter, fpu):
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, n_iter, fpu, random_seed):
     a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, n_iter, fpu)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)
-    next_player = gameboard.make_move(a, 0, deterministic=True)
+    next_player = gameboard.make_move(a, 0, deterministic=random_seed)
     # next_s = gameboard.get_state()
 
     # Get canonical form

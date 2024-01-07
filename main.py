@@ -132,6 +132,7 @@ def main():
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
+	parser.add_argument('--universes'       , '-u' , action='store', default=0    , type=int  , help='Number of universes to test on each simulation: if > 0 then seed(s) are changed every MCTS::search(), but constant if < 0 and no randomness if == 0')
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
 	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float, help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
