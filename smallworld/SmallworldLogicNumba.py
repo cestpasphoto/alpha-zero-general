@@ -6,8 +6,6 @@ from .SmallworldConstants import *
 from .SmallworldMaps import *
 from .SmallworldDisplay import print_board, print_valids, move_to_str
 
-USERANDOM = True
-
 ############################## BOARD DESCRIPTION ##############################
 
 # Board is described by a NB_AREAS+5*NUMBER_PLAYERS+7 x 8 array
@@ -201,31 +199,31 @@ class Board():
 							
 		return result
 
-	def make_move(self, move, player, deterministic):
+	def make_move(self, move, player, random_seed):
 		current_ppl, _ = self._current_ppl(player)
 
 		if   move < NB_AREAS:
 			area = move
-			self._do_abandon(player, area, deterministic)
+			self._do_abandon(player, area, random_seed)
 		elif move < 2*NB_AREAS:
 			area = move - NB_AREAS
-			self._do_attack(player, area, deterministic)
+			self._do_attack(player, area, random_seed)
 		elif move < 3*NB_AREAS:
 			area = move - 2*NB_AREAS
-			self._do_special_actionppl(player, area, deterministic)
+			self._do_special_actionppl(player, area, random_seed)
 		elif move < 4*NB_AREAS:
 			area = move - 3*NB_AREAS
-			self._do_special_actionpwr(player, area, deterministic)
+			self._do_special_actionpwr(player, area, random_seed)
 		elif move < 5*NB_AREAS+MAX_REDEPLOY:
 			param = move - 4*NB_AREAS
-			self._do_redeploy(player, param, deterministic)
+			self._do_redeploy(player, param, random_seed)
 		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE:
 			area = move - 5*NB_AREAS-MAX_REDEPLOY
-			self._do_choose_ppl(player, area, deterministic)	
+			self._do_choose_ppl(player, area, random_seed)	
 		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1:
-			self._do_decline(player, deterministic)
+			self._do_decline(player, random_seed)
 		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
-			self._do_end(player, deterministic)
+			self._do_end(player, random_seed)
 		else:
 			print('Unknown move {move}')
 
@@ -398,11 +396,11 @@ class Board():
 
 		return True
 
-	def _do_attack(self, player, area, deterministic):
+	def _do_attack(self, player, area, random_seed):
 		current_ppl, current_id = self._current_ppl(player)
 
 		# If 1st action of the turn, prepare people
-		self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, deterministic)
+		self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, random_seed)
 
 		nb_ppl_of_player, minimum_ppl_for_attack = current_ppl[0],self._minimum_ppl_for_attack(area, current_ppl)
 
@@ -415,19 +413,14 @@ class Board():
 				return
 			nb_attacking_ppl = max(minimum_ppl_for_attack - dice, 1)
 		elif use_dice:
-			if USERANDOM:
-				if deterministic == 0:
-					dice = np.random.choice(DICE_VALUES)
-				elif deterministic == -1:
-					dice = DICE_VALUES[3]
-				else:
-					# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-					# m=6, c=5, a=1980+1
-					rnd_value = (1981 * (deterministic+self.invisible_deck[5]) + 5) % 6
-					dice = DICE_VALUES[rnd_value]
-				self.invisible_deck[5] += 1
+			if random_seed == 0:
+				dice = np.random.choice(DICE_VALUES)
 			else:
-				dice = DICE_VALUES[3]
+				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
+				# m=6, c=5, a=1980+1
+				rnd_value = (1981 * (random_seed+self.invisible_deck[5]) + 5) % 6
+				dice = DICE_VALUES[rnd_value]
+			self.invisible_deck[5] += 1
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				self.round_status[player, 4] = PHASE_CONQ_WITH_DICE
 				return
@@ -442,7 +435,7 @@ class Board():
 
 		# Deal with berserk AFTER attack
 		if current_ppl[2] == BERSERK:
-			self._switch_status_berserk(player, current_ppl, None, PHASE_CONQUEST, deterministic)
+			self._switch_status_berserk(player, current_ppl, None, PHASE_CONQUEST, random_seed)
 		# Update winner's status
 		self.round_status[player, 4] = PHASE_CONQ_WITH_DICE if use_dice else PHASE_CONQUEST
 		self._update_round_status(current_ppl, player)
@@ -486,18 +479,18 @@ class Board():
 
 		return valids
 
-	def _do_redeploy(self, player, param, deterministic):
+	def _do_redeploy(self, player, param, random_seed):
 		current_ppl, current_id = self._current_ppl(player)
 
 		if param == 0: # Special case, skip redeploy
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, random_seed)
 			self.round_status[player, 4] = PHASE_REDEPLOY
 			# Status already changed by previous function
 			self._update_round_status(current_ppl, player)
-			self._end_turn_if_possible(player, current_ppl, deterministic)
+			self._end_turn_if_possible(player, current_ppl, random_seed)
 			return
 
-		self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
+		self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, random_seed)
 		self.round_status[player, 4] = PHASE_REDEPLOY
 
 		if param < MAX_REDEPLOY:
@@ -516,7 +509,7 @@ class Board():
 			self.territories[area, 5] += 1
 
 		self._update_round_status(current_ppl, player)
-		self._end_turn_if_possible(player, current_ppl, deterministic)
+		self._end_turn_if_possible(player, current_ppl, random_seed)
 
 	def _valid_decline(self, player):
 		# Going to decline permitted only for active_ppl
@@ -530,12 +523,12 @@ class Board():
 				return False
 		return True
 
-	def _do_decline(self, player, deterministic):
+	def _do_decline(self, player, random_seed):
 		current_ppl = self.peoples[player, ACTIVE, :]
 
 		# Count score now for stout
 		if current_ppl[2] == STOUT:
-			self._prepare_for_new_status(player, current_ppl, PHASE_STOUT_TO_DECLINE, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_STOUT_TO_DECLINE, random_seed)
 			self.round_status[player, 4] = PHASE_STOUT_TO_DECLINE
 
 		declined_id = DECLINED_SPIRIT if current_ppl[2] == SPIRIT else DECLINED
@@ -548,7 +541,7 @@ class Board():
 					self.territories[area] = [0, NOPPL, NOPOWER, 0, 0, 0, 0, -1]
 
 			self.peoples[player, declined_id, :7] = 0
-			self._update_deck_after_decline(deterministic)
+			self._update_deck_after_decline(random_seed)
 
 		# Move ppl to decline and keep only 1 ppl per territory except if ghoul
 		if current_ppl[1] == GHOUL:
@@ -573,7 +566,7 @@ class Board():
 
 		# Count score and switch to next player depending on current status		
 		self._update_round_status(self.peoples[player, declined_id, :], player)
-		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT, deterministic)
+		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT, random_seed)
 		self.round_status[player, 4] = PHASE_WAIT
 
 	def _valids_choose_ppl(self, player):
@@ -595,7 +588,7 @@ class Board():
 
 		return valids
 
-	def _do_choose_ppl(self, player, index, deterministic):
+	def _do_choose_ppl(self, player, index, random_seed):
 		current_ppl = self.peoples[player, ACTIVE, :]
 
 		current_ppl[:3] = self.visible_deck[index, :3]
@@ -606,9 +599,9 @@ class Board():
 		# Earn money but also pay what's needed
 		self.game_status[player, 6] += self.visible_deck[index, 6] - index
 
-		self._prepare_for_new_status(player, current_ppl, PHASE_CHOOSE, deterministic)
+		self._prepare_for_new_status(player, current_ppl, PHASE_CHOOSE, random_seed)
 		self.round_status[player, 4] = PHASE_CHOOSE
-		self._update_deck_after_chose(index, deterministic)
+		self._update_deck_after_chose(index, random_seed)
 
 	def _valids_abandon(self, player):
 		valids = np.zeros(NB_AREAS, dtype=np.bool_)
@@ -628,19 +621,19 @@ class Board():
 
 		return valids
 
-	def _do_abandon(self, player, area, deterministic):
+	def _do_abandon(self, player, area, random_seed):
 		current_ppl, current_id = self._current_ppl(player)
 		self._leave_area(area)
 		if self.round_status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS]:
 			# exception if Amazons abandoned because couldn't redeploy
 			if self._ppl_virtually_available(player, current_ppl, PHASE_REDEPLOY) >= 0:
-				self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
+				self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, random_seed)
 				self.round_status[player, 4] = PHASE_REDEPLOY
 			else:
-				self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON_AMAZONS, deterministic)
+				self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON_AMAZONS, random_seed)
 				self.round_status[player, 4] = PHASE_ABANDON_AMAZONS
 		else:
-			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_ABANDON, random_seed)
 			self.round_status[player, 4] = PHASE_ABANDON
 
 		self._update_round_status(current_ppl, player)
@@ -697,13 +690,13 @@ class Board():
 		else:
 			return False
 
-	def _do_special_actionppl(self, player, area, deterministic):
+	def _do_special_actionppl(self, player, area, random_seed):
 		current_ppl, current_id = self._current_ppl(player)
 
 		if current_ppl[1] == SORCERER:
 			loser_ppl, loser = self._ppl_owner_of(area)
 			# Prepare people if 1st action of the turn
-			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, random_seed)
 			# Replace
 			self.territories[area,:] = [1, SORCERER, current_ppl[2], 0, 0, 0, 0, player]
 			# Note that loser have been 'sorcerized'
@@ -854,7 +847,7 @@ class Board():
 		else:
 			return False
 
-	def _do_special_actionpwr(self, player, area, deterministic):
+	def _do_special_actionpwr(self, player, area, random_seed):
 		current_ppl, current_id = self._current_ppl(player)
 
 		if current_ppl[2] == BIVOUACKING:
@@ -863,7 +856,7 @@ class Board():
 			self.territories[area, 5] += 1
 			current_ppl[4]            -= 1
 
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, random_seed)
 			self.round_status[player, 4] = PHASE_REDEPLOY
 			self._update_round_status(current_ppl, player)
 
@@ -876,7 +869,7 @@ class Board():
 			# Note that we used a fortress during this turn
 			current_ppl[4]            |= 2**6
 
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, random_seed)
 			self.round_status[player, 4] = PHASE_REDEPLOY
 			self._update_round_status(current_ppl, player)
 
@@ -886,7 +879,7 @@ class Board():
 			self.territories[area, 4]  = IMMUNITY
 			current_ppl[4]            -= 1
 
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, random_seed)
 			self.round_status[player, 4] = PHASE_REDEPLOY
 			self._update_round_status(current_ppl, player)
 
@@ -895,7 +888,7 @@ class Board():
 			# Set diplomacy
 			current_ppl[4] = other_player_relative_id
 
-			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, random_seed)
 			self.round_status[player, 4] = PHASE_REDEPLOY
 
 		elif current_ppl[2] == DRAGONMASTER:
@@ -904,7 +897,7 @@ class Board():
 				if self.territories[area_, 4] != 0:
 					self.territories[area_, 5] -= self.territories[area_, 4]
 					self.territories[area_, 4] = 0
-			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, deterministic)
+			self._prepare_for_new_status(player, current_ppl, PHASE_CONQUEST, random_seed)
 			
 			# Update loser and winner, and add dragon
 			self._switch_territory_from_loser_to_winner(area, player, current_ppl, nb_attacking_ppl=1)
@@ -942,10 +935,10 @@ class Board():
 
 		return True
 
-	def _do_end(self, player, deterministic):
+	def _do_end(self, player, random_seed):
 		current_ppl, current_id = self._current_ppl(player)
 		self._update_round_status(current_ppl, player)
-		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT, deterministic)
+		self._prepare_for_new_status(player, current_ppl, PHASE_WAIT, random_seed)
 		# Status change already handled by previous function
 
 	###########################################################################
@@ -1064,7 +1057,7 @@ class Board():
 					current_ppl[0]           += nb_ppl_to_gather
 
 	# All changes in this function must be reported in _prepare_for_ready(x,y) = _prepare_for_new_status(x,y,PHASE_READY)
-	def _prepare_for_new_status(self, player, current_ppl, next_status, deterministic):
+	def _prepare_for_new_status(self, player, current_ppl, next_status, random_seed):
 		old_status = self.round_status[player, 4]
 
 		if old_status in [PHASE_READY] and next_status in [PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
@@ -1089,7 +1082,7 @@ class Board():
 			if next_status == PHASE_CONQUEST:
 				pass # special case if during attack, don't prerun dice yet
 			else:
-				self._switch_status_berserk(player, current_ppl, old_status, next_status, deterministic)
+				self._switch_status_berserk(player, current_ppl, old_status, next_status, random_seed)
 
 		# For stout, compure score BEFORE going to decline, but not switching yet to next player
 		if next_status == PHASE_STOUT_TO_DECLINE:
@@ -1099,10 +1092,10 @@ class Board():
 		if next_status == PHASE_WAIT:
 			if self.game_status[player, 4] == ACTIVE and old_status != PHASE_STOUT_TO_DECLINE:
 				self._compute_and_update_score(player)
-			self._switch_to_next(player, current_ppl, deterministic)
+			self._switch_to_next(player, current_ppl, random_seed)
 
 	# Exactly same function as above but needed anyway since Numba doesn't allow recursion in _switch_to_next()
-	def _prepare_for_ready(self, player, current_ppl, deterministic):
+	def _prepare_for_ready(self, player, current_ppl, random_seed):
 		old_status, next_status = self.round_status[player, 4], PHASE_READY
 
 		# People
@@ -1119,9 +1112,9 @@ class Board():
 		elif current_ppl[2] == DIPLOMAT:
 			self._switch_status_diplomat(player, current_ppl, old_status, next_status)
 		elif current_ppl[2] == BERSERK:
-			self._switch_status_berserk(player, current_ppl, old_status, next_status, deterministic)
+			self._switch_status_berserk(player, current_ppl, old_status, next_status, random_seed)
 
-	def _end_turn_if_possible(self, player, current_ppl, deterministic):
+	def _end_turn_if_possible(self, player, current_ppl, random_seed):
 		# Still people left to deploy
 		if current_ppl[0] > 0:
 			return False
@@ -1138,7 +1131,7 @@ class Board():
 		if not self._valid_end_aux(player, current_ppl):
 			return False
 
-		self._do_end(player, deterministic)
+		self._do_end(player, random_seed)
 		return True
 
 	def _switch_status_amazon(self, player, current_ppl, old_status, next_status):
@@ -1185,22 +1178,17 @@ class Board():
 			if _split_pwr_data(current_ppl[4])[1]:
 				current_ppl[4] = 0
 
-	def _switch_status_berserk(self, player, current_ppl, old_status, next_status, deterministic):
+	def _switch_status_berserk(self, player, current_ppl, old_status, next_status, random_seed):
 		if next_status in [PHASE_READY, PHASE_ABANDON, PHASE_CHOOSE, PHASE_CONQUEST]:
 			# pre-run dice
-			if USERANDOM:
-				if deterministic == 0:
-					dice = np.random.choice(DICE_VALUES)
-				elif deterministic == -1:
-					dice = DICE_VALUES[3]
-				else:
-					# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-					# m=6, c=5, a=1980+1
-					rnd_value = (1981 * (deterministic+self.invisible_deck[5]) + 5) % 6
-					dice = DICE_VALUES[rnd_value]
-				self.invisible_deck[5] += 1
+			if random_seed == 0:
+				dice = np.random.choice(DICE_VALUES)
 			else:
-				dice = DICE_VALUES[3]
+				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
+				# m=6, c=5, a=1980+1
+				rnd_value = (1981 * (random_seed+self.invisible_deck[5]) + 5) % 6
+				dice = DICE_VALUES[rnd_value]
+			self.invisible_deck[5] += 1
 			current_ppl[4] = dice + 2**6
 		else:
 			current_ppl[4] = 0
@@ -1234,7 +1222,7 @@ class Board():
 					how_many_ppl_available += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS, player_territories)
 		return how_many_ppl_available		
 
-	def _switch_to_next(self, player, current_ppl, deterministic):
+	def _switch_to_next(self, player, current_ppl, random_seed):
 		if self.game_status[player, 4] != ACTIVE:		# Next turn is for same player
 			next_player, next_ppl_id = player, ACTIVE
 		else:											# Next turn is for next player
@@ -1283,8 +1271,8 @@ class Board():
 		next_ppl = self.peoples[next_player, next_ppl_id, :]
 		self.game_status[next_player, 4] = next_ppl_id
 		self.round_status[next_player, 4] = PHASE_READY
-		# self._prepare_for_new_status(next_player, next_ppl, PHASE_READY, deterministic) # Numba doesn't allow recursion on jitclass
-		self._prepare_for_ready(next_player, next_ppl, deterministic)
+		# self._prepare_for_new_status(next_player, next_ppl, PHASE_READY, random_seed) # Numba doesn't allow recursion on jitclass
+		self._prepare_for_ready(next_player, next_ppl, random_seed)
 
 	def _compute_and_update_score(self, player):
 		current_ppl, _ = self._current_ppl(player)
@@ -1357,7 +1345,7 @@ class Board():
 		self.invisible_deck[0:2] = my_packbits(available_people)
 		self.invisible_deck[2:5] = my_packbits(available_power)
 
-	def _update_deck_after_chose(self, index, deterministic):
+	def _update_deck_after_chose(self, index, random_seed):
 		# Read bitfield
 		available_people = my_unpackbits(self.invisible_deck[0:2])
 		available_power  = my_unpackbits(self.invisible_deck[2:5])
@@ -1370,23 +1358,18 @@ class Board():
 		avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
 		if avail_people_id.size == 0:
 			chosen_ppl, chosen_power, nb_of_ppl = NOPPL, NOPOWER, 0
-		elif USERANDOM:
-			if deterministic == 0:
+		else:
+			if random_seed == 0:
 				chosen_ppl = np.random.choice(avail_people_id)
 				chosen_power = np.random.choice(avail_power_id)
-			elif deterministic == -1:
-				chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
 			else:
 				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 				# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
-				rnd_value = (4594591 * (deterministic+self.invisible_deck[6])) % avail_people_id.size
+				rnd_value = (4594591 * (random_seed+self.invisible_deck[6])) % avail_people_id.size
 				chosen_ppl = avail_people_id[rnd_value]
-				rnd_value = (4594591 * (deterministic+self.invisible_deck[6])) % avail_power_id.size
+				rnd_value = (4594591 * (random_seed+self.invisible_deck[6])) % avail_power_id.size
 				chosen_power = avail_power_id[rnd_value]
 			self.invisible_deck[6] += 1
-			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
-		else:
-			chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]
 		available_people[chosen_ppl], available_power[chosen_power] = False, False
@@ -1395,7 +1378,7 @@ class Board():
 		self.invisible_deck[0:2] = my_packbits(available_people)
 		self.invisible_deck[2:5] = my_packbits(available_power)
 
-	def _update_deck_after_decline(self, deterministic):
+	def _update_deck_after_decline(self, random_seed):
 		# Note all people as available
 		available_people = np.ones(WIZARD+1, dtype=np.int8)
 		available_people[NOPPL] = False
@@ -1419,13 +1402,18 @@ class Board():
 		if avail_people_id.size > 0:
 			for i in range(DECK_SIZE):
 				if self.visible_deck[i, 0] == NOPPL:
-					if not USERANDOM or deterministic:
-						chosen_ppl, chosen_power = avail_people_id[2027 % avail_people_id.size], avail_power_id[2027 % avail_power_id.size]
-						nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
-					else:
+					if random_seed == 0:
 						chosen_ppl = np.random.choice(avail_people_id)
 						chosen_power = np.random.choice(avail_power_id)		
-						nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
+					else:
+						# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
+						# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
+						rnd_value = (4594591 * (random_seed+self.invisible_deck[6])) % avail_people_id.size
+						chosen_ppl = avail_people_id[rnd_value]
+						rnd_value = (4594591 * (random_seed+self.invisible_deck[6])) % avail_power_id.size
+						chosen_power = avail_power_id[rnd_value]
+					self.invisible_deck[6] += 1
+					nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]						
 					self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]
 					available_people[chosen_ppl], available_power[chosen_power] = False, False
 					avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)

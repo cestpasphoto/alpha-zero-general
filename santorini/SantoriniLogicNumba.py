@@ -421,7 +421,7 @@ class Board():
 
 		return actions
 
-	def make_move(self, move, player, deterministic):
+	def make_move(self, move, player, random_seed):
 		opponent_to_play_next = True
 
 		if INIT_METHOD == 2 and np.abs(self.workers).sum() != 6:	# Not all workers are set, need to chose their position

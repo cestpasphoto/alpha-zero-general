@@ -11,6 +11,7 @@ EPS = 1e-8
 NAN = -42.
 k = 0.5
 MINFLOAT = float('-inf')
+magic_seeds = [31416, 1, 14142, 42, 27183, 2, 16180, 7]
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class MCTS():
         self.step = 0
         self.last_cleaning = 0
         self.batch_info = batch_info
-        self.random_seed = 0
+        self.random_seed = -1
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -58,10 +59,8 @@ class MCTS():
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
 
-        nb_universes = abs(self.args.universes)
-        random_seeds = [randrange(1, 2**16) for _ in range(nb_universes)] if self.args.universes >= 0 else [1984, 31415, 3108, 1411][:nb_universes]
         for self.step in range(nb_MCTS_sims):
-            self.random_seed = random_seeds[self.step % nb_universes] if self.args.universes != 0 else -1
+            self.random_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
             dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
             self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
 
@@ -237,7 +236,7 @@ def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)
-    next_player = gameboard.make_move(a, 0, deterministic=random_seed)
+    next_player = gameboard.make_move(a, 0, random_seed=random_seed)
     # next_s = gameboard.get_state()
 
     # Get canonical form

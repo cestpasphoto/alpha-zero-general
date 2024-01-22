@@ -83,13 +83,6 @@ import numba
 # List of combinations of gems for actions 30-79 are in variables
 # list_different_gems_up_to_2 and list_different_gems_up_to_3 in file SplendorLogic
 
-# Full random actions "breaks" exploration of MCTS tree (same action applied to
-# same state may lead to different state). By having repeatable behavior but
-# still kind of random (that I called "repeatable randomness"), the exploration
-# of MCTS tree go deeper and training data is more relevant. Even on truly
-# random pit, the training result behaves better than before.
-# Enable it ONLY FOR TRAINING.
-
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 mask2 = 2**(5*np.arange(idx_gold))
@@ -194,11 +187,11 @@ class Board():
 		result[80] = True #empty move
 		return result
 
-	def make_move(self, move, player, deterministic):
+	def make_move(self, move, player, random_seed):
 		if   move < 12:
-			self._buy(move, player, deterministic)
+			self._buy(move, player, random_seed)
 		elif move < 12+15:
-			self._reserve(move-12, player, deterministic)
+			self._reserve(move-12, player, random_seed)
 		elif move < 12+15+3:
 			self._buy_reserve(move-12-15, player)
 		elif move < 12+15+3+30:
@@ -310,29 +303,22 @@ class Board():
 	def get_round(self):
 		return self.bank[0].astype(np.uint8)[idx_points]
 
-	def _get_deck_card(self, tier, deterministic):
+	def _get_deck_card(self, tier, random_seed):
 		nb_remaining_cards_per_color = self.nb_deck_tiers[2*tier,:idx_gold]
 		if nb_remaining_cards_per_color.sum() == 0: # no more cards
 			return None
 		
-		if deterministic == 0:
+		if random_seed == 0:
 			# First we chose color randomly, then we pick a card 
 			color = my_random_choice(nb_remaining_cards_per_color/nb_remaining_cards_per_color.sum())
 			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
-			card_index = my_random_choice(remaining_cards/remaining_cards.sum())
-			# print(f'TRUE RANDOM')
-
-		elif deterministic == -1:
-			# empty card
-			print('SHOULD NOT HAPPEN - deterministic = -1')
-		
+			card_index = my_random_choice(remaining_cards/remaining_cards.sum())		
 		else:
 			# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 			# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
 			remaining_cards_all = [ (c,i) for c in range(5) for i,b in enumerate(my_unpackbits(self.nb_deck_tiers[2*tier+1, c])) if b]
 			seed = (self.nb_deck_tiers[2*tier+1, :idx_gold].astype(np.uint8) * mask2).sum()
-			fake_random_index = (4594591 * (deterministic+seed)) % len(remaining_cards_all)
-			# print(f'{fake_random_index=} {seed=}')
+			fake_random_index = (4594591 * (random_seed+seed)) % len(remaining_cards_all)
 			color, card_index = remaining_cards_all[fake_random_index]
 			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
 
@@ -349,12 +335,11 @@ class Board():
 			card = np_all_cards_3[color][card_index]
 		return card
 
-	def _fill_new_card(self, tier, index, deterministic):
+	def _fill_new_card(self, tier, index, random_seed):
 		self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = 0
-		if deterministic != -1:
-			card = self._get_deck_card(tier, deterministic)
-			if card is not None:
-				self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = card
+		card = self._get_deck_card(tier, random_seed)
+		if card is not None:
+			self.cards_tiers[8*tier+2*index:8*tier+2*index+2] = card
 
 	def _buy_card(self, card0, card1, player):
 		card_cost = card0[:idx_gold]
@@ -382,10 +367,10 @@ class Board():
 
 		return np.logical_and(enough_gems_and_gold, not_empty_cards).astype(np.int8)
 
-	def _buy(self, i, player, deterministic):
+	def _buy(self, i, player, random_seed):
 		tier, index = divmod(i, 4)
 		self._buy_card(self.cards_tiers[2*i], self.cards_tiers[2*i+1], player)
-		self._fill_new_card(tier, index, deterministic)
+		self._fill_new_card(tier, index, random_seed)
 
 	def _valid_reserve(self, player):
 		not_empty_cards = np.vstack((self.cards_tiers[:2*12:2,:idx_gold], self.nb_deck_tiers[::2, :idx_gold])).sum(axis=1) != 0
@@ -394,7 +379,7 @@ class Board():
 		empty_slot = (self.players_reserved[6*player+2*(allowed_reserved_cards-1)+1][:idx_gold].sum() == 0)
 		return np.logical_and(not_empty_cards, empty_slot).astype(np.int8)
 
-	def _reserve(self, i, player, deterministic):
+	def _reserve(self, i, player, random_seed):
 		# Detect empty reserve slot
 		reserve_slots = [6*player+2*i for i in range(3)]
 		for slot in reserve_slots:
@@ -405,11 +390,10 @@ class Board():
 		if i < 12: # reserve visible card
 			tier, index = divmod(i, 4)
 			self.players_reserved[empty_slot:empty_slot+2] = self.cards_tiers[8*tier+2*index:8*tier+2*index+2]
-			self._fill_new_card(tier, index, deterministic)
+			self._fill_new_card(tier, index, random_seed)
 		else:      # reserve from deck
-			if deterministic != -1:
-				tier = i - 12
-				self.players_reserved[empty_slot:empty_slot+2] = self._get_deck_card(tier, deterministic)
+			tier = i - 12
+			self.players_reserved[empty_slot:empty_slot+2] = self._get_deck_card(tier, random_seed)
 		
 		if self.bank[0][idx_gold] > 0 and self.players_gems[player].sum() <= 9:
 			self.players_gems[player][idx_gold] += 1

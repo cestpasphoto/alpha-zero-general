@@ -180,7 +180,7 @@ class Board():
 				result[235] = True # If no other move possible, allow to throw cards away
 		return result
 
-	def make_move(self, move, player, deterministic):
+	def make_move(self, move, player, random_seed):
 		if move < 15:
 			self._move_to_register(move, player)
 		elif move < 30:

@@ -22,9 +22,9 @@ class BotanikGame(Game):
     def getActionSize(self):
         return action_size()
 
-    def getNextState(self, board, player, action, deterministic=False):
+    def getNextState(self, board, player, action, random_seed=0):
         self.board.copy_state(board, True)
-        next_player = self.board.make_move(action, player, deterministic)
+        next_player = self.board.make_move(action, player, random_seed)
         return (self.board.get_state(), next_player)
 
     def getValidMoves(self, board, player):
