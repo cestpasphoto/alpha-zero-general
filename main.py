@@ -33,7 +33,7 @@ def run(args):
 	if args.load_model:
 		log.info('Loading checkpoint "%s"...', args.load_folder_file)
 		nnet.load_checkpoint(os.path.dirname(args.load_folder_file), os.path.basename(args.load_folder_file))
-		compare_settings(args)
+		# compare_settings(args)
 	# else:
 	# 	log.warning('Not loading a checkpoint!')
 

@@ -127,7 +127,7 @@ class Coach():
 			threads_list.append(Thread(target=self.nnet.predict_server, args=(self.nb_threads, shared_memory, locks)))
 			[t.start() for t in threads_list]
 
-			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1)
+			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=True)
 			nb_examples, max_nb_episodes = 0, self.args.numEps
 			while True:
 				sleep(1)
