@@ -65,6 +65,15 @@ def play(args):
 	human = 'human' in players
 	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
 	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
+
+	# Write results in a file
+	directory = args.players[1] if os.path.isdir(args.players[1]) else os.path.dirname(args.players[1])
+	print('Writing score to '+directory+'/score.txt')
+	with open(directory+'/score.txt', 'w') as f:
+		score = result[1] + result[2]/2.
+		f.write(f'{score}')
+	#
+
 	return result
 
 def play_age(args):
@@ -145,7 +154,7 @@ def play_several_files(args):
 	players = args.players[:] # Copy, because it will be overwritten by plays()
 	list_tasks = []
 	if args.reference:
-		list_tasks += list(itertools.product(args.players, args.reference))
+		list_tasks += list(itertools.product(args.reference, args.players))
 	if not args.vs_ref_only:
 		list_tasks += list(itertools.combinations(args.players, 2))
 

@@ -49,7 +49,7 @@ class GenericNNetWrapper(NeuralNet):
 		batch_count = int(len(examples) / self.args['batch_size'])
 		scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=self.args['learn_rate'], steps_per_epoch=batch_count, epochs=self.args['epochs'])
 
-		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=True)
+		t = tqdm(total=self.args['epochs'] * batch_count, desc='Train ep0', colour='blue', ncols=120, mininterval=0.5, disable=None)
 		for epoch in range(self.args['epochs']):
 			t.set_description(f'Train ep{epoch + 1}')
 			self.nnet.train()

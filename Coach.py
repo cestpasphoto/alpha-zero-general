@@ -127,7 +127,7 @@ class Coach():
 			threads_list.append(Thread(target=self.nnet.predict_server, args=(self.nb_threads, shared_memory, locks)))
 			[t.start() for t in threads_list]
 
-			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=True)
+			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=None)
 			nb_examples, max_nb_episodes = 0, self.args.numEps
 			while True:
 				sleep(1)
@@ -230,9 +230,9 @@ class Coach():
 		examplesFile = os.path.dirname(modelFile) + "/checkpoint.examples"
 		if not os.path.isfile(examplesFile):
 			log.warning(f'File "{examplesFile}" with trainExamples not found!')
-			r = input("Continue? [y|n]")
-			if r != "y":
-				sys.exit()
+			# r = input("Continue? [y|n]")
+			# if r != "y":
+			# 	sys.exit()
 			return
 	
 		log.info("File with trainExamples found. Loading it...")

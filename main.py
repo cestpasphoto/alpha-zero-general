@@ -45,9 +45,9 @@ def run(args):
 		c.loadTrainExamples()
 
 	# Backup code used for this run
-	subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
-	subprocess.run(f'cp *py santorini/*py "{args.checkpoint}/"', shell=True)
-	subprocess.run(f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"', shell=True)
+	# subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
+	# subprocess.run(f'cp *py santorini/*py "{args.checkpoint}/"', shell=True)
+	# subprocess.run(f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"', shell=True)
 
 	log.debug('Starting the learning process 🎉')
 	c.learn()
@@ -129,12 +129,13 @@ def main():
 
 	### Advanced params ###
 	parser.add_argument('--q-weight'        , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
-	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
+	parser.add_argument('--updateThreshold'        , action='store', default=0.55 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
 	parser.add_argument('--universes'       , '-u' , action='store', default=0    , type=int  , choices=range(9), help='Number of universes (up to 8); will switch between each of them at each rollout. Set to 0 for a deterministic exploration')
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
+	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int, help='')
 	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float, help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
 	parser.add_argument('--profile'                , action='store_true', help='profiler')
 	parser.add_argument('--debug'                  , action='store_true', help='Disable all optimisations to allow easier debugging')
@@ -143,7 +144,7 @@ def main():
 	parser.add_argument('--no-mem-optim'           , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	
 	args = parser.parse_args()
-	args.numIters = 50
+	# args.numIters = 50
 	args.arenaCompare = 30
 	args.maxlenOfQueue = int(2.5e6/((2 if args.no_compression else 0.5)*args.numItersHistory)) # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
 	if args.stop_after_N_fail < 0:
@@ -158,7 +159,7 @@ def main():
 	if args.profile:
 		profiling(args)
 	else:
-		print(args)
+		# print(args)
 		run(args)
 
 if __name__ == "__main__":
