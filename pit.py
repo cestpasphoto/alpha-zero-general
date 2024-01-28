@@ -2,9 +2,9 @@
 
 import Arena
 from MCTS import MCTS
-from splendor.SplendorPlayers import *
-from splendor.SplendorGame import SplendorGame as Game
-from splendor.NNet import NNetWrapper as NNet
+from santorini.SantoriniPlayers import *
+from santorini.SantoriniGame import SantoriniGame as Game
+from santorini.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *
