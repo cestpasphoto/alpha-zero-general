@@ -132,7 +132,7 @@ def main():
 	parser.add_argument('--updateThreshold'        , action='store', default=0.55 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
-	parser.add_argument('--universes'       , '-u' , action='store', default=0    , type=int  , choices=range(9), help='Number of universes (up to 8); will switch between each of them at each rollout. Set to 0 for a deterministic exploration')
+	parser.add_argument('--universes'       , '-u' , action='store', default=1    , type=int  , choices=range(9), help='Number of universes (up to 8); will switch between each of them at each rollout. Set to 0 for a deterministic exploration')
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
 	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int, help='')
