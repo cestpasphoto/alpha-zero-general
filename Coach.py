@@ -230,9 +230,10 @@ class Coach():
 		examplesFile = os.path.dirname(modelFile) + "/checkpoint.examples"
 		if not os.path.isfile(examplesFile):
 			log.warning(f'File "{examplesFile}" with trainExamples not found!')
-			# r = input("Continue? [y|n]")
-			# if r != "y":
-			# 	sys.exit()
+			if not self.args.useray:
+				r = input("Continue? [y|n]")
+				if r != "y":
+					sys.exit()
 			return
 	
 		log.info("File with trainExamples found. Loading it...")

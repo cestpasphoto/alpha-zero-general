@@ -60,19 +60,21 @@ def create_player(name, args):
 def play(args):
 	players = [p+'/best.pt' if os.path.isdir(p) else p for p in args.players]
 
-	print(players[0], 'vs', players[1])
+	if not args.useray:
+		print(players[0], 'vs', players[1])
 	player1, player2 = create_player(players[0], args), create_player(players[1], args)
 	human = 'human' in players
 	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
 	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
 
-	# Write results in a file
-	directory = args.players[1] if os.path.isdir(args.players[1]) else os.path.dirname(args.players[1])
-	print('Writing score to '+directory+'/score.txt')
-	with open(directory+'/score.txt', 'w') as f:
+	if args.useray:
+		##### Write results in a file
+		directory = args.players[1] if os.path.isdir(args.players[1]) else os.path.dirname(args.players[1])
 		score = result[1] + result[2]/2.
-		f.write(f'{score}')
-	#
+		print('Writing score to '+directory+'/score.txt:  ', score)
+		with open(directory+'/score.txt', 'w') as f:
+			f.write(f'{score}')
+		#####
 
 	return result
 
@@ -154,7 +156,10 @@ def play_several_files(args):
 	players = args.players[:] # Copy, because it will be overwritten by plays()
 	list_tasks = []
 	if args.reference:
-		list_tasks += list(itertools.product(args.reference, args.players))
+		if args.useray:
+			list_tasks += list(itertools.product(args.reference, args.players))
+		else:
+			list_tasks += list(itertools.product(args.players, args.reference))
 	if not args.vs_ref_only:
 		list_tasks += list(itertools.combinations(args.players, 2))
 
@@ -210,6 +215,7 @@ def main():
 	parser.add_argument('--reference'          , '-r' , metavar='ref'   , nargs='*', help='list of reference players')
 	parser.add_argument('--vs-ref-only'        , '-z' ,  action='store_true', help='Use this option to prevent games between players, only players vs references')
 	parser.add_argument('--ratings'            , '-R' ,  action='store_true', help='Compute ratings based in games results and write ratings on disk')
+	parser.add_argument('--useray'                    ,  action='store_true', help='Mode for "ray", disable some messages')
 
 	parser.add_argument('--compare'            , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
 	parser.add_argument('--compare-age'        , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
