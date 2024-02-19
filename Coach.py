@@ -204,7 +204,7 @@ class Coach():
 			if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
 				self.consecutive_failures += 1
 				log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED ({self.consecutive_failures})')
-				if self.consecutive_failures >= self.args.stop_after_N_fail:
+				if self.consecutive_failures >= self.args.stop_after_N_fail and i < self.args.numIters:
 					log.error('Exceeded threshold number of consecutive fails, stopping process')
 					exit()
 				self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
