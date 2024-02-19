@@ -2,9 +2,9 @@
 
 import Arena
 from MCTS import MCTS
-from santorini.SantoriniPlayers import *
-from santorini.SantoriniGame import SantoriniGame as Game
-from santorini.NNet import NNetWrapper as NNet
+from splendor.SplendorPlayers import *
+from splendor.SplendorGame import SplendorGame as Game
+from splendor.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *
@@ -94,6 +94,7 @@ def plays(list_tasks, args, callback_results=None):
 	if nb_threads > 1:
 		current_threads_list = subprocess.check_output(['ps', '-e', '-o', 'cmd']).decode('utf-8').split('\n')
 		idx_thread = sum([1 for t in current_threads_list if 'pit.py' in t]) - 1
+		# idx_thread -= 4
 		if idx_thread == 0:
 			print(f'\t{n} pits to do, splitted in {nb_tasks_per_thread} tasks * {nb_threads} threads')
 		if idx_thread < nb_threads-1:
