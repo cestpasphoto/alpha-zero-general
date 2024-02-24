@@ -2,9 +2,9 @@
 
 import Arena
 from MCTS import MCTS
-from splendor.SplendorPlayers import *
-from splendor.SplendorGame import SplendorGame as Game
-from splendor.NNet import NNetWrapper as NNet
+from smallworld.SmallworldPlayers import *
+from smallworld.SmallworldGame import SmallworldGame as Game
+from smallworld.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *
