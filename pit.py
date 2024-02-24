@@ -47,7 +47,7 @@ def create_player(name, args):
 	mcts_args = dotdict({
 		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
 		'fpu'             : args.fpu if args.fpu else additional_keys.get('fpu', 0.),
-		'universes'       : additional_keys.get('universes', 0),
+		'universes'       : additional_keys.get('universes', 1),
 		'cpuct'           : args.cpuct if args.cpuct else cpuct,
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
@@ -94,7 +94,6 @@ def plays(list_tasks, args, callback_results=None):
 	if nb_threads > 1:
 		current_threads_list = subprocess.check_output(['ps', '-e', '-o', 'cmd']).decode('utf-8').split('\n')
 		idx_thread = sum([1 for t in current_threads_list if 'pit.py' in t]) - 1
-		# idx_thread -= 4
 		if idx_thread == 0:
 			print(f'\t{n} pits to do, splitted in {nb_tasks_per_thread} tasks * {nb_threads} threads')
 		if idx_thread < nb_threads-1:
