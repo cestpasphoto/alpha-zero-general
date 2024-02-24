@@ -47,7 +47,7 @@ def create_player(name, args):
 	mcts_args = dotdict({
 		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
 		'fpu'             : args.fpu if args.fpu else additional_keys.get('fpu', 0.),
-		'universes'       : additional_keys.get('universes', 0),
+		'universes'       : additional_keys.get('universes', 1),
 		'cpuct'           : args.cpuct if args.cpuct else cpuct,
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
