@@ -7,7 +7,7 @@ import argparse
 
 from Coach import Coach
 from splendor.SplendorGame import SplendorGame as Game
-from splendor.NNet import NNetWrapper as nn
+from splendor.NNet import NNetWrapper as NNet
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ def run(args):
 	log.debug('Loading %s...', Game.__name__)
 	g = Game()
 
-	log.debug('Loading %s...', nn.__name__)
+	log.debug('Loading %s...', NNet.__name__)
 	nn_args = dict(
 		lr=args.learn_rate,
 		dropout=args.dropout,
@@ -28,7 +28,7 @@ def run(args):
 		no_compression=args.no_compression,
 		q_weight=args.q_weight,
 	)
-	nnet = nn(g, nn_args)
+	nnet = NNet(g, nn_args)
 
 	if args.load_model:
 		log.info('Loading checkpoint "%s"...', args.load_folder_file)

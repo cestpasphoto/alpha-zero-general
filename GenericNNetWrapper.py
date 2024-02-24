@@ -389,7 +389,7 @@ if __name__ == "__main__":
 		no_compression=False,
 		q_weight=args.q_weight,
 	)
-	nnet = nn(g, nn_args)
+	nnet = NNet(g, nn_args)
 	if args.input:
 		nnet.load_checkpoint(os.path.dirname(args.input), os.path.basename(args.input))
 	elif args.nn_version == -1:
