@@ -6,7 +6,7 @@ import argparse
 from os import environ
 # from time import sleep
 # from random import random
-from ray_config import myfunc, gen_params
+from rayConfig import myfunc, gen_params
 
 nb_threads = 6
 temp_dir = '/home/best/ray_temp/'
