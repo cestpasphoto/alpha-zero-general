@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
 	# Disable memory checks
 	environ["RAY_memory_monitor_refresh_ms"] = "0"
-	run_config=train.RunConfig(name=args.trial, verbose=0, stop={'training_iteration': 35})
+	run_config=train.RunConfig(name=args.trial, verbose=0, stop={'training_iteration': 100})
 	param_init, param_space, param_bound = gen_params(args)
 	tune_config = gen_tune_config(args, param_space, param_bound)    
 	tuner = tune.Tuner(lambda config: myfunc(config, args, temp_dir), run_config=run_config, tune_config=tune_config, param_space=param_init)
