@@ -5,9 +5,9 @@ from subprocess import run
 from os.path import isfile, dirname, abspath
 import time
 
-learn_prefix = './main.py -m 200 -e 200 -d 3.0 -T 4 -V 83 -p 2 -i 3 -s 3 -n 3 -F -P 8 --useray'
+learn_prefix = './main.py -m 200 -e 200 -d 1.0 -T 4 -V 82 -p 2 -i 3 -s 3 -n 3 -F -P 8 --useray'
 pit_prefix = './pit.py -m 200 -n 100 --useray'
-start_epoch = 1709703178
+start_epoch = 1709806920
 
 # Interpolate
 def compute_lr():
@@ -17,7 +17,7 @@ def compute_lr():
 	current_epoch = int(time.time())
 	if start_epoch is None:
 		start_epoch = current_epoch
-	end_epoch = start_epoch + 3600*24
+	end_epoch = start_epoch + 3600*36
 
 	progress = (current_epoch - start_epoch) / (end_epoch - start_epoch)
 	current_lr = start_lr + progress * (end_lr - start_lr)
