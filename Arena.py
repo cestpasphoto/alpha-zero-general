@@ -80,6 +80,7 @@ class Arena():
             if valids[action] == 0:
                 assert valids[action] > 0
             board, curPlayer = self.game.getNextState(board, curPlayer, action)
+            curPlayer = int(curPlayer)
 
             if verbose:
                 data = board.tobytes() + curPlayer.to_bytes(1) + it.to_bytes(2)

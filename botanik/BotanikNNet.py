@@ -4,6 +4,9 @@ import torch.nn.functional as F
 from torchvision.models._utils import _make_divisible
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
 
+from .BotanikConstants import MACHINE_SIZE, NB_ROWS_FOR_MACH
+mm = MACHINE_SIZE*MACHINE_SIZE
+
 class LinearNormActivation(nn.Module):
 	def __init__(self, in_size, out_size, activation_layer, depthwise=False, channels=None):
 		super().__init__()
@@ -131,12 +134,12 @@ class BotanikNNet(nn.Module):
 			n_exp_head = n_filters * 3
 			head_PI_mach0 = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.action_size),
+				nn.Linear(n_filters *mm, self.action_size),
 			]
 			self.output_layers_PI_mach0 = nn.Sequential(*head_PI_mach0)
 			head_V_mach0 = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.num_players),
+				nn.Linear(n_filters *mm, self.num_players),
 			]
 			self.output_layers_V_mach0 = nn.Sequential(*head_V_mach0)
 
@@ -188,12 +191,12 @@ class BotanikNNet(nn.Module):
 			n_exp_head = n_filters * 3
 			head_PI_mach0 = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.action_size),
+				nn.Linear(n_filters *mm, self.action_size),
 			]
 			self.output_layers_PI_mach0 = nn.Sequential(*head_PI_mach0)
 			head_V_mach0 = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.num_players),
+				nn.Linear(n_filters *mm, self.num_players),
 			]
 			self.output_layers_V_mach0 = nn.Sequential(*head_V_mach0)
 
@@ -210,12 +213,12 @@ class BotanikNNet(nn.Module):
 			n_exp_head = n_filters * 3
 			head_PI_mach1 = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.action_size),
+				nn.Linear(n_filters *mm, self.action_size),
 			]
 			self.output_layers_PI_mach1 = nn.Sequential(*head_PI_mach1)
 			head_V_mach1 = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 				nn.Flatten(1),
-				nn.Linear(n_filters *5*5, self.num_players),
+				nn.Linear(n_filters *mm, self.num_players),
 			]
 			self.output_layers_V_mach1 = nn.Sequential(*head_V_mach1)
 
@@ -246,11 +249,11 @@ class BotanikNNet(nn.Module):
 
 	def forward(self, input_data, valid_actions):
 		x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
-		x = x[:,:,:16*5] # Remove access to some channels
-		x_1d, x_mach0, x_mach1 = x.split([6*5,5*5,5*5], dim=2)
+		x = x[:,:,:(6+2*NB_ROWS_FOR_MACH)*5] # Remove access to some channels
+		x_1d, x_mach0, x_mach1 = x.split([6*5, NB_ROWS_FOR_MACH*5, NB_ROWS_FOR_MACH*5], dim=2)
 
-		x_mach0 = x_mach0.view(-1, self.vect_dim, 5, 5)
-		x_mach1 = x_mach1.view(-1, self.vect_dim, 5, 5)
+		x_mach0 = x_mach0[:, :, :mm].reshape(-1, 7, MACHINE_SIZE, MACHINE_SIZE)
+		x_mach1 = x_mach1[:, :, :mm].reshape(-1, 7, MACHINE_SIZE, MACHINE_SIZE)
 
 		if self.version in [10]: # No use of x_mach1
 			x_1d = self.first_layer_1d(x_1d)

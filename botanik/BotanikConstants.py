@@ -1,5 +1,10 @@
 import numpy as np
+from math import ceil
 # from numba import njit
+
+# Machine size: must be odd, and >= 5
+MACHINE_SIZE = 5
+NB_ROWS_FOR_MACH = ceil(MACHINE_SIZE*MACHINE_SIZE / 5)
 
 # Colors
 EMPTY  = 0

@@ -359,7 +359,7 @@ if __name__ == "__main__":
 	import os.path
 	import time
 	from botanik.BotanikGame import BotanikGame as Game
-	from botanik.NNet import NNetWrapper as NNet
+	from botanik.NNet import NNetWrapper as nn
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')

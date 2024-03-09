@@ -12,8 +12,8 @@ def move_to_str(move, player):
 	elif move < 35:
 		middlerow_slot = move-30
 		return f'swap mecabot with slot {middlerow_slot} of middle row'
-	elif move < 237:
-		card_i, move_ = divmod(move-35, 100)
+	elif move < 36+8*MACHINE_SIZE*MACHINE_SIZE:
+		card_i, move_ = divmod(move-35, 4*MACHINE_SIZE*MACHINE_SIZE)
 		slot, orient = divmod(move_, 4)
 		return f'expand machine on slot {slot} with {"first" if card_i == 0 else "second"} free card {["", "rotated 90°", "rotated 180°", "rotated -90°"][orient]}'
 	else:
@@ -75,11 +75,11 @@ def machine_to_str(machine):
 
 def machines_to_str(machine0, machine1):
 	result = ''
-	for y in range(5):
-		for x in range(5):
+	for y in range(MACHINE_SIZE):
+		for x in range(MACHINE_SIZE):
 			result += card_to_str(machine0[y,x,:])
 		result += ' '*10
-		for x in range(5):
+		for x in range(MACHINE_SIZE):
 			result += card_to_str(machine1[y,x,:])
 		result += '\n'
 	return result
@@ -157,14 +157,15 @@ def print_valids(valids, freed_cards_of_player):
 			if valids[30+i]:
 				result += f' M{i}'
 		result += '.'
-	elif np.any(valids[35:236]):
+	elif np.any(valids[35:-1]):
+		mm = MACHINE_SIZE*MACHINE_SIZE
 		for card_i in range(2):
-			if np.any(valids[35+100*card_i:35+100*card_i+100]):
+			if np.any(valids[35+4*mm*card_i:35+4*mm*card_i+4*mm]):
 				result += f'Expand using {cardinals[card_i]} card on slots Y,X'
-				for slot in range(25):
-					index = 35 + 100*card_i + 4*slot
+				for slot in range(mm):
+					index = 35 + 4*mm*card_i + 4*slot
 					if np.any(valids[index:index+4]):
-						result += f' {divmod(slot,5)} ('
+						result += f' {divmod(slot, MACHINE_SIZE)} ('
 						if np.all(valids[index:index+4]):
 							result += 'all'
 						else:
@@ -174,7 +175,7 @@ def print_valids(valids, freed_cards_of_player):
 									card[NORTH:] = np.roll(card[NORTH:], orient)
 									result += card_to_str(card) + ' '
 						result += ')'
-		if valids[235]:
+		if valids[-1]:
 				result += f'Throw away 1st card, cant expand machine'
 	else:
 		result = 'No action possible'

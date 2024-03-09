@@ -7,7 +7,7 @@ import argparse
 
 from Coach import Coach
 from botanik.BotanikGame import BotanikGame as Game
-from botanik.NNet import NNetWrapper as NNet
+from botanik.NNet import NNetWrapper as nn
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)
