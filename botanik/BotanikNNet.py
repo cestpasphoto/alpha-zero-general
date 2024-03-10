@@ -252,8 +252,8 @@ class BotanikNNet(nn.Module):
 		x = x[:,:,:(6+2*NB_ROWS_FOR_MACH)*5] # Remove access to some channels
 		x_1d, x_mach0, x_mach1 = x.split([6*5, NB_ROWS_FOR_MACH*5, NB_ROWS_FOR_MACH*5], dim=2)
 
-		x_mach0 = x_mach0[:, :, :mm].reshape(-1, 7, MACHINE_SIZE, MACHINE_SIZE)
-		x_mach1 = x_mach1[:, :, :mm].reshape(-1, 7, MACHINE_SIZE, MACHINE_SIZE)
+		x_mach0 = x_mach0.reshape(-1, NB_ROWS_FOR_MACH*5*7)[:, :mm*7].reshape(-1, 7, MACHINE_SIZE, MACHINE_SIZE)
+		x_mach1 = x_mach1.reshape(-1, NB_ROWS_FOR_MACH*5*7)[:, :mm*7].reshape(-1, 7, MACHINE_SIZE, MACHINE_SIZE)
 
 		if self.version in [10]: # No use of x_mach1
 			x_1d = self.first_layer_1d(x_1d)

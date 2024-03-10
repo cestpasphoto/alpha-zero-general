@@ -162,12 +162,12 @@ class Board():
 		self.p1_register   = self.state[3    ,:,:]
 		self.middle_reg    = self.state[4    ,:,:]
 		self.freed_cards   = self.state[5    ,:,:]
-		self.p0_machine         = self.state[6                   :6+  NB_ROWS_FOR_MACH,:,:].reshape(-1, 7)[:MACHINE_SIZE*MACHINE_SIZE, :].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
-		self.p1_machine         = self.state[6+  NB_ROWS_FOR_MACH:6+2*NB_ROWS_FOR_MACH,:,:].reshape(-1, 7)[:MACHINE_SIZE*MACHINE_SIZE, :].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
-		self.p0_optim_neighbors = self.state[6+2*NB_ROWS_FOR_MACH:6+3*NB_ROWS_FOR_MACH,:,:].reshape(-1, 7)[:MACHINE_SIZE*MACHINE_SIZE, :].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
-		self.p1_optim_neighbors = self.state[6+3*NB_ROWS_FOR_MACH:6+4*NB_ROWS_FOR_MACH,:,:].reshape(-1, 7)[:MACHINE_SIZE*MACHINE_SIZE, :].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
-		self.p0_optim_needpipes = self.state[6+4*NB_ROWS_FOR_MACH:6+5*NB_ROWS_FOR_MACH,:,:].reshape(-1, 7)[:MACHINE_SIZE*MACHINE_SIZE, :].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
-		self.p1_optim_needpipes = self.state[6+5*NB_ROWS_FOR_MACH:6+6*NB_ROWS_FOR_MACH,:,:].reshape(-1, 7)[:MACHINE_SIZE*MACHINE_SIZE, :].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p0_machine         = np.ascontiguousarray(self.state[6                   :6+  NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p1_machine         = np.ascontiguousarray(self.state[6+  NB_ROWS_FOR_MACH:6+2*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p0_optim_neighbors = np.ascontiguousarray(self.state[6+2*NB_ROWS_FOR_MACH:6+3*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p1_optim_neighbors = np.ascontiguousarray(self.state[6+3*NB_ROWS_FOR_MACH:6+4*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p0_optim_needpipes = np.ascontiguousarray(self.state[6+4*NB_ROWS_FOR_MACH:6+5*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p1_optim_needpipes = np.ascontiguousarray(self.state[6+5*NB_ROWS_FOR_MACH:6+6*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
 
 	def valid_moves(self, player):
 		result = np.zeros(action_size(), dtype=np.bool_)
