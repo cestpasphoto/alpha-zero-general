@@ -2,6 +2,7 @@ import sys
 sys.path.append('../../')
 from GenericNNetWrapper import GenericNNetWrapper
 from .BotanikNNet import BotanikNNet as nn_model
+from .BotanikConstants import MACHINE_SIZE, NB_ROWS_FOR_MACH
 
 class NNetWrapper(GenericNNetWrapper):
 	def init_nnet(self, game, nn_args):
@@ -9,4 +10,4 @@ class NNetWrapper(GenericNNetWrapper):
 
 	def reshape_boards(self, numpy_boards):
 		# Some game needs to reshape boards before being an input of NNet
-		return numpy_boards.reshape(-1,180,7)
+		return numpy_boards.reshape(-1, (6 + 6*NB_ROWS_FOR_MACH)*5, 7)

@@ -5,8 +5,8 @@ import numba
 from .BotanikConstants import *
 
 ############################## BOARD DESCRIPTION ##############################
-# Board is described by a 16x5x7 array. Each card is represented using 1 line of
-# 6 values:
+# Board is described by a 36x5x7 array (depends on MACHINE_SIZE). Each card is
+# represented using 1 line of 7 values:
 #####   0      1      2      3     4      5     6
 ##### color #flowers type  north  east  south   west
 # color is either EMPTY (no card), SOURCE (source card), BLUE, YELLOW, ...
@@ -19,8 +19,9 @@ from .BotanikConstants import *
 # Mecabot is       C 0 6 0 0 0 0
 # Source card is   1 0 0 0 0 1 0
 #
-# Here is the description of each line of the board. For readibility, we defined
-# "shortcuts" that actually are views (numpy name) of overal board.
+# Here is the description of each line of the board, assuming MACHINE_SIZE=5.
+# For readibility, we defined "shortcuts" that actually are views (numpy name)
+# of overal board.
 ##### Index  Shortcut              Subindex	 Meaning
 #####   0    self.misc                0      z=0: Round
 #####                                        z=1: Status within round
@@ -60,7 +61,7 @@ from .BotanikConstants import *
 # Columns 5 and 6 are unused
 
 ############################## ACTION DESCRIPTION #############################
-# We coded 236 actions, taking some shortcuts ...
+# We coded 236 actions, again taking some shortcuts and assuming MACHINE_SIZE=5
 # Here is description of each action:
 ##### Index  Meaning
 #####   0    Move card 0 from arrival zone to slot 0 of player register
@@ -91,11 +92,11 @@ from .BotanikConstants import *
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (36*5, 7) # True size is 4,5,6 but other functions expects 2-dim answer
+	return ((6 + 6*NB_ROWS_FOR_MACH)*5, 7) # True size is 36,5,7 but other functions expects 2-dim answer
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
-	return 236
+	return 36 + 8 * MACHINE_SIZE*MACHINE_SIZE
 
 mask = np.array([4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
 
@@ -131,14 +132,14 @@ spec = [
 @numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
-		self.state = np.zeros((36,5,7), dtype=np.int8)
+		self.state = np.zeros((6+6*NB_ROWS_FOR_MACH,5,7), dtype=np.int8)
 		self.init_game()
 
 	def get_score(self, player):
 		return self.misc[1, player]
 
 	def init_game(self):
-		self.copy_state(np.zeros((36,5,7), dtype=np.int8), copy_or_not=False)
+		self.copy_state(np.zeros((6+6*NB_ROWS_FOR_MACH,5,7), dtype=np.int8), copy_or_not=False)
 		# Set all cards as available
 		enable_all_cards = divmod(my_packbits(np.ones(len(mask), dtype=np.int8)), 256)
 		for color in range(5):
@@ -161,23 +162,23 @@ class Board():
 		self.p1_register   = self.state[3    ,:,:]
 		self.middle_reg    = self.state[4    ,:,:]
 		self.freed_cards   = self.state[5    ,:,:]
-		self.p0_machine    = self.state[6 :11,:,:]
-		self.p1_machine    = self.state[11:16,:,:]
-		self.p0_optim_neighbors = self.state[16:21,:,:]
-		self.p1_optim_neighbors = self.state[21:26,:,:]
-		self.p0_optim_needpipes = self.state[26:31,:,:]
-		self.p1_optim_needpipes = self.state[31:36,:,:]
+		self.p0_machine         = np.ascontiguousarray(self.state[6                   :6+  NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p1_machine         = np.ascontiguousarray(self.state[6+  NB_ROWS_FOR_MACH:6+2*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p0_optim_neighbors = np.ascontiguousarray(self.state[6+2*NB_ROWS_FOR_MACH:6+3*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p1_optim_neighbors = np.ascontiguousarray(self.state[6+3*NB_ROWS_FOR_MACH:6+4*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p0_optim_needpipes = np.ascontiguousarray(self.state[6+4*NB_ROWS_FOR_MACH:6+5*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		self.p1_optim_needpipes = np.ascontiguousarray(self.state[6+5*NB_ROWS_FOR_MACH:6+6*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
 
 	def valid_moves(self, player):
-		result = np.zeros(236, dtype=np.bool_)
+		result = np.zeros(action_size(), dtype=np.bool_)
 		if self.misc[0,1] == PLAYER_TO_PUT_TO_REGISTER:
 			result[  :30] = self._valid_register(player)
 		elif self.misc[0,1] in [MAINPL_TO_SWAP_MECABOT, OTHERP_TO_SWAP_MECABOT]:
 			result[30:35] = self._valid_swap_mecabot(player)
 		elif self.misc[0,1] in [MAINPL_TO_EXPAND_MACHINE, OTHERP_TO_EXPAND_MACHINE]:
-			result[35:235] = self._valid_expand_mach(player)
-			if not np.any(result[35:235]):
-				result[235] = True # If no other move possible, allow to throw cards away
+			result[35:-1] = self._valid_expand_mach(player)
+			if not np.any(result[35:-1]):
+				result[-1] = True # If no other move possible, allow to throw cards away
 		return result
 
 	def make_move(self, move, player, random_seed):
@@ -187,9 +188,9 @@ class Board():
 			self._move_to_middle_row_and_unlink(move, player)
 		elif move < 35:
 			self._swap_mecabot(move, player)
-		elif move < 235:
+		elif move < action_size()-1:
 			self._expand_machine(move, player)
-		elif move < 236:
+		elif move < action_size():
 			self._throw_cards_away(move, player)
 		
 		new_state, main_player = self.misc[0,1], self.misc[0,2]
@@ -271,29 +272,31 @@ class Board():
 
 		# Apply horizontal symmetry on a machine (swap cells and change directions)
 		def _horizontal_symmetry_machine(machine):
-			for y in range(5):
-				for x in range((5+1)//2):
-					if 4-x != x:
+			m = MACHINE_SIZE-1
+			for y in range(MACHINE_SIZE):
+				for x in range((MACHINE_SIZE+1)//2):
+					if m-x != x:
 						# Swap cells
-						machine[y,x,:], machine[y,4-x,:] = machine[y,4-x,:], machine[y,x,:].copy()
+						machine[y,x,:], machine[y,m-x,:] = machine[y,m-x,:], machine[y,x,:].copy()
 						# Change directions
-						machine[y, 4-x, EAST], machine[y, 4-x, WEST] = machine[y, 4-x, WEST], machine[y, 4-x, EAST]
+						machine[y, m-x, EAST], machine[y, m-x, WEST] = machine[y, m-x, WEST], machine[y, m-x, EAST]
 						machine[y,   x, EAST], machine[y,   x, WEST] = machine[y,   x, WEST], machine[y,   x, EAST]
 					else:
 						machine[y,   x, EAST], machine[y,   x, WEST] = machine[y,   x, WEST], machine[y,   x, EAST]
 					
 		# Apply horizontal symmetry on policy+valids (swap value while taking care of new directions)
 		def _horizontal_symmetry_polval(policy, valids, freed_cards):
-			for y in range(5):
-				for x in range((5+1)//2):
+			m, mm = MACHINE_SIZE-1, MACHINE_SIZE*MACHINE_SIZE
+			for y in range(MACHINE_SIZE):
+				for x in range((MACHINE_SIZE+1)//2):
 					for card_i in range(2):
 						card_type = freed_cards[card_i, 2]
 						for orient in range(4):
 							# equivalent orientation after mirroring depends on card's type
 							new_orient = ([1,0,3,2] if card_type == PIPE2_ANGLE else [0,3,2,1])[orient]
-							action1 = 35 + 100*card_i + 4 * (5*y + x)
-							action2 = 35 + 100*card_i + 4 * (5*y + 4-x)
-							if 4-x != x:
+							action1 = 35 + 4* (mm*card_i + (MACHINE_SIZE*y + x))
+							action2 = 35 + 4* (mm*card_i + (MACHINE_SIZE*y + m-x))
+							if m-x != x:
 								policy[action2+new_orient], policy[action1+new_orient] = policy_backup[action1+orient], policy_backup[action2+orient]
 								valids[action2+new_orient], valids[action1+new_orient] = valids_backup[action1+orient], valids_backup[action2+orient]
 							else:
@@ -302,11 +305,12 @@ class Board():
 
 		# Swap freedcard 0 and 1 (assuming not empty)
 		def _swap_freed(freed_cards, policy, valids):
+			m, mm = MACHINE_SIZE-1, MACHINE_SIZE*MACHINE_SIZE
 			# Update policy and valids
-			for yx in range(25):
+			for yx in range(mm):
 				for orient in range(4):
-					action1 = 35 + 100*0 + 4 * yx + orient
-					action2 = 35 + 100*1 + 4 * yx + orient
+					action1 = 35 + 4*(25*0 + yx) + orient
+					action2 = 35 + 4*(25*1 + yx) + orient
 					policy[action2], policy[action1] = policy_backup[action1], policy_backup[action2]
 					valids[action2], valids[action1] = valids_backup[action1], valids_backup[action2]
 			# Update freed_cards
@@ -444,7 +448,7 @@ class Board():
 		return result
 
 	def _valid_expand_mach(self, player):
-		result = np.zeros(200, dtype=np.bool_)
+		result = np.zeros(8*MACHINE_SIZE*MACHINE_SIZE, dtype=np.bool_)
 		machine = self.p0_machine if player == 0 else self.p1_machine
 		optim_neighbors = self.p0_optim_neighbors if player == 0 else self.p1_optim_neighbors
 		optim_needpipes = self.p0_optim_needpipes if player == 0 else self.p1_optim_needpipes
@@ -457,7 +461,8 @@ class Board():
 			if not _is_empty_card(freed_card):
 				for y,x in admissible_cells:
 					 result_4orient = _check_card_on_machine(freed_card, y, x, optim_needpipes[y,x,:], optim_neighbors[y,x,:], nb_open_pipes)
-					 result[(x+y*5+freed_card_slot*25)*4:(x+y*5+freed_card_slot*25+1)*4] = result_4orient
+					 yx = x + MACHINE_SIZE*(y + MACHINE_SIZE*freed_card_slot)
+					 result[(yx)*4:(yx+1)*4] = result_4orient
 
 		return result
 	
@@ -543,9 +548,9 @@ class Board():
 		self._free_card_if_needed(middlerow_slot)
 
 	def _expand_machine(self, move, player):
-		card_i, move_ = divmod(move-35, 100)
+		card_i, move_ = divmod(move-35, 4*MACHINE_SIZE*MACHINE_SIZE)
 		slot, orient = divmod(move_, 4)
-		slot_y, slot_x = divmod(slot, 5)
+		slot_y, slot_x = divmod(slot, MACHINE_SIZE)
 		machine = self.p0_machine if player == 0 else self.p1_machine
 		optim_neighbors = self.p0_optim_neighbors if player == 0 else self.p1_optim_neighbors
 		optim_needpipes = self.p0_optim_needpipes if player == 0 else self.p1_optim_needpipes
@@ -580,7 +585,7 @@ class Board():
 			self.misc[0,1] = PLAYER_TO_PUT_TO_REGISTER
 
 	def _init_machines(self):
-		src_y, src_x = 1, 2
+		src_y, src_x = MACHINE_SIZE//3, MACHINE_SIZE//2
 		# Init machines with a source card
 		self.p0_machine[src_y,src_x,:], self.p1_machine[src_y,src_x,:] = SOURCE_CARD, SOURCE_CARD
 		self.misc[0,3], self.misc[0,4] = 1, 1
@@ -590,7 +595,7 @@ class Board():
 
 	def _update_optims(self, y, x, machine, optim_neighbors, optim_needpipes):
 		for orient, (dy, dx) in zip(range(NORTH, WEST+1), [(-1,0), (0,1), (1,0), (0,-1)]):
-			if 0<=y+dy<5 and 0<=x+dx<5:
+			if 0<=y+dy<MACHINE_SIZE and 0<=x+dx<MACHINE_SIZE:
 				opposite_orient = (orient-3 + 2) % 4 +3
 				# Neighbor cells (if empty) are new candidates for next cards
 				optim_neighbors[y+dy, x+dx, 0] = _is_empty_card(machine[y+dy, x+dx, :])
@@ -646,15 +651,15 @@ def _are_not_mecabots(cards):
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _compute_open_pipes(machine):
-	nb_open_pipes = 0
+	nb_open_pipes, m = 0, MACHINE_SIZE-1
 	for y in range(5):
 		for x in range(5):
 			if not _is_empty_card(machine[y, x, :]):
 				if y>0 and _is_empty_card(machine[y-1, x, :]) and machine[y, x, NORTH] > 0:
 					nb_open_pipes += 1
-				if x<4 and _is_empty_card(machine[y, x+1, :]) and machine[y, x, EAST] > 0:
+				if x<m and _is_empty_card(machine[y, x+1, :]) and machine[y, x, EAST] > 0:
 					nb_open_pipes += 1
-				if y<4 and _is_empty_card(machine[y+1, x, :]) and machine[y, x, SOUTH] > 0:
+				if y<m and _is_empty_card(machine[y+1, x, :]) and machine[y, x, SOUTH] > 0:
 					nb_open_pipes += 1
 				if x>0 and _is_empty_card(machine[y, x-1, :]) and machine[y, x, WEST] > 0:
 					nb_open_pipes += 1
@@ -664,6 +669,7 @@ def _compute_open_pipes(machine):
 def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial_open_pipes):
 	result = np.zeros(4, dtype=np.bool_)
 	orient_range = range(4)
+	m = MACHINE_SIZE-1
 	if card[2] == PIPE2_STRAIGHT:
 		orient_range = range(2)
 	elif card[2] == PIPE4:
@@ -672,7 +678,7 @@ def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial
 	for orient in orient_range:
 		oriented_card = np.roll(card[NORTH:], orient)
 		# Check discontinuity of pipes of new card with its neighbours
-		pipes                = np.multiply(oriented_card, np.array([y>0, x<4, y<4, x>0])) # Do not count pipes out of bounds
+		pipes                = np.multiply(oriented_card, np.array([y>0, x<m, y<m, x>0])) # Do not count pipes out of bounds
 		pipes_with_neighbors = np.multiply(oriented_card, optim_neighbors[NORTH:])
 		matching_pipes = np.all(pipes_with_neighbors == optim_needpipes[NORTH:])
 		if matching_pipes:
@@ -712,11 +718,12 @@ def _compute_score(machine):
 def _dfs(machine, y, x, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label):
 	visited[y, x] = True
 	neighbors = []
+	m = MACHINE_SIZE-1
 	if y>0 and machine[y, x, NORTH] > 0:
 		neighbors.append((y-1, x))
-	if x<4 and machine[y, x, EAST] > 0:
+	if x<m and machine[y, x, EAST] > 0:
 		neighbors.append((y, x+1))
-	if y<4 and machine[y, x, SOUTH] > 0:
+	if y<m and machine[y, x, SOUTH] > 0:
 		neighbors.append((y+1, x))
 	if x>0 and machine[y, x, WEST] > 0:
 		neighbors.append((y, x-1))

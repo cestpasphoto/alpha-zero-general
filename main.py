@@ -6,8 +6,8 @@ import coloredlogs
 import argparse
 
 from Coach import Coach
-from minivilles.MinivillesGame import MinivillesGame as Game
-from minivilles.NNet import NNetWrapper as NNet
+from botanik.BotanikGame import BotanikGame as Game
+from botanik.NNet import NNetWrapper as NNet
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)

@@ -2,9 +2,9 @@
 
 import Arena
 from MCTS import MCTS
-from minivilles.MinivillesPlayers import *
-from minivilles.MinivillesGame import MinivillesGame as Game
-from minivilles.NNet import NNetWrapper as NNet
+from botanik.BotanikPlayers import *
+from botanik.BotanikGame import BotanikGame as Game
+from botanik.NNet import NNetWrapper as NNet
 
 import numpy as np
 from utils import *
