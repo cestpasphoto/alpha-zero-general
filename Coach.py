@@ -127,7 +127,7 @@ class Coach():
 			threads_list.append(Thread(target=self.nnet.predict_server, args=(self.nb_threads, shared_memory, locks)))
 			[t.start() for t in threads_list]
 
-			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1)
+			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=None)
 			nb_examples, max_nb_episodes = 0, self.args.numEps
 			while True:
 				sleep(1)
@@ -204,7 +204,7 @@ class Coach():
 			if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
 				self.consecutive_failures += 1
 				log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED ({self.consecutive_failures})')
-				if self.consecutive_failures >= self.args.stop_after_N_fail:
+				if self.consecutive_failures >= self.args.stop_after_N_fail and i < self.args.numIters:
 					log.error('Exceeded threshold number of consecutive fails, stopping process')
 					exit()
 				self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
@@ -230,9 +230,10 @@ class Coach():
 		examplesFile = os.path.dirname(modelFile) + "/checkpoint.examples"
 		if not os.path.isfile(examplesFile):
 			log.warning(f'File "{examplesFile}" with trainExamples not found!')
-			r = input("Continue? [y|n]")
-			if r != "y":
-				sys.exit()
+			if not self.args.useray:
+				r = input("Continue? [y|n]")
+				if r != "y":
+					sys.exit()
 			return
 	
 		log.info("File with trainExamples found. Loading it...")

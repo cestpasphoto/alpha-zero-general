@@ -359,7 +359,7 @@ if __name__ == "__main__":
 	import os.path
 	import time
 	from botanik.BotanikGame import BotanikGame as Game
-	from botanik.NNet import NNetWrapper as nn
+	from botanik.NNet import NNetWrapper as NNet
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
@@ -389,7 +389,7 @@ if __name__ == "__main__":
 		no_compression=False,
 		q_weight=args.q_weight,
 	)
-	nnet = nn(g, nn_args)
+	nnet = NNet(g, nn_args)
 	if args.input:
 		nnet.load_checkpoint(os.path.dirname(args.input), os.path.basename(args.input))
 	elif args.nn_version == -1:

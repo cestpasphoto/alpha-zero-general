@@ -123,7 +123,7 @@ class Board():
 						result[i*self.num_players + pdelta] = True
 		return result
 
-	def make_move(self, move, player, deterministic):
+	def make_move(self, move, player, random_seed):
 		card_to_take, player_delta = divmod(move, self.num_players)
 		next_player = (player + player_delta) % self.num_players
 		self._take_card(card_to_take, player)

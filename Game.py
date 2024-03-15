@@ -33,14 +33,14 @@ class Game():
         """
         pass
 
-    def getNextState(self, board, player, action, deterministic=False):
+    def getNextState(self, board, player, action, random_seed=0):
         """
         Input:
             board: current board
             player: current player (1 or -1)
             action: action taken by current player
-            deterministic: False to apply "chance factor" (for real moves), True
-                           for deterministic results (for MCTS exploration)
+            random_seed: define seed for any random choice (MCTS exploration), 
+                         or 0 for true random (real move)
 
         Returns:
             nextBoard: board after applying action

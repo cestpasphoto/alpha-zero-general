@@ -10,7 +10,7 @@ Games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), 
 * [x] Support of [Splendor game](https://en.wikipedia.org/wiki/Splendor_(game)) with 2 players
 * [x] Support of 3-4 players (just change NUMBER_PLAYERS constant)
 * [x] Proper MCTS handling of "chance" factor when revealing new deck card
-* [x] Adding "repeatable randomness" feature for even better training
+* [x] Adding "universe exploration" feature for even better training
 * [x] Added pretrained models for 2-3-4 players
 
 The AI engine doesn't know which cards will be drawn. There is one limitation: implemented logic doesn't allow you to both take gems from the bank and give back some (whereas allowed in real rules), you are limited to either take 1-2-3 gems or give back 1-2 gems.
@@ -77,10 +77,10 @@ You can also make 2 networks fight each other ![2 networks fighting](splendor/ma
 
 Compared to initial version, I target a smaller network but more MCTS simulations allowing to see further: this approach is less efficient on GPU, but similar on CPU and allow stronger AI.
 
-`main.py -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -d 0.50 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest`: 
+`main.py -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest`: 
 
 * Start by defining proper number of players in SplendorGame.py and disabling card reserve actions in first lines of splendor/SplendorLogicNumba.py
-* `-c 2.5 -f 0.1 -d 0.50`: MCTS options to tune, like cpuct value, FPU (first play urgency) and dirichlet noise
+* `-c 2.5 -f 0.1`: MCTS options to tune, like cpuct value and FPU (first play urgency)
 * Initiate training with lower simulations number and less episodes per round
 * `-b 32 -l 0.0003 -p 1 -D 0.3`: define batch size, learning rate, number of epochs and dropout. Larger number of epochs may degrade performance, same for larger batch sizes so you only need to tune roughly dropout value (0., 0.3 or 0.3).
 
@@ -92,7 +92,7 @@ My baseline of training scenario is the following:
 
 ![Sample training](splendor/sample_training.jpg)
 
-Of course you need to tune parameters depending on the game, especially cpuct, FPU, dirichlet noise. The option `-V` allows you to switch between different NN architectures. If you specify a previous checkpoint using a different architecture, it will still try loading weights as much as possible. It allows me starting first steps of training with small/fast networks and then I experiment larger networks.
+Of course you need to tune parameters depending on the game, especially cpuct and FPU. The option `-V` allows you to switch between different NN architectures. If you specify a previous checkpoint using a different architecture, it will still try loading weights as much as possible. It allows me starting first steps of training with small/fast networks and then I experiment larger networks.
 
 #### To debug
 

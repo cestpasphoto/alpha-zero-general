@@ -102,7 +102,7 @@ class Board():
 		result[20] = True #empty move
 		return result
 
-	def make_move(self, move, player, deterministic):
+	def make_move(self, move, player, random_seed):
 		# Actual move
 		if   move < 15:
 			self._buy_card(player, move)

@@ -6,7 +6,7 @@ from .MinivillesLogicNumba import Board, observation_size, action_size
 import numpy as np
 from numba import jit, njit
 
-NUMBER_PLAYERS = 4
+NUMBER_PLAYERS = 2
 
 class MinivillesGame(Game):
 	def __init__(self):
@@ -23,9 +23,9 @@ class MinivillesGame(Game):
 	def getActionSize(self):
 		return action_size()
 
-	def getNextState(self, board, player, action, deterministic=False):
+	def getNextState(self, board, player, action, random_seed=0):
 		self.board.copy_state(board, True)
-		next_player = self.board.make_move(action, player, deterministic)
+		next_player = self.board.make_move(action, player, random_seed)
 		return (self.board.get_state(), next_player)
 
 

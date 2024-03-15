@@ -8,6 +8,7 @@
   * [x] Playout Cap Randomization
 * Improve MCTS strength
   * [x] Added Dirichlet Noise as per original [DeepMind paper](https://www.nature.com/articles/nature24270.epdf), using this [pull request](https://github.com/suragnair/alpha-zero-general/pull/186)
+  * [x] Automatic dirichlet noise computation on each move
   * [x] FPU, based on parent value ([article](https://arxiv.org/pdf/1902.10565.pdf))
   * [x] Learning based Q and Z ([blog](https://medium.com/oracledevs/lessons-from-alphazero-part-4-improving-the-training-target-6efba2e71628))
   * [x] Forced Playout from [KataGo article](https://arxiv.org/pdf/1902.10565.pdf)
@@ -30,7 +31,6 @@ Others changes: parameters can be set in cmdline (added new parameters like time
 
 Still todo:
   * [ ] PC-PIMC or what I call "universes" (https://doi.org/10.3389/frai.2023.1014561)
-  * [ ] Auto dirichlet at each iteration, or auto-dirichlet at each move
   * [ ] Run full random move in 1% of game to increase diversity 
   * [ ] HyperParameters Optimization (like Hyperband or Population-Based Traininginclude)
   * [ ] Multiprocessing to use several cores during self play

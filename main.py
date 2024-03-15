@@ -7,7 +7,7 @@ import argparse
 
 from Coach import Coach
 from botanik.BotanikGame import BotanikGame as Game
-from botanik.NNet import NNetWrapper as nn
+from botanik.NNet import NNetWrapper as NNet
 from utils import *
 import subprocess
 log = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ def run(args):
 	log.debug('Loading %s...', Game.__name__)
 	g = Game()
 
-	log.debug('Loading %s...', nn.__name__)
+	log.debug('Loading %s...', NNet.__name__)
 	nn_args = dict(
 		lr=args.learn_rate,
 		dropout=args.dropout,
@@ -28,12 +28,13 @@ def run(args):
 		no_compression=args.no_compression,
 		q_weight=args.q_weight,
 	)
-	nnet = nn(g, nn_args)
+	nnet = NNet(g, nn_args)
 
 	if args.load_model:
 		log.info('Loading checkpoint "%s"...', args.load_folder_file)
 		nnet.load_checkpoint(os.path.dirname(args.load_folder_file), os.path.basename(args.load_folder_file))
-		compare_settings(args)
+		if not args.useray:
+			compare_settings(args)
 	# else:
 	# 	log.warning('Not loading a checkpoint!')
 
@@ -44,10 +45,11 @@ def run(args):
 		log.info("Loading 'trainExamples' from file...")
 		c.loadTrainExamples()
 
-	# Backup code used for this run
-	subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
-	subprocess.run(f'cp *py splendor/*py "{args.checkpoint}/"', shell=True)
-	subprocess.run(f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"', shell=True)
+	if not args.useray:
+		# Backup code used for this run
+		subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
+		subprocess.run(f'cp *py santorini/*py "{args.checkpoint}/"', shell=True)
+		subprocess.run(f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"', shell=True)
 
 	log.debug('Starting the learning process 🎉')
 	c.learn()
@@ -132,17 +134,19 @@ def main():
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
+	parser.add_argument('--universes'       , '-u' , action='store', default=1    , type=int  , choices=range(9), help='Number of universes (up to 8); will switch between each of them at each rollout. Set to 0 for a deterministic exploration')
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
+	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int, help='')
 	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float, help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
 	parser.add_argument('--profile'                , action='store_true', help='profiler')
 	parser.add_argument('--debug'                  , action='store_true', help='Disable all optimisations to allow easier debugging')
+	parser.add_argument('--useray'                 , action='store_true', help='Mode for "ray", disable some messages')
 	parser.add_argument('--parallel-inferences','-P',action='store', default=8    , type=int  , help='Size of batch for inferences = nb of threads, set to 1 to disable')
 	parser.add_argument('--no-compression'         , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')
 	parser.add_argument('--no-mem-optim'           , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	
 	args = parser.parse_args()
-	args.numIters = 50
 	args.arenaCompare = 30
 	args.maxlenOfQueue = int(2.5e6/((2 if args.no_compression else 0.5)*args.numItersHistory)) # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
 	if args.stop_after_N_fail < 0:
@@ -153,11 +157,15 @@ def main():
 		args.no_compression = True
 		args.no_mem_optim = True
 
+	if args.useray and args.updateThreshold == 0.60:
+		args.updateThreshold == 0.55
+
 	args.load_model = (args.load_folder_file is not None)
 	if args.profile:
 		profiling(args)
 	else:
-		print(args)
+		if not args.useray:
+			print(args)
 		run(args)
 
 if __name__ == "__main__":
