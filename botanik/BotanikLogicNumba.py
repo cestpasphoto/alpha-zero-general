@@ -699,7 +699,8 @@ def _compute_score(machine):
 	equivalencies        = [set([0]) for i in range(0)] # Empty list but with inferrable type
 	nb_cards_per_label   = [0 for i in range(0)]        # Empty list but with inferrable type
 	nb_flowers_per_label = [0 for i in range(0)]        # Empty list but with inferrable type
-	_dfs(machine, 1, 2, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label)
+	src_y, src_x = MACHINE_SIZE//3, MACHINE_SIZE//2
+	_dfs(machine, src_y, src_x, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label)
 
 	# print(labels)
 	# print(equivalencies)
@@ -730,7 +731,7 @@ def _dfs(machine, y, x, visited, labels, equivalencies, nb_cards_per_label, nb_f
 	nb_flowers = machine[y, x, 1]
 
 	# First pass: Find the neighbor (of same color) with the smallest label and
-	# assign it to the current element If there are no neighbors (of same
+	# assign it to the current element. If there are no neighbors (of same
 	# color), uniquely label the current element
 	neighbors_labels = [labels[ny,nx] for ny, nx in neighbors if machine[ny, nx, 0] == machine[y, x, 0]]
 	new_label = min(neighbors_labels + [99])
