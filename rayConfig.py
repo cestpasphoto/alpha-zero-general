@@ -5,9 +5,9 @@ from subprocess import run
 from os.path import isfile, dirname, abspath
 import time
 
-learn_prefix = './main.py -m 800 -e 100 -d 0.8 -T 6 -V 11 -p 2 -i 2 -s 2 -n 2 -F -P 8 --useray'
+learn_prefix = './main.py -m 800 -e 100 -d 0.8 -T 6 -V 11 -p 2 -i 2 -s 2 -n 2 -F -P 4 --useray'
 pit_prefix = './pit.py -m 800 -n 50 --useray'
-start_epoch = 1710138700
+start_epoch = 1710832512
 
 # Interpolate
 def compute_lr():
@@ -93,14 +93,14 @@ def gen_params(args):
 	}
 
 	param_init = {
-		'cpuct'     : 1.0,
+		'cpuct'     : 1.2,
 		'fpu'       : 0.1,
-		'dropout'   : tune.uniform(0.   , 0.5 ),
+		'dropout'   : tune.uniform(0.2  , 0.5 ),
 		'log_bsz'   : 5,
 		#'learn_rate': 1e-4,
 		'q_weight'  : tune.uniform(0.1  , 1.0 ),
 		'temp'      : 1.25,
-		'universes' : tune.randint(0    , 7   ),
+		'universes' : tune.randint(1    , 5   ),
 	}
 
 	return param_init, param_space, param_bounds

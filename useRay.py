@@ -55,7 +55,7 @@ def gen_tune_config(args, param_space, param_bound):
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Apply Ray Tune to Alphazero-based training')
-	parser.add_argument('--trial'           ,        action='store', required=True    , help='Trial/experiment name')
+	parser.add_argument('trial'             ,        action='store'                   , help='Trial/experiment name')
 	parser.add_argument('--scheduler'       ,        action='store', default='PBT'    , help='PBT or PB2 or ASHA')
 	parser.add_argument('--synch'           ,        action='store_true'              , help='Enable synch option in scheduler')
 	parser.add_argument('--init-dir'        ,        action='store', required=True    , help='Folder where is initial NN')

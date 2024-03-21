@@ -16,10 +16,12 @@
   * [x] Temperature strategy from [SAI](https://github.com/CuriosAI/sai/issues/8)
   * [x] Optimize number of MCTS move, see [github ticket](https://github.com/leela-zero/leela-zero/issues/1416)
   * [x] MCTS parameters tuning
+  * [x] PC-PIMC or what I call "universes" (https://doi.org/10.3389/frai.2023.1014561)
 * Improve NN strength
   * [x] Use blocks from [MobileNetv3](https://arxiv.org/abs/1905.02244) for optimal accuracy with high speed
   * [x] Improve training speed using [OneCycleLR](https://arxiv.org/pdf/1506.01186.pdf) and [AdamW](https://arxiv.org/abs/1711.05101)
   * [x] Upgrade to KL-divergence loss instead of crossentropy
+  * [x] HyperParameters Optimization with Population-Based Training
 
 What I tried but didn't worked:
 * MCTS: advanced cpuct formula (using init and base), [surprise weight](https://github.com/lightvector/KataGo/blob/master/docs/KataGoMethods.md), and handle different training with Z and Q values (not averaging) like [this article](https://doi.org/10.48550/arXiv.2103.17228)
@@ -30,8 +32,6 @@ What I tried but didn't worked:
 Others changes: parameters can be set in cmdline (added new parameters like time limit) and improved prints (logging, tqdm, colored bards depending on current Arena results). Output an ELO-like ranking
 
 Still todo:
-  * [ ] PC-PIMC or what I call "universes" (https://doi.org/10.3389/frai.2023.1014561)
   * [ ] Run full random move in 1% of game to increase diversity 
-  * [ ] HyperParameters Optimization (like Hyperband or Population-Based Traininginclude)
   * [ ] Multiprocessing to use several cores during self play
   * [ ] KLD-thresholding (https://github.com/LeelaChessZero/lc0/pull/721)

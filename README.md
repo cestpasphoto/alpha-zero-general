@@ -1,7 +1,7 @@
 # CPU-optimized Alpha Zero General (any game, any framework!)
 
 Based on the superb repo https://github.com/suragnair/alpha-zero-general but with higher strength, optimized for CPU-only 25-100x speed improvement, and supporting 2+ players games. You can play with it on your browser https://github.com/cestpasphoto/cestpasphoto.github.io. Technical details about the improvements are listed in this [page](README_features.md).
-Games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (with basic gods), Botanik
+Games: Splendor, The Little Prince - Make me a planet, Machi Koro (Minivilles), Santorini (with basic gods), Botanik, Small World
 
 ### Splendor
 
@@ -45,8 +45,16 @@ About 90+% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/) 
 _Need to insert a sample game_
 
 * [x] Support of [Botanik](https://boardgamegeek.com/boardgame/271529/botanik) with 2 players
-* [ ] Need to tune training settings
+* [x] Machine size is limited to 7x7, which should be enough in most cases
 
+
+### Small World
+
+_Need to insert a sample game_
+
+* [x] Support of [Small World](https://boardgamegeek.com/boardgame/40692/small-world) with 2 to 5 players
+* [x] All types of people and power from the original game are supported. Each turn of a player may need several actions (see code for more details).
+* [x] Extra effort to improve pretrained model for 2 players
 
 ---
 
