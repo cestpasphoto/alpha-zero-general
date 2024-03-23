@@ -42,19 +42,20 @@ About 90+% winrate against [Ai Ai](http://mrraow.com/index.php/aiai-home/aiai/) 
 
 ### Botanik
 
-_Need to insert a sample game_
-
 * [x] Support of [Botanik](https://boardgamegeek.com/boardgame/271529/botanik) with 2 players
 * [x] Machine size is limited to 7x7, which should be enough in most cases
+
+![Sample game](botanik/sample_game.gif)
 
 
 ### Small World
 
-_Need to insert a sample game_
-
 * [x] Support of [Small World](https://boardgamegeek.com/boardgame/40692/small-world) with 2 to 5 players
 * [x] All types of people and power from the original game are supported. Each turn of a player may need several actions (see code for more details).
 * [x] Extra effort to improve pretrained model for 2 players
+
+![Sample game with 2 players](smallworld/sample_game.gif) (Scores are on the 2 last rows after _sc=_, and number after _#_ is number of next round).
+
 
 ---
 
