@@ -358,8 +358,10 @@ if __name__ == "__main__":
 	import argparse
 	import os.path
 	import time
+	from GameSwitcher import import_game
 
 	parser = argparse.ArgumentParser(description='NNet loader')
+	parser.add_argument('game'               , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
 	parser.add_argument('--output'     , '-o', action='store', default=None , help='Prefix for output NN')
 	parser.add_argument('--training'   , '-T', action='store', default=None , help='')
@@ -372,28 +374,8 @@ if __name__ == "__main__":
 	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=-1   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--q-weight'   , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
-	args = parser.parse_args()	
-	match args.game:
-		case "botanik":
-			Game = importlib.import_module('botanik.BotanikGame').BotanikGame
-			NNet = importlib.import_module('botanik.NNet').NNetWrapper
-		case "minivilles":
-			Game = importlib.import_module('minivilles.MinivillesGame').MinivillesGame
-			NNet = importlib.import_module('minivilles.NNet').NNetWrapper
-		case "santorini":
-			Game = importlib.import_module('santorini.SantoriniGame').SantoriniGame
-			NNet = importlib.import_module('santorini.NNet').NNetWrapper
-		case "smallworld":
-			Game = importlib.import_module('smallworld.SmallworldGame').Smallworld
-			NNet = importlib.import_module('smallworld.NNet').NNetWrapper
-		case "splendor":
-			Game = importlib.import_module('splendor.SplendorGame').SplendorGame
-			NNet = importlib.import_module('splendor.NNet').NNetWrapper
-		case "thelittleprince":
-			Game = importlib.import_module('thelittleprince.TLPGame').TLPGame
-			NNet = importlib.import_module('thelittleprince.NNet').NNetWrapper
-		case _:
-			raise Exception('Please specify a game name')
+	args = parser.parse_args()
+	Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
 

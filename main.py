@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import importlib
 import logging
 import os
 import subprocess
@@ -15,27 +14,8 @@ coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
 
 def run(args):
-	match args.game:
-		case "botanik":
-			Game = importlib.import_module('botanik.BotanikGame').BotanikGame
-			NNet = importlib.import_module('botanik.NNet').NNetWrapper
-		case "minivilles":
-			Game = importlib.import_module('minivilles.MinivillesGame').MinivillesGame
-			NNet = importlib.import_module('minivilles.NNet').NNetWrapper
-		case "santorini":
-			Game = importlib.import_module('santorini.SantoriniGame').SantoriniGame
-			NNet = importlib.import_module('santorini.NNet').NNetWrapper
-		case "smallworld":
-			Game = importlib.import_module('smallworld.SmallworldGame').Smallworld
-			NNet = importlib.import_module('smallworld.NNet').NNetWrapper
-		case "splendor":
-			Game = importlib.import_module('splendor.SplendorGame').SplendorGame
-			NNet = importlib.import_module('splendor.NNet').NNetWrapper
-		case "thelittleprince":
-			Game = importlib.import_module('thelittleprince.TLPGame').TLPGame
-			NNet = importlib.import_module('thelittleprince.NNet').NNetWrapper
-		case _:
-			raise Exception('Please specify a game name')
+	from GameSwitcher import import_game
+	Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
 
 	log.debug('Loading %s...', Game.__name__)
 	g = Game()
@@ -137,6 +117,7 @@ def profiling(args):
 
 def main():
 	parser = argparse.ArgumentParser(description='tester')
+	parser.add_argument('game'                     , action='store', default='splendor', help='The name of the game to simulate')
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
 	

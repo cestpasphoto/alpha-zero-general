@@ -12,6 +12,7 @@ import numpy as np
 import Arena
 from MCTS import MCTS
 from utils import *
+from GameSwitcher import import_game
 
 """
 use this script to play any two agents against each other, or play manually with
@@ -26,34 +27,7 @@ def create_player(name, args):
 	global game
 	global NNet
 	if game is None:
-		match args.game:
-			case "botanik":
-				players = importlib.import_module('botanik.BotanikPlayers')
-				Game = importlib.import_module('botanik.BotanikGame').BotanikGame
-				NNet = importlib.import_module('botanik.NNet').NNetWrapper
-			case "minivilles":
-				players = importlib.import_module('minivilles.MinivillesPlayers')
-				Game = importlib.import_module('minivilles.MinivillesGame').MinivillesGame
-				NNet = importlib.import_module('minivilles.NNet').NNetWrapper
-			case "santorini":
-				players = importlib.import_module('santorini.SantoriniPlayers')
-				Game = importlib.import_module('santorini.SantoriniGame').SantoriniGame
-				NNet = importlib.import_module('santorini.NNet').NNetWrapper
-			case "smallworld":
-				players = importlib.import_module('smallworld.SmallworldPlayers')
-				Game = importlib.import_module('smallworld.SmallworldGame').Smallworld
-				NNet = importlib.import_module('smallworld.NNet').NNetWrapper
-			case "splendor":
-				players = importlib.import_module('splendor.SplendorPlayers')
-				Game = importlib.import_module('splendor.SplendorGame').SplendorGame
-				NNet = importlib.import_module('splendor.NNet').NNetWrapper
-			case "thelittleprince":
-				players = importlib.import_module('thelittleprince.TLPPlayers')
-				Game = importlib.import_module('thelittleprince.TLPGame').TLPGame
-				NNet = importlib.import_module('thelittleprince.NNet').NNetWrapper
-			case _:
-				raise Exception('Please specify a game name')
-
+		Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
 		game = Game()
 	# all players
 	if name == 'random':
@@ -248,11 +222,12 @@ def main():
 	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, help='cpuct value')
 	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
 
+	parser.add_argument('game'                        , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
 	parser.add_argument('--reference'          , '-r' , metavar='ref'   , nargs='*', help='list of reference players')
-	parser.add_argument('--vs-ref-only'        , '-z' ,  action='store_true', help='Use this option to prevent games between players, only players vs references')
-	parser.add_argument('--ratings'            , '-R' ,  action='store_true', help='Compute ratings based in games results and write ratings on disk')
-	parser.add_argument('--useray'                    ,  action='store_true', help='Mode for "ray", disable some messages')
+	parser.add_argument('--vs-ref-only'        , '-z' , action='store_true', help='Use this option to prevent games between players, only players vs references')
+	parser.add_argument('--ratings'            , '-R' , action='store_true', help='Compute ratings based in games results and write ratings on disk')
+	parser.add_argument('--useray'                    , action='store_true', help='Mode for "ray", disable some messages')
 
 	parser.add_argument('--compare'            , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
 	parser.add_argument('--compare-age'        , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
