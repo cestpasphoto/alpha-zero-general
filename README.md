@@ -117,19 +117,33 @@ can override if you want; you may even select 2 different architecture to compar
 <details>
   <summary>Click here for details about training, running or playing</summary>
 
+#### Dependencies
+
+`pip3 install onnxruntime numba tqdm colorama coloredlogs`
+and
+`pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu`
+
+Contrary to previous investigations, latest versions of onnxruntime and pytorch lead to best performance, see GenericNNetWrapper.py line 315
+
+#### How to play versus saved engine
+
+`./pit.py splendor/pretrained_2players.pt human -n 1`
+
+You can also make 2 networks fight each other ![2 networks fighting](splendor/many_games.gif). Contrary to baseline version, pit.py automatically retrieves training settings and load them (numMCTSSims, num_channels, ...) although you can override if you want; you may even select 2 different architecture to compare them!
+
 #### Recommended settings for training
 
 Compared to initial version, I target a smaller network but more MCTS simulations allowing to see further: this approach
 is less efficient on GPU, but similar on CPU and allow stronger AI.
 
-`main.py -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest`:
+`main.py -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest -V 74`: 
 
 * Start by defining proper number of players in SplendorGame.py and disabling card reserve actions in first lines of
   splendor/SplendorLogicNumba.py
 * `-c 2.5 -f 0.1`: MCTS options to tune, like cpuct value and FPU (first play urgency)
 * Initiate training with lower simulations number and less episodes per round
-* `-b 32 -l 0.0003 -p 1 -D 0.3`: define batch size, learning rate, number of epochs and dropout. Larger number of epochs
-  may degrade performance, same for larger batch sizes so you only need to tune roughly dropout value (0., 0.3 or 0.3).
+* `-b 32 -l 0.0003 -p 1 -D 0.3`: define batch size, learning rate, number of epochs and dropout. Larger number of epochs may degrade performance, same for larger batch sizes so you only need to tune roughly dropout value (0., 0.3 or 0.3).
+* `-V 74`: define NN architecture to use. The specified NN architecture must be listed in splendor/splendorNNet.py (look at `forward()` function). 
 
 My baseline of training scenario is the following:
 
@@ -140,10 +154,8 @@ My baseline of training scenario is the following:
 
 ![Sample training](splendor/sample_training.jpg)
 
-Of course you need to tune parameters depending on the game, especially cpuct and FPU. The option `-V` allows you to
-switch between different NN architectures. If you specify a previous checkpoint using a different architecture, it will
-still try loading weights as much as possible. It allows me starting first steps of training with small/fast networks
-and then I experiment larger networks.
+Of course you need to tune parameters depending on the game, especially cpuct and FPU.
+If you specify a previous checkpoint using a different architecture (`-V` option), it will do its best by training such new architecture based on examples of previous checkpoint. It allows me starting first steps of training with small/fast networks and then experimenting larger networks.
 
 #### To debug
 
