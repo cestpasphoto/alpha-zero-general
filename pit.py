@@ -72,13 +72,13 @@ def create_player(name, args):
 	cpuct = additional_keys.get('cpuct')
 	cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
 	mcts_args = dotdict({
-		'numMCTSSims': args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
-		'fpu': args.fpu if args.fpu else additional_keys.get('fpu', 0.),
-		'universes': additional_keys.get('universes', 1),
-		'cpuct': args.cpuct if args.cpuct else cpuct,
-		'prob_fullMCTS': 1.,
-		'forced_playouts': False,
-		'no_mem_optim': False,
+		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
+		'fpu'             : args.fpu if args.fpu else additional_keys.get('fpu', 0.),
+		'universes'       : additional_keys.get('universes', 1),
+		'cpuct'           : args.cpuct if args.cpuct else cpuct,
+		'prob_fullMCTS'   : 1.,
+		'forced_playouts' : False,
+		'no_mem_optim'    : False,
 	})
 	mcts = MCTS(game, net, mcts_args)
 	player = lambda x, n: np.argmax(mcts.getActionProb(x, temp=(0.5 if n <= 6 else 0.), force_full_search=True)[0])
@@ -102,7 +102,7 @@ def play(args):
 		print('Writing score to ' + directory + '/score.txt:  ', score)
 		with open(directory + '/score.txt', 'w') as f:
 			f.write(f'{score}')
-	#####
+		#####
 
 	return result
 
@@ -182,11 +182,8 @@ def update_ratings(p1, p2, game_results, args):
 		player2.update_player([p1r] * n, [p1rd] * n, [1] * twoWon + [0.5] * draws + [0] * oneWon)
 		write_rating(player1, args.players[0])
 		write_rating(player2, args.players[1])
-
-
-# for p, pname in [(player1, p1), (player2, p2)]:
-# 	print(f'{pname[-20:].rjust(20)} rating={int(p.rating)}±{int(p.rd)}, vol={p.vol:.3e}')
-
+		# for p, pname in [(player1, p1), (player2, p2)]:
+		# 	print(f'{pname[-20:].rjust(20)} rating={int(p.rating)}±{int(p.rd)}, vol={p.vol:.3e}')
 
 def play_several_files(args):
 	players = args.players[:]  # Copy, because it will be overwritten by plays()
@@ -240,38 +237,29 @@ def profiling(args):
 
 def main():
 	import argparse
-	parser = argparse.ArgumentParser(description='tester')
+	parser = argparse.ArgumentParser(description='tester')  
 
-	parser.add_argument('--num-games', '-n', action='store', default=30, type=int, help='')
-	parser.add_argument('--profile', action='store_true', help='enable profiling')
-	parser.add_argument('--display', action='store_true', help='display')
-	parser.add_argument('--state', '-s', action='store', default="", type=str, help='State to load')
+	parser.add_argument('--num-games'          , '-n' , action='store', default=30   , type=int  , help='')
+	parser.add_argument('--profile'                   , action='store_true', help='enable profiling')
+	parser.add_argument('--display'                   , action='store_true', help='display')
+	parser.add_argument('--state'              , '-s' , action='store', default="", type=str, help='State to load')
 
-	parser.add_argument('--numMCTSSims', '-m', action='store', default=None, type=int,
-	                    help='Number of games moves for MCTS to simulate.')
-	parser.add_argument('--cpuct', '-c', action='store', default=None, type=float, help='cpuct value')
-	parser.add_argument('--fpu', '-f', action='store', default=None, type=float,
-	                    help='Value for FPU (first play urgency)')
+	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None, type=int  , help='Number of games moves for MCTS to simulate.')
+	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, help='cpuct value')
+	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
 
-	parser.add_argument('game', action='store', default='splendor', help='The name of the game to play')
-	parser.add_argument('players', metavar='player', nargs='*',
-	                    help='list of players to test (either file, or "human" or "random")')
-	parser.add_argument('--reference', '-r', metavar='ref', nargs='*', help='list of reference players')
-	parser.add_argument('--vs-ref-only', '-z', action='store_true',
-	                    help='Use this option to prevent games between players, only players vs references')
-	parser.add_argument('--ratings', '-R', action='store_true',
-	                    help='Compute ratings based in games results and write ratings on disk')
-	parser.add_argument('--useray', action='store_true', help='Mode for "ray", disable some messages')
+	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
+	parser.add_argument('--reference'          , '-r' , metavar='ref'   , nargs='*', help='list of reference players')
+	parser.add_argument('--vs-ref-only'        , '-z' ,  action='store_true', help='Use this option to prevent games between players, only players vs references')
+	parser.add_argument('--ratings'            , '-R' ,  action='store_true', help='Compute ratings based in games results and write ratings on disk')
+	parser.add_argument('--useray'                    ,  action='store_true', help='Mode for "ray", disable some messages')
 
-	parser.add_argument('--compare', '-C', action='store', default='../results',
-	                    help='Compare all best.pt located in the specified folders')
-	parser.add_argument('--compare-age', '-A', action='store', default=None,
-	                    help='Maximum age (in hour) of best.pt to be compared', type=int)
-	parser.add_argument('--max-compare-threads', '-T', action='store', default=1,
-	                    help='No of threads to run comparison on', type=int)
+	parser.add_argument('--compare'            , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
+	parser.add_argument('--compare-age'        , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
+	parser.add_argument('--max-compare-threads', '-T' , action='store', default=1           , help='No of threads to run comparison on', type=int)
 
 	args = parser.parse_args()
-
+	
 	if args.profile:
 		profiling(args)
 	elif args.compare_age:

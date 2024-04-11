@@ -83,8 +83,7 @@ PC, no special GPU support required.
 
 ```
 pip3 install onnxruntime numba tqdm colorama coloredlogs
-pip3 install torch --extra-index-url https://download.pytorch.org/whl/cpu
-pip3 install torchvision onnx
+pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
 Contrary to previous investigations, latest versions of onnxruntime and pytorch lead to best performance, see
@@ -96,7 +95,7 @@ GenericNNetWrapper.py line 315
 
 Use `main.py` with your parameters, e.g.:
 
-`python main.py splendor -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest -V 74`
+`python main.py splendor -m 800 -f 0.1 -l 0.0003 -D 0.3 -C ../results/mytest -V 74`
 
 ### How to play versus saved engine
 
@@ -106,7 +105,7 @@ Launch `pit.py` with then name of the game and the name of the two players.
 
 or
 
-`python /pit.py splendor/pretrained_2players.pt splendor/pretrained_2players.pt -n 1`
+`python /pit.py splendor/pretrained_2players.pt splendor/pretrained_2players.pt -n 1 --display`
 
 _Ongoing code/features rework, some pretrained networks won't work anymore_
 You can also make 2 networks fight each other ![2 networks fighting](splendor/many_games.gif). Contrary to baseline
@@ -148,7 +147,7 @@ and then I experiment larger networks.
 
 #### To debug
 
-To debug add `NUMBA_DISABLE_JIT=1` as a prefix before main.py, and the option `--parallel-inferences 1`.
+To debug add `NUMBA_DISABLE_JIT=1` as a prefix before main.py, and the option `--debug`.
 
 #### Multithreading
 
