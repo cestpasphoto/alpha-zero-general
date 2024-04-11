@@ -358,8 +358,6 @@ if __name__ == "__main__":
 	import argparse
 	import os.path
 	import time
-	from botanik.BotanikGame import BotanikGame as Game
-	from botanik.NNet import NNetWrapper as NNet
 
 	parser = argparse.ArgumentParser(description='NNet loader')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
@@ -375,6 +373,27 @@ if __name__ == "__main__":
 	parser.add_argument('--nn-version' , '-V' , action='store', default=-1   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--q-weight'   , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
 	args = parser.parse_args()	
+	match args.game:
+		case "botanik":
+			Game = importlib.import_module('botanik.BotanikGame').BotanikGame
+			NNet = importlib.import_module('botanik.NNet').NNetWrapper
+		case "minivilles":
+			Game = importlib.import_module('minivilles.MinivillesGame').MinivillesGame
+			NNet = importlib.import_module('minivilles.NNet').NNetWrapper
+		case "santorini":
+			Game = importlib.import_module('santorini.SantoriniGame').SantoriniGame
+			NNet = importlib.import_module('santorini.NNet').NNetWrapper
+		case "smallworld":
+			Game = importlib.import_module('smallworld.SmallworldGame').Smallworld
+			NNet = importlib.import_module('smallworld.NNet').NNetWrapper
+		case "splendor":
+			Game = importlib.import_module('splendor.SplendorGame').SplendorGame
+			NNet = importlib.import_module('splendor.NNet').NNetWrapper
+		case "thelittleprince":
+			Game = importlib.import_module('thelittleprince.TLPGame').TLPGame
+			NNet = importlib.import_module('thelittleprince.NNet').NNetWrapper
+		case _:
+			raise Exception('Please specify a game name')
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
 
