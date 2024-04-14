@@ -26,6 +26,7 @@ _lock = multiprocessing.Lock()
 def create_player(name, args):
 	global game
 	global NNet
+	global players
 	if game is None:
 		Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
 		game = Game()
