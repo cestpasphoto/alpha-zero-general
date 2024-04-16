@@ -358,10 +358,10 @@ if __name__ == "__main__":
 	import argparse
 	import os.path
 	import time
-	from botanik.BotanikGame import BotanikGame as Game
-	from botanik.NNet import NNetWrapper as NNet
+	from GameSwitcher import import_game
 
 	parser = argparse.ArgumentParser(description='NNet loader')
+	parser.add_argument('game'               , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
 	parser.add_argument('--output'     , '-o', action='store', default=None , help='Prefix for output NN')
 	parser.add_argument('--training'   , '-T', action='store', default=None , help='')
@@ -374,7 +374,8 @@ if __name__ == "__main__":
 	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
 	parser.add_argument('--nn-version' , '-V' , action='store', default=-1   , type=int  , help='Which architecture to choose')
 	parser.add_argument('--q-weight'   , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
-	args = parser.parse_args()	
+	args = parser.parse_args()
+	Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
 
 	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
 

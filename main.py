@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 
+import argparse
 import logging
 import os
+import subprocess
+
 import coloredlogs
-import argparse
 
 from Coach import Coach
-from botanik.BotanikGame import BotanikGame as Game
-from botanik.NNet import NNetWrapper as NNet
-from utils import *
-import subprocess
+
 log = logging.getLogger(__name__)
 coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
+
 def run(args):
+	from GameSwitcher import import_game
+	Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
+
 	log.debug('Loading %s...', Game.__name__)
 	g = Game()
 
@@ -49,10 +52,13 @@ def run(args):
 		# Backup code used for this run
 		subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
 		subprocess.run(f'cp *py santorini/*py "{args.checkpoint}/"', shell=True)
-		subprocess.run(f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"', shell=True)
+		subprocess.run(
+			f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"',
+			shell=True)
 
 	log.debug('Starting the learning process 🎉')
 	c.learn()
+
 
 # Compare current settings and settings of checkpoints, display main differences
 def compare_settings(args):
@@ -61,12 +67,13 @@ def compare_settings(args):
 	# Load settings
 	if not os.path.isfile(settings_file):
 		return
-	with open(settings_file,'r') as f:
+	with open(settings_file, 'r') as f:
 		previous_args = f.read()
-    
+
 	# Compute differences on dict versions
-	previous_args_dict, current_args_dict = vars(eval('argparse.'+previous_args)), vars(args)
-	changed_keys = set([k for k in set(list(previous_args_dict.keys()) + list(current_args_dict.keys())) if previous_args_dict.get(k) != current_args_dict.get(k)])
+	previous_args_dict, current_args_dict = vars(eval('argparse.' + previous_args)), vars(args)
+	changed_keys = set([k for k in set(list(previous_args_dict.keys()) + list(current_args_dict.keys())) if
+	                    previous_args_dict.get(k) != current_args_dict.get(k)])
 	for key in ['load_folder_file', 'checkpoint', 'numIters', 'arenaCompare', 'maxlenOfQueue', 'load_model']:
 		changed_keys.discard(key)
 
@@ -75,11 +82,12 @@ def compare_settings(args):
 		for k in changed_keys:
 			print(f'{k}: {previous_args_dict.get(k)} --> {current_args_dict.get(k)}')
 
+
 def profiling(args):
 	import cProfile, pstats
 	profiler = cProfile.Profile()
 	# import yappi
-	args.parallel_inferences, args.numIters, args.numEps, args.epochs = 1, 1, 8, 1 # warmup run
+	args.parallel_inferences, args.numIters, args.numEps, args.epochs = 1, 1, 8, 1  # warmup run
 	run(args)
 
 	print('\nstart profiling')
@@ -109,6 +117,7 @@ def profiling(args):
 
 def main():
 	parser = argparse.ArgumentParser(description='tester')
+	parser.add_argument('game'                     , action='store', default='splendor', help='The name of the game to simulate')
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
 	
@@ -148,7 +157,8 @@ def main():
 	
 	args = parser.parse_args()
 	args.arenaCompare = 30
-	args.maxlenOfQueue = int(2.5e6/((2 if args.no_compression else 0.5)*args.numItersHistory)) # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
+	args.maxlenOfQueue = int(2.5e6 / ((
+		                                  2 if args.no_compression else 0.5) * args.numItersHistory))  # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
 	if args.stop_after_N_fail < 0:
 		args.stop_after_N_fail = -args.stop_after_N_fail * args.numItersHistory
 
@@ -167,6 +177,7 @@ def main():
 		if not args.useray:
 			print(args)
 		run(args)
+
 
 if __name__ == "__main__":
 	main()

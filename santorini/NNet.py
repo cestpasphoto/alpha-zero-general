@@ -1,7 +1,9 @@
 import sys
+
 sys.path.append('../../')
 from GenericNNetWrapper import GenericNNetWrapper
-from .SantoriniNNet import SantoriniNNet as nn_model
+from SantoriniNNet import SantoriniNNet as nn_model
+
 
 class NNetWrapper(GenericNNetWrapper):
 	def init_nnet(self, game, nn_args):
@@ -9,4 +11,4 @@ class NNetWrapper(GenericNNetWrapper):
 
 	def reshape_boards(self, numpy_boards):
 		# Some game needs to reshape boards before being an input of NNet
-		return numpy_boards.reshape(-1,25,3)
+		return numpy_boards.reshape(-1, 25, 3)

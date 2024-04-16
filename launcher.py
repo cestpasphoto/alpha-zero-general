@@ -1,12 +1,6 @@
 import random
 import json
-from smallworld.SmallworldLogicNumba import *
-from smallworld.SmallworldGame import SmallworldGame
 from os import listdir, path, mkdir, _exit
-
-b = Board(NUMBER_PLAYERS)
-game = SmallworldGame()
-p, it = 0, 0
 
 
 def compute_valids_all_game():
@@ -155,17 +149,23 @@ def pretty_write_json(data_dict, filename):
 		f.write('"zfake": 0\n}\n')
 
 import argparse
+from GameSwitcher import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--game', action='store_true')
+parser.add_argument('game' , action='store', default='splendor', help='The name of the game to play')
+parser.add_argument('--play', action='store_true')
 parser.add_argument('--tests', action='store_true')
 parser.add_argument('-t')
 parser.add_argument('--loops', action='store_true')
 args = parser.parse_args()
+game, nnet_unused, players_unused, NUMBER_PLAYERS = import_game(args.game)
+Board = import_logicnumba(args.game)
+b = Board(NUMBER_PLAYERS)
+p, it = 0, 0
 
-main_directory = './smallworld/dumps/'
+main_directory = './' + args.game + '/dumps/'
 
-if args.game:
+if args.play:
 	used_ids = [int(f[3:6]) for f in listdir(main_directory) if f.startswith('set')]
 	new_id = max(used_ids)+1 if len(used_ids) else 0
 	dump_directory = f'{main_directory}/set{new_id:03}/'
