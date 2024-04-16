@@ -2,8 +2,8 @@ import sys
 
 sys.path.append('..')
 from Game import Game
-from SantoriniLogicNumba import Board, observation_size, action_size
-from SantoriniDisplay import move_to_str, print_board
+from .SantoriniLogicNumba import Board, observation_size, action_size
+from .SantoriniDisplay import move_to_str, print_board
 import numpy as np
 
 NUMBER_PLAYERS = 2

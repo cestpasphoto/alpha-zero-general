@@ -2,7 +2,7 @@ import sys
 
 sys.path.append('../../')
 from GenericNNetWrapper import GenericNNetWrapper
-from SantoriniNNet import SantoriniNNet as nn_model
+from .SantoriniNNet import SantoriniNNet as nn_model
 
 
 class NNetWrapper(GenericNNetWrapper):
