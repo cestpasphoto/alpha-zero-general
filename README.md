@@ -99,7 +99,7 @@ Use `main.py` with your parameters, e.g.:
 
 ### How to play versus saved engine
 
-Launch `pit.py` with then name of the game and the name of the two players.
+Launch `pit.py` with the name of the game and the name of the two players.
 
 `python ./pit.py splendor splendor/pretrained_2players.pt human -n 1`
 
@@ -107,29 +107,12 @@ or
 
 `python /pit.py splendor/pretrained_2players.pt splendor/pretrained_2players.pt -n 1 --display`
 
-_Ongoing code/features rework, some pretrained networks won't work anymore_
-You can also make 2 networks fight each other ![2 networks fighting](splendor/many_games.gif). Contrary to baseline
-version, pit.py automatically retrieves training settings and load them (numMCTSSims, num_channels, ...) although you
-can override if you want; you may even select 2 different architecture to compare them!
+You can also make 2 networks fight each other ![2 networks fighting](splendor/many_games.gif)
+Contrary to baseline version, pit.py automatically retrieves training settings and load them (numMCTSSims,
+num_channels, ...) although you can override if you want; you may even select 2 different architecture to compare
+them!
 
-### Technical details
-
-<details>
-  <summary>Click here for details about training, running or playing</summary>
-
-#### Dependencies
-
-`pip3 install onnxruntime numba tqdm colorama coloredlogs`
-and
-`pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu`
-
-Contrary to previous investigations, latest versions of onnxruntime and pytorch lead to best performance, see GenericNNetWrapper.py line 315
-
-#### How to play versus saved engine
-
-`./pit.py splendor/pretrained_2players.pt human -n 1`
-
-You can also make 2 networks fight each other ![2 networks fighting](splendor/many_games.gif). Contrary to baseline version, pit.py automatically retrieves training settings and load them (numMCTSSims, num_channels, ...) although you can override if you want; you may even select 2 different architecture to compare them!
+### Advanced details
 
 #### Recommended settings for training
 
@@ -168,3 +151,6 @@ using this command (execute as many times as threads): `./pit.py -A 24 -T 8`
 
 The code also runs several games to benefit from faster batch inferences; note that games are not run simultaneously but
 one at a time, meaning it still uses 1 CPU core. The downside is the bigger memory footprint.
+
+#### HyperParameter Optimisation
+You can use Ray to run HPO (especially Population Based Training "PBT"). This is still new so it may change but currently process is to configure first `rayConfig.py` and `useRay.py`, then call the latest.
