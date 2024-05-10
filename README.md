@@ -82,12 +82,11 @@ PC, no special GPU support required.
 ### Dependencies
 
 ```
-pip3 install onnxruntime numba tqdm colorama coloredlogs
+pip3 install onnxruntime==1.16.3 onnx onnxscript numba tqdm colorama coloredlogs
 pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
-Contrary to previous investigations, latest versions of onnxruntime and pytorch lead to best performance, see
-GenericNNetWrapper.py line 315
+Despite some efforts, I couldn't make it work with onnxruntime>=1.17 so avoid such version.
 
 ## Running the code
 
@@ -101,13 +100,12 @@ Use `main.py` with your parameters, e.g.:
 
 Launch `pit.py` with the name of the game and the name of the two players.
 
+`python /pit.py splendor splendor/pretrained_2players.pt splendor/pretrained_2players.pt -n 1 --display`
+or
 `python ./pit.py splendor splendor/pretrained_2players.pt human -n 1`
 
-or
 
-`python /pit.py splendor/pretrained_2players.pt splendor/pretrained_2players.pt -n 1 --display`
-
-You can also make 2 networks fight each other ![2 networks fighting](splendor/many_games.gif)
+You can run more than 1 game at a time and just display the game results ![2 networks fighting](splendor/many_games.gif)
 Contrary to baseline version, pit.py automatically retrieves training settings and load them (numMCTSSims,
 num_channels, ...) although you can override if you want; you may even select 2 different architecture to compare
 them!
