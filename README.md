@@ -82,11 +82,9 @@ PC, no special GPU support required.
 ### Dependencies
 
 ```
-pip3 install onnxruntime==1.16.3 onnx onnxscript numba tqdm colorama coloredlogs
+pip3 install onnxruntime onnx numba tqdm colorama coloredlogs
 pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
 ```
-
-Despite some efforts, I couldn't make it work with onnxruntime>=1.17 so avoid such version.
 
 ## Running the code
 

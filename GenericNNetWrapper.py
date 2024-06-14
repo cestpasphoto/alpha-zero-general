@@ -18,6 +18,7 @@ import torch
 import torch.optim as optim
 import torch.onnx
 import onnxruntime as ort
+import onnx
 torch.set_num_threads(1) # PyTorch more efficient this way
 
 class GenericNNetWrapper(NeuralNet):
@@ -303,26 +304,10 @@ class GenericNNetWrapper(NeuralNet):
 		self.nnet.eval()
 
 		temporary_file = 'nn_export_' + str( int(time.time()*1000)%1000000 ) + '.onnx'
-
-		# 		Measured avg duration of inference over 5 tests of 20k calls, 1 inference each time
-		#       Checked that variability is < ±0.05, W means warning emitted
-		#
-		#           ort_protocol:     9       10      11      12      13      14       15       16
-		# date     torch_v  ort_v
-		# Apr 21    1.8.0   1.7.0     2.14W   2.20W   2.21    2.22    2.26
-		# Sep 21    1.9.1   1.8.1     2.20W   2.23W   2.25    2.26    2.27
-		# Oct 21    1.10.1  1.9.0     2.29W   2.31W   2.34    2.34    2.38    2.38W
-		# Dec 21    1.10.2  1.10.0    2.12W   2.17W   2.20    2.20    2.23    2.21W
-		# Apr 22    1.11    1.11.1    1.95W   1.97W   2.00    2.01    2.04    2.04W    2.04W
-		# Aug 22    1.12.1  1.12.1    2.03W   2.03W   2.07    2.06    2.10    2.09     2.09     2.09
-		#
-		# Conclusion is that is that (slightly) faster protocol is 11
-
 		torch.onnx.export(
 			self.nnet,
 			(dummy_board, dummy_valid_actions),
 			temporary_file,
-			opset_version=11, 	# best ONNX protocol, see comment above
 			input_names = ['board', 'valid_actions'],
 			output_names = ['pi', 'v'],
 			dynamic_axes={
@@ -332,6 +317,11 @@ class GenericNNetWrapper(NeuralNet):
 				'v'            : {0: 'batch_size'},
 			}
 		)
+		if ort.__version__ >= '1.17.0':
+			# Convert ONNX file to most recent opset version
+			model_with_old_opset = onnx.load(temporary_file)
+			model_with_new_opset = onnx.version_converter.convert_version(model_with_old_opset, 21)
+			onnx.save(model_with_new_opset, temporary_file)
 
 		opts = ort.SessionOptions()
 		opts.intra_op_num_threads, opts.inter_op_num_threads, opts.inter_op_num_threads = 1, 1, ort.ExecutionMode.ORT_SEQUENTIAL
