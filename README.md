@@ -22,7 +22,7 @@ I learnt a lot from his existing code.
 ### Azul
 
 2 player Azul has been added to the framework and a reasonably strong ai has been trained for the 2 player version. I would
-love for it to get strong though!
+love for it to get stronger though!
 
 ### Splendor
 
