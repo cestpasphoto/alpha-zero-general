@@ -5,14 +5,24 @@ CPU-only 25-100x speed improvement, and supporting 2+ players games. You can pla
 browser https://github.com/cestpasphoto/cestpasphoto.github.io. Technical details about the improvements are listed in
 this [page](README_features.md).
 
+October 2024: I (PJF98) have added Azul to this framework (for 2 players only currently). I have also trained a reasonably
+strong ai for the 2 player game. I want to say thanks to all those who worked on the previous repo's, particulary cestpasphoto,
+I learnt a lot from his existing code.
+
 ## Supported games
 
+* [Azul](#azul)
 * [Botanik](#botanik)
 * [Machi Koro (a.k.a. Minivilles)](#machi-koro--minivilles)
 * [Santorini (with basic gods)](#santorini)
 * [Small World](#small-world)
 * [Splendor](#splendor)
 * [The Little Prince - Make me a planet](#the-little-prince---make-me-a-planet)
+
+### Azul
+
+2 player Azul has been added to the framework and a reasonably strong ai has been trained for the 2 player version. I would
+love for it to get strong though!
 
 ### Splendor
 
