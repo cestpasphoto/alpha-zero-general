@@ -3,6 +3,49 @@ import numpy as np
 from numba import njit
 import numba
 
+############################## BOARD DESCRIPTION ##############################
+# Board is described by a 23x6 array
+# Colours are always in this order: 0: Blue, 1: Yellow, 2: Red, 3: Black, 4: White
+# Here is the description of each line of the board. For readibility, we defined
+# "shortcuts" that actually are views (numpy name) of overal board.
+##### Index  Shortcut                Meaning
+#####   0    self.scores             P0 score, P1 score, Round num, 0, 0, 0
+#####  1-2   self.bag                Tiles in bag for each colour, 0
+#####  2-3   self.discards           Tiles in discard pile for each colour, 0
+#####  3-4   self.centre             Tiles of each colour in centre, (6th element is first player token)
+#####  4-9   self.factories          Tiles of each colour in each factory, 0
+#####  9     self.player_colours     Row colours of P0, -1 for empty, (6th element is first player token)
+#####  10        =                   Row colours of P1, -1 for empty, (6th element is first player token)
+#####  11    self.player_row_numbers Number of tiles on each row for P0, -1 for empty
+#####  12        =                   Number of tiles on each row for P1, -1 for empty
+#####  13-17 self.player_walls       P0 wall, 0 or 1 whether tile exists or not, 0
+#####  18-22     =                   P1 wall, 0 or 1 whether tile exists or not, 0
+# Any line follow by a 0 (or n 0s) means the last (or last n) columns is always 0
+
+
+############################## ACTION DESCRIPTION #############################
+# There are 180 actions, 6 choices of factory/centre to chose from, 5 choices
+# of colour and 6 choice of destination line.
+# 6*5*6 = 180
+# To get action number do factory * 30 + colour * 6 + line
+# Factory = {Centre: 0, Factory 1: 1, ..., Factory 5: 5}
+# Colour = {Blue: 0, Yellow: 1, Red: 2, Black: 3, White: 4}
+# Line = {Line 1: 0, Line 2: 1, ... Line 5: 4, Floor: 5}
+# To further demonstrate:
+##### Index  Meaning
+#####   0    Centre, Blue, Line 1
+#####   1    Centre, Blue, Line 2
+#####  ...
+#####   5    Centre, Blue, Floor
+#####   6    Centre, Yellow, Line 1
+#####  ...
+#####   29   Centre, White, Floor
+#####   30   Factory 1, Blue, Line 1
+#####  ...
+#####   59   Factory 1, White, Floor
+#####  ...
+#####   179  Factory 5, White, Floor
+
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
     return (23, 6)
