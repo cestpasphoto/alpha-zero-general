@@ -83,7 +83,7 @@ class Arena():
             curPlayer = int(curPlayer)
 
             if verbose:
-                data = board.tobytes() + curPlayer.to_bytes(1) + it.to_bytes(2)
+                data = board.tobytes() + curPlayer.to_bytes(1, byteorder="big") + it.to_bytes(2, byteorder="big")
                 compressed_board = base64.b64encode(zlib.compress(data, level=9, wbits=-15))
                 print(f'state = "{str(compressed_board, "UTF-8")}"')
         if verbose:
