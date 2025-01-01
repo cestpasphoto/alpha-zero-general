@@ -76,7 +76,9 @@ class Board():
 		return np.multiply(self.players_monuments[4*player:4*(player+1), 0], monuments_cost).sum() # np.dot() not supported by numba
 
 	def get_wealth(self, player):
-		return self.get_score(player) + self.players_money[player, 0]
+		total_wealth = self.get_score(player) + self.players_money[player, 0]
+		total_wealth = 127 if total_wealth > 127 else total_wealth
+		return total_wealth
 
 	def init_game(self):
 		self.copy_state(np.zeros(observation_size(self.num_players), dtype=np.int8), copy_or_not=False)
@@ -197,12 +199,12 @@ class Board():
 		return self.players_monuments[4*player+3,0] and self.player_state[0]%2 == 0
 	
 	def _buy_card(self, player, card):
-		self.players_money[player,0] -= cards_cost[card]
+		self._add_money(player, -cards_cost[card])
 		self.market[card,0] -= 1
 		self.players_cards[15*player + card,0] += 1
 
 	def _buy_monument(self, player, monument):
-		self.players_money[player,0] -= monuments_cost[monument]
+		self._add_money(player, -monuments_cost[monument])
 		self.players_monuments[4*player + monument,0] += 1
 
 	def _dice_again(self, player):
@@ -226,14 +228,14 @@ class Board():
 	def _dice_effect(self, result, player_who_rolled):
 		def _all_receive_from_bank(card_index, money):
 			for p in range(self.num_players):
-				self.players_money[p,0] += money * self.players_cards[15*p+card_index,0]
+				self._add_money(p, money * self.players_cards[15*p+card_index,0])
 				# if self.players_cards[15*p+card_index,0]:
 				# 	print(f'  P{p} +{money}*{self.players_cards[15*p+card_index,0]} from bank', end='')
 
 		def _current_receive_from_bank(card_index, money, bonus_if_mall=False):
 			p = player_who_rolled
 			bonus = 1 if bonus_if_mall and (self.players_monuments[4*p + CENTRECOM, 0] > 0) else 0
-			self.players_money[p,0] += (money+bonus) * self.players_cards[15*p+card_index,0]
+			self._add_money(p, (money+bonus) * self.players_cards[15*p+card_index,0])
 			# if self.players_cards[15*p+card_index,0]:
 			# 	print(f'  P{p} +{money+bonus}*{self.players_cards[15*p+card_index,0]} from bank', end='')
 
@@ -242,8 +244,8 @@ class Board():
 				p = player % self.num_players
 				bonus = 1 if bonus_if_mall and (self.players_monuments[4*p + CENTRECOM, 0] > 0) else 0
 				amount = min((money+bonus) * self.players_cards[15*p+card_index,0], self.players_money[player_who_rolled,0])
-				self.players_money[p                ,0] += amount
-				self.players_money[player_who_rolled,0] -= amount
+				self._add_money(p                , -amount)
+				self._add_money(player_who_rolled,  amount)
 				# if amount:
 				# 	print(f'  P{p} +{amount} from P{player_who_rolled}', end='')
 
@@ -253,8 +255,8 @@ class Board():
 				if p == player_who_rolled:
 					continue
 				amount = min(self.players_money[p,0], 2)
-				self.players_money[p                ,0] -= amount
-				self.players_money[player_who_rolled,0] += amount
+				self._add_money(p                , -amount)
+				self._add_money(player_who_rolled,  amount)
 				# if amount:
 				# 	print(f'  P{player_who_rolled} +{amount} from P{p}', end='')
 
@@ -292,8 +294,8 @@ class Board():
 			target_player = my_random_choice_and_normalize(wealths == wealths.max())
 			# Now, take from him
 			amount = min(self.players_money[target_player, 0], 5)
-			self.players_money[target_player    ,0] -= amount
-			self.players_money[player_who_rolled,0] += amount
+			self._add_money(target_player    , -amount)
+			self._add_money(player_who_rolled,  amount)
 			# if amount:
 			# 	print(f'  P{player_who_rolled} +{amount} from P{target_player}', end='')
 
@@ -331,6 +333,8 @@ class Board():
 		elif result == 12:
 			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat())
 
+	def _add_money(self, player, money_to_add):
+		self.players_money[player, 0] = np.clip(self.players_money[player, 0] + np.int16(money_to_add), 0, 127)
 
 	def _get_current_cow(self):
 		return self.players_cards[15*self.current_player_index + FERME, 0]

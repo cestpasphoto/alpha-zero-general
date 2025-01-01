@@ -30,7 +30,7 @@ def _decode_action(action):
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _encode_action(worker, power, move_direction, build_direction):
-	action = NB_GODS*9*9*worker + 9*9*power + 9*move_direction + build_direction
+	action = np.int16(NB_GODS)*9*9*worker + 9*9*power + 9*move_direction + build_direction
 	return action
 
 

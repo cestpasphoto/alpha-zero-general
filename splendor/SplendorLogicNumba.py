@@ -111,7 +111,7 @@ def my_unpackbits(value):
 
 @njit(cache=True, fastmath=True, nogil=True)
 def np_all_axis1(x):
-	out = np.ones(x.shape[0], dtype=np.bool8)
+	out = np.ones(x.shape[0], dtype=np.bool_)
 	for i in range(x.shape[1]):
 		out = np.logical_and(out, x[:, i])
 	return out
@@ -164,7 +164,7 @@ class Board():
 			# HOW MANY cards per color are in deck of tier 0, pratical for NN
 			self.nb_deck_tiers[2*tier,:idx_gold] = nb_deck_cards_per_color
 			# WHICH cards per color are in deck of tier 0, pratical for logic
-			self.nb_deck_tiers[2*tier+1,:idx_gold] = my_packbits(np.ones(nb_deck_cards_per_color, dtype=np.int8))
+			self.nb_deck_tiers[2*tier+1,:idx_gold] = my_packbits(np.ones(nb_deck_cards_per_color))
 		# Tiers
 		for tier in range(3):
 			for index in range(4):

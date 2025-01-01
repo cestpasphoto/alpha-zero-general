@@ -115,7 +115,7 @@ them!
 Compared to initial version, I target a smaller network but more MCTS simulations allowing to see further: this approach
 is less efficient on GPU, but similar on CPU and allow stronger AI.
 
-`main.py -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest -V 74`: 
+`python main.py splendor -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest -V 74`: 
 
 * Start by defining proper number of players in SplendorGame.py and disabling card reserve actions in first lines of
   splendor/SplendorLogicNumba.py

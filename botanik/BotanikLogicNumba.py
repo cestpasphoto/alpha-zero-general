@@ -114,6 +114,17 @@ def my_random_choice(prob):
 	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
 	return result
 
+@njit(cache=True, fastmath=True, nogil=True)
+def packedUint_to_int8(x):
+	dual_int16 = divmod(np.int16(x), 256)
+	cast_to_npint8 = [np.int8(x-256 if x > 127 else x) for x in dual_int16]
+	return cast_to_npint8
+
+@njit(cache=True, fastmath=True, nogil=True)
+def int8_to_packedUint(arr):
+	return np.uint64(256) * (arr[0]+256 if arr[0] < 0 else arr[0]) + (arr[1]+256 if arr[1] < 0 else arr[1])
+
+
 spec = [
 	('state'         		, numba.int8[:,:,:]),
 	('misc'          		, numba.int8[:,:]),
@@ -141,7 +152,7 @@ class Board():
 	def init_game(self):
 		self.copy_state(np.zeros((6+6*NB_ROWS_FOR_MACH,5,7), dtype=np.int8), copy_or_not=False)
 		# Set all cards as available
-		enable_all_cards = divmod(my_packbits(np.ones(len(mask), dtype=np.int8)), 256)
+		enable_all_cards = packedUint_to_int8(my_packbits(np.ones(len(mask), dtype=np.int8)))
 		for color in range(5):
 			self.misc[3:, color] = enable_all_cards
 		# Draw 5 cards for middle row
@@ -398,7 +409,7 @@ class Board():
 		available_cards = np.zeros((5, 13), dtype=np.bool_)
 		bitfield = self.misc[3:5, :].astype(np.uint8)
 		for color in range(5):
-			available_cards[color, :] = my_unpackbits(256*bitfield[0, color] + bitfield[1, color])
+			available_cards[color, :] = my_unpackbits(int8_to_packedUint(bitfield[:, color]))
 
 		for i in range(how_many):
 			if available_cards.sum() == 0:
@@ -415,7 +426,7 @@ class Board():
 
 		# Update bitfield
 		for color in range(5):
-			self.misc[3:, color] = divmod(my_packbits(available_cards[color, :]), 256)
+			self.misc[3:, color] = packedUint_to_int8(my_packbits(available_cards[color, :]))
 		return result
 
 	def _draw_cards_to_arrival_zone(self):
