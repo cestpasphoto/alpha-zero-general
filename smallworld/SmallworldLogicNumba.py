@@ -278,12 +278,12 @@ class Board():
 		# Whatever the score difference is
 		scores = self.game_status[:, 6]
 		for _ in range(2):
-			mini, maxi = -127-scores.min(), 127-scores.max()
+			mini, maxi = -np.int16(127)-scores.min(), np.int16(127)-scores.max()
 			if mini >= maxi:
 				print('symmetrie scores:', mini, maxi)
 			else:
 				random_offset = np.random.randint(mini, maxi)
-				self.game_status[:, 6] += random_offset
+				self.game_status[:, 6] += np.int16(random_offset)
 				symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
 				self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
