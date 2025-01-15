@@ -334,7 +334,12 @@ class Board():
 			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat())
 
 	def _add_money(self, player, money_to_add):
-		self.players_money[player, 0] = np.clip(self.players_money[player, 0] + np.int16(money_to_add), 0, 127)
+		new_money = self.players_money[player, 0] + np.int16(money_to_add)
+		if new_money > 127:
+			new_money = 127
+		if new_money < 0:
+			new_money = 0
+		self.players_money[player, 0] = new_money
 
 	def _get_current_cow(self):
 		return self.players_cards[15*self.current_player_index + FERME, 0]
