@@ -6,7 +6,8 @@ class_names_dict = {
     'santorini': 'Santorini',
     'smallworld': 'Smallworld',
     'splendor': 'Splendor',
-    'thelittleprince': 'TLP'
+    'thelittleprince': 'TLP',
+    'akropolis': 'Akropolis'
 }
 
 def import_game(pkg_name):

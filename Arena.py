@@ -79,7 +79,7 @@ class Arena():
 
             if valids[action] == 0:
                 assert valids[action] > 0
-            board, curPlayer = self.game.getNextState(board, curPlayer, action)
+            board, curPlayer = self.game.getNextState(board, curPlayer, action, random_seed=0)
             curPlayer = int(curPlayer)
 
             if verbose:
