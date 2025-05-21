@@ -45,7 +45,7 @@ def _print_lines(board: np.ndarray) -> list[str]:
             height = int(board[r, q, 1])
             if type_ == EMPTY and q % 3 == 0 and r % 3 == 0:
                 # print some coordinates instead of glyph
-                coords = f'{q},{r}'.center(4).translate(sub_digits)
+                coords = f'{r},{q}'.center(4).translate(sub_digits)
                 row += f"{Style.DIM}{coords}{Style.RESET_ALL}"
             else:
                 row += _print_glyph(type_, color, height)
@@ -104,8 +104,9 @@ def print_board(game):
                 color_scores.append('')
             else:
                 terms = [f"{game.plazas[i, c]}×{game.districts[i, c]}" for c in range(N_COLORS)]
-                total = sum(game.plazas[i, c] * game.districts[i, c] for c in range(N_COLORS))
-                colored = ' + '.join(f"{COLORS[c]}{terms[c]}{Style.RESET_ALL}" for c in range(N_COLORS)) + f" = {total}"
+                stones = game.stones[i]
+                total = game.total_scores[i]
+                colored = ' + '.join(f"{COLORS[c]}{terms[c]}{Style.RESET_ALL}" for c in range(N_COLORS)) + f" + {stones} = {total}"
                 color_scores.append(colored)
         print(center_cols(color_scores, [w0, w1]))
 
@@ -135,7 +136,7 @@ def move_to_str(move: int, player: int) -> str:
     degrees = int(orient * (360 / N_ORIENTS))
 
     return (
-        f"P{player} places tile #{tile_idx_in_cs} "
+        f"place tile #{tile_idx_in_cs} "
         f"at position (r={r}, q={q}) "
         f"with orientation {orient} ({degrees}°)."
     )

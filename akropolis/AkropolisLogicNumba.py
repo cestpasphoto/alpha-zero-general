@@ -164,6 +164,7 @@ class Board():
 		# Set initial tile
 		self.board[START_TILE_R, START_TILE_Q, :, 0] = PLAZA*8 + BLUE
 		self.board[START_TILE_R, START_TILE_Q, :, 1] = 1
+		self.plazas[:,BLUE] = 1
 		for idx in NEIGHBORS[START_TILE_R*CITY_SIZE+START_TILE_Q, ::2]:
 			rr, qq = divmod(idx, CITY_SIZE)
 			self.board[rr, qq, :, 0] = QUARRY*8
@@ -268,7 +269,7 @@ class Board():
 
 		result = np.zeros(CONSTR_SITE_SIZE * N_PATTERNS, dtype=np.bool_)
 		# For each available tile slot, apply the valid patterns
-		for slot_index in range(CONSTR_SITE_SIZE):
+		for slot_index in range(min(self.stones[player], CONSTR_SITE_SIZE)):
 			if self.construction_site[slot_index] < 0:
 				# Skip empty slots
 				continue
@@ -341,84 +342,95 @@ class Board():
 
 
 	def _update_districts(self, player: int):
-	    # 0) Récupère desc + hauteur et met à plat
-	    desc2d   = self.board[:, :, player, 0]
-	    h2d      = self.board[:, :, player, 1]
-	    desc = desc2d.ravel()
-	    h    = h2d.ravel()
-	    district = np.zeros(5, dtype=np.int32)
+		# 0) Récupère desc + hauteur et met à plat
+		desc2d = self.board[:, :, player, 0]
+		h2d    = self.board[:, :, player, 1]
+		desc   = desc2d.ravel()
+		h      = h2d.ravel()
+		district = np.zeros(N_COLORS, dtype=np.int32)
 
-	    # 1) GREEN (Gardens)
-	    mask_green = desc == (DISTRICT*8 + GREEN)
-	    district[GREEN] = h[mask_green].sum()
+		# 1) GREEN (Jardins)
+		mask_green = desc == (DISTRICT*8 + GREEN)
+		district[GREEN] = h[mask_green].sum()
 
-	    # # 2) YELLOW (Markets isolés)
-	    # mask_yellow2d = (desc2d == (DISTRICT*8 + YELLOW)).astype(np.int32)
-	    # nbr_y = np.zeros_like(mask_yellow2d)
-	    # for di, dj in DIRECTIONS:
-	    #     nbr_y += np.roll(np.roll(mask_yellow2d, di, axis=0), dj, axis=1)
-	    # mask_yellow = desc == (DISTRICT*8 + YELLOW)
-	    # district[YELLOW] = h[mask_yellow & (nbr_y.ravel() == 0)].sum()
+		# 2) YELLOW (Marchés isolés)
+		mask_yellow = desc == (DISTRICT*8 + YELLOW)
+		yellow_idxs = np.nonzero(mask_yellow)[0]
+		score_y = 0
+		for idx in yellow_idxs:
+			isolated = True
+			# si un voisin est aussi un marché YELLOW, ce n'est pas isolé
+			for nb in NEIGHBORS[idx]:
+				if nb >= 0 and desc[nb] == (DISTRICT*8 + YELLOW):
+					isolated = False
+					break
+			if isolated:
+				score_y += h[idx]
+		district[YELLOW] = score_y
 
-	    # # 3) PURPLE (Temples entourés)
-	    # occ2d = (h2d > 0).astype(np.int32)
-	    # nbr_occ = np.zeros_like(occ2d)
-	    # for di, dj in DIRECTIONS:
-	    #     nbr_occ += np.roll(np.roll(occ2d, di, axis=0), dj, axis=1)
-	    # mask_purple = desc == (DISTRICT*8 + PURPLE)
-	    # district[PURPLE] = h[mask_purple & (nbr_occ.ravel() == 6)].sum()
+		# 3) PURPLE (Temples entourés)
+		mask_purple = desc == (DISTRICT*8 + PURPLE)
+		purple_idxs = np.nonzero(mask_purple)[0]
+		score_p = 0
+		for idx in purple_idxs:
+			# ne considérer que les hex complétés (6 voisins)
+			valid_nbs = [nb for nb in NEIGHBORS[idx] if nb >= 0]
+			if len(valid_nbs) == 6:
+				surrounded = True
+				for nb in valid_nbs:
+					if h[nb] == 0:
+						surrounded = False
+						break
+				if surrounded:
+					score_p += h[idx]
+		district[PURPLE] = score_p
 
-	    # 4) Flood-fill des vides extérieurs
-	    #    - empties reliés à bord du plateau
-	    is_empty = desc == EMPTY
-	    outer_empty = np.zeros_like(is_empty)
-	    # init : empties qui ont un voisin <0 (bord)
-	    for idx in np.nonzero(is_empty)[0]:
-	        for nb in NEIGHBORS[idx]:
-	            if nb < 0:
-	                outer_empty[idx] = True
-	                break
-	    # BFS / DFS sur empty → mark all reachable
-	    stack = [idx for idx in np.nonzero(outer_empty)[0]]
-	    for cur in stack:
-	        for nb in NEIGHBORS[cur]:
-	            if nb < 0 or outer_empty[nb] or not is_empty[nb]:
-	                continue
-	            outer_empty[nb] = True
-	            stack.append(nb)
+		# 4) Flood-fill des vides extérieurs (inchangé)
+		is_empty = desc == EMPTY
+		outer_empty = np.zeros_like(is_empty)
+		for idx in np.nonzero(is_empty)[0]:
+			for nb in NEIGHBORS[idx]:
+				if nb < 0:
+					outer_empty[idx] = True
+					break
+		stack = [i for i in np.nonzero(outer_empty)[0]]
+		for cur in stack:
+			for nb in NEIGHBORS[cur]:
+				if nb < 0 or outer_empty[nb] or not is_empty[nb]:
+					continue
+				outer_empty[nb] = True
+				stack.append(nb)
 
-	    # 5) RED (Barracks en périphérie réelle)
-	    mask_red = desc == (DISTRICT*8 + RED)
-	    # un RED compte s’il touche au moins un outer_empty
-	    red_touch = np.zeros_like(mask_red)
-	    for idx in np.nonzero(mask_red)[0]:
-	        for nb in NEIGHBORS[idx]:
-	            if nb < 0 or outer_empty[nb]:
-	                red_touch[idx] = True
-	                break
-	    district[RED] = h[red_touch].sum()
+		# 5) RED (Caserne en périphérie réelle)
+		mask_red = desc == (DISTRICT*8 + RED)
+		red_touch = np.zeros_like(mask_red)
+		for idx in np.nonzero(mask_red)[0]:
+			for nb in NEIGHBORS[idx]:
+				if nb < 0 or outer_empty[nb]:
+					red_touch[idx] = True
+					break
+		district[RED] = h[red_touch].sum()
 
-	    # 6) BLUE (maisons) : BFS pour la plus longue chaîne
-	    mask_blue = desc == (DISTRICT*8 + BLUE)
-	    visited = np.zeros_like(mask_blue)
-	    max_chain = 0
-	    for start in np.nonzero(mask_blue)[0]:
-	        if visited[start]:
-	            continue
-	        chain = 0
-	        stack = [start]
-	        visited[start] = True
-	        while stack:
-	            cur = stack.pop()
-	            chain += h[cur]
-	            for nb in NEIGHBORS[cur]:
-	                if nb < 0 or visited[nb] or not mask_blue[nb]:
-	                    continue
-	                visited[nb] = True
-	                stack.append(nb)
-	        if chain > max_chain:
-	            max_chain = chain
-	    district[BLUE] = max_chain
+		# 6) BLUE (Maisons) : plus longue chaîne
+		mask_blue = desc == (DISTRICT*8 + BLUE)
+		visited = np.zeros_like(mask_blue)
+		max_chain = 0
+		for start in np.nonzero(mask_blue)[0]:
+			if visited[start]:
+				continue
+			chain = 0
+			stack = [start]
+			visited[start] = True
+			while stack:
+				cur = stack.pop()
+				chain += h[cur]
+				for nb in NEIGHBORS[cur]:
+					if nb < 0 or visited[nb] or not mask_blue[nb]:
+						continue
+					visited[nb] = True
+					stack.append(nb)
+			max_chain = max(max_chain, chain)
+		district[BLUE] = max_chain
 
-	    # 7) Écriture des scores
-	    self.districts[player, :] = district
+		# 7) Enregistrement des scores
+		self.districts[player, :] = district
