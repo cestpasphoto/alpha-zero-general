@@ -3,92 +3,139 @@ import numpy as np
 from colorama import init, Fore, Style
 from .AkropolisConstants import *
 
-# Init Colorama
 init(autoreset=True)
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 
-# Regex pour retirer les ANSI
-_strip = re.compile(r'\x1b\[[0-9;]*m').sub
-# Symboles et exposants
-SYMS = {DISTRICT: '⌂', PLAZA: '★', QUARRY: 'Q'}
-SUP  = {1: '', 2: '²', 3: '³', 4: '⁴'}
-# Palette par index (0–7, last color is for QUARRY)
-COLS = [Fore.BLUE, Fore.YELLOW, Fore.RED, Fore.MAGENTA, Fore.GREEN, Fore.BLACK]
+def strip_ansi(s: str) -> str:
+    """Remove ANSI escape sequences for width calculations."""
+    return _ANSI_RE.sub('', s)
 
-def strip_ansi(s):
-    return _strip('', s)
+# Glyphs for district (house) and plaza (star), plus superscripts for heights
+SYMBOLS      = {QUARRY: 'Q', PLAZA: '★', DISTRICT: '⌂'}
+SUPERSCRIPTS = {1: '', 2: '²', 3: '³', 4: '⁴'}
+sub_digits = str.maketrans({
+    '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+    '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+    '-': '₋'
+})
 
 
-def prl(board):
-    """
-    -> List[str] : lignes colorées prêtes à afficher
-    board: np.array shape (q_size, r_size, 2) 
-           [:,:,0]=type_color, [:,:,1]=height
-    """
+# Palette
+COLORS = [
+    Fore.BLUE, Fore.YELLOW, Fore.RED, Fore.MAGENTA, Fore.GREEN,
+    Fore.BLACK # for Quarry
+]
 
+def _print_glyph(type_, color, height, center=True):
+    if type_ == EMPTY:
+        glyph = '·'
+        col   = ''
+    else:
+        glyph = SYMBOLS.get(type_, '?') + SUPERSCRIPTS.get(height, '')
+        col   = COLORS[-1] if type_ == QUARRY else COLORS[color]
+    tile = glyph.center(4) if center else glyph
+    return f"{col}{tile}{Style.RESET_ALL}"
+
+def _print_lines(board: np.ndarray) -> list[str]:
     lines = []
-    for q in range(board.shape[0]):
-        tiles = []
-        for r in range(board.shape[1]):
-            tc, ht = board[q, r]
-            t, c = divmod(int(tc), 8)
-            if t == 0:
-                txt = '·'.center(2)
-                col = ''
+    for r in range(board.shape[1]):
+        row = '  ' if r%2==1 else ''
+        for q in range(board.shape[0]):
+            type_, color = divmod(board[r, q, 0], 8)
+            height = int(board[r, q, 1])
+            if type_ == EMPTY and q % 3 == 0 and r % 3 == 0:
+                # print some coordinates instead of glyph
+                coords = f'{q},{r}'.center(4).translate(sub_digits)
+                row += f"{Style.DIM}{coords}{Style.RESET_ALL}"
             else:
-                sym = SYMS.get(t, '?') + SUP.get(int(ht), '')
-                txt = sym.center(2)
-                col = COLS[-1] if t == QUARRY else COLS[c]
-            tiles.append(f"{col}{txt}{Style.RESET_ALL}")
-        indent = ('  ' * q)
-        lines.append(indent + ' '.join(tiles))
+                row += _print_glyph(type_, color, height)
+        lines.append(row)
     return lines
 
-def print_boards(boards):
-    # 1) Prépare les listes de lignes et mesures
-    # pss = [prl(b) for b in boards]
-    pss = [prl(boards[:,:,0,:]), prl(boards[:,:,1,:])]
-    raws = [[strip_ansi(l) for l in ps] for ps in pss]
-    widths = [max((len(r) for r in raw), default=0) for raw in raws]
-    H = max(len(ps) for ps in pss)
-    # 2) Pad en hauteur
-    for idx in range(len(pss)):
-        pad = H - len(pss[idx])
-        pss[idx]  += [''] * pad
-        raws[idx] += [''] * pad
-    # 3) Affichage
-    for i in range(H):
-        left = pss[0][i] + ' '*(widths[0] - len(raws[0][i]))
-        # if len(boards) == 2:
-        right = pss[1][i] + ' '*(widths[1] - len(raws[1][i]))
-        print(f"{left}  |  {right}")
-        # else:
-        #     print(left)
+def print_board(game):
+    """
+    Print up to N_PLAYERS boards, two side by side per row, with:
+      - centered headers "PLAYER i"
+      - colored score breakdown P×D per color
+      - the hex boards
+      - remaining construction site tiles
+    Assumes:
+      game.board.shape         == (size, size, N_PLAYERS, 2)
+      game.plazas.shape        == (N_PLAYERS, N_COLORS)
+      game.districts.shape     == (N_PLAYERS, N_COLORS)
+      game.construction_site   == (CONSTR_SITE_SIZE,)
+    """
+    def center_cols(texts: list[str], widths: list[int]) -> str:
+        """Center each text in its visible-width column, join with separators."""
+        cols = []
+        for txt, w in zip(texts, widths):
+            raw = strip_ansi(txt)
+            pad = w - len(raw)
+            left = pad // 2
+            right = pad - left
+            cols.append(' ' * left + txt + ' ' * right)
+        line = cols[0]
+        for col in cols[1:]:
+            line += '  |  ' + col
+        return line
 
-def print_board(board):
-    print_boards(board.board)
+    for p in range(0, N_PLAYERS, 2):
+        # extract per-player sub-boards (size, size, 2)
+        sub0 = game.board[:, :, p, :]
+        sub1 = game.board[:, :, p+1, :] if (p+1) < N_PLAYERS else None
+
+        # generate line lists and raw widths
+        lines0 = _print_lines(sub0)
+        lines1 = _print_lines(sub1) if sub1 is not None else []
+        raw0   = [strip_ansi(l) for l in lines0]
+        raw1   = [strip_ansi(l) for l in lines1]
+        w0     = max((len(r) for r in raw0), default=0)
+        w1     = max((len(r) for r in raw1), default=0)
+        height = max(len(lines0), len(lines1))
+
+        # headers
+        headers = [f"PLAYER {i}" if i < N_PLAYERS else '' for i in (p, p+1)]
+        print(center_cols(headers, [w0, w1]))
+
+        # score breakdown
+        color_scores = []
+        for i in (p, p+1):
+            if i >= N_PLAYERS:
+                color_scores.append('')
+            else:
+                terms = [f"{game.plazas[i, c]}×{game.districts[i, c]}" for c in range(N_COLORS)]
+                total = sum(game.plazas[i, c] * game.districts[i, c] for c in range(N_COLORS))
+                colored = ' + '.join(f"{COLORS[c]}{terms[c]}{Style.RESET_ALL}" for c in range(N_COLORS)) + f" = {total}"
+                color_scores.append(colored)
+        print(center_cols(color_scores, [w0, w1]))
+
+        # board rows
+        for row_idx in range(height):
+            part0 = lines0[row_idx] if row_idx < len(lines0) else ''
+            part1 = lines1[row_idx] if row_idx < len(lines1) else ''
+            pad0 = w0 - len(strip_ansi(part0))
+            pad1 = w1 - len(strip_ansi(part1))
+            print(f"{part0}{' ' * pad0}  |  {part1}{' ' * pad1}")
+        print()
+
+    # construction site
+    # remaining = [str(t) for t in game.construction_site if t != -1]
+    remaining = [
+        ''.join([_print_glyph(t//8, t%8, 1, center=False) for t in TILES_DATA[tile_id, :3]])
+        for tile_id in game.construction_site if tile_id != -1
+        ]
+    print("Construction site:", ' '.join(remaining))
+
 
 def move_to_str(move: int, player: int) -> str:
-    rem, orient          = divmod(move, N_ORIENTS)
-    tile_idx_in_cs, site = divmod(rem, CITY_AREA)
-    q, r                 = divmod(site, CITY_SIZE)
+    tile_idx_in_cs, rem  = divmod(move, N_PATTERNS)
+    idx, orient          = divmod(rem, N_ORIENTS)
+    r, q = divmod(idx, CITY_SIZE)
 
     degrees = int(orient * (360 / N_ORIENTS))
 
     return (
         f"P{player} places tile #{tile_idx_in_cs} "
-        f"at position (q={q}, r={r}) "
+        f"at position (r={r}, q={q}) "
         f"with orientation {orient} ({degrees}°)."
     )
-
-
-if __name__ == "__main__":
-    # Démo : deux petits boards 5×5 aléatoires
-    rng = np.random.RandomState(0)
-    boards = []
-    for _ in range(2):
-        tc = rng.choice([0,1,2], size=(12,12), p=[0.6,0.25,0.15])
-        ht = rng.choice([1,2,3], size=(12,12), p=[0.8,0.15,0.05])
-        # encode type_color = type*8 + color (ici color=random 0–7)
-        clr = rng.randint(0,8,size=(12,12))
-        boards.append(np.stack([tc*8 + clr, ht], axis=2))
-    print_boards(boards)

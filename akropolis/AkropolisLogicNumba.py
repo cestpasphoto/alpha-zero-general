@@ -5,8 +5,8 @@ from .AkropolisConstants import *
 #
 # Game.state : np.ndarray[int8] of shape (CITY_SIZE, CITY_SIZE + OVERHEAD, N_PLAYERS, 2)
 #
-#   axis 0 → q                ∈ [0..CITY_SIZE-1]
-#   axis 1 → r                ∈ [0..CITY_SIZE-1]
+#   axis 0 → r                ∈ [0..CITY_SIZE-1]
+#   axis 1 → q                ∈ [0..CITY_SIZE-1]
 #   axis 3 → cities and misc  ∈ [0..N_PLAYERS+1]
 #      z=0                 → tile description for city of player 0 
 #      z=1                 → tile height for city of player 0  (0 if empty)
@@ -29,22 +29,20 @@ from .AkropolisConstants import *
 # color       = description  % 8
 # type        = description // 8
 #
-# The grid uses an axial coordinate system (q, r) with two axes separated by
-# 60°. Each hex is addressed by coordinates (q, r), where q increases eastward
-# and r increases southeastward. The origin is on the upper left. All
-# coordinates are positive so the board shape is a trapezoid.
+# The grid uses an odd-r offset coordinate system (r, q) for each hex. See
+# https://www.redblobgames.com/grids/hexagons/#coordinates q increases eastward
+# and r increases southeastward. The origin is on the upper left, and all
+# coordinates are positive. When we need a 1D representation, we use a single
+# scalar 'idx' = r * CITY_SIZE + q
 #
-# Example of axial coordinates around (5,5):
-#             (5, 4)      (6, 4)
+# Example of odd-r offset coordinates around (3,3):
+#             (2, 3)      (2, 4)
 #                \          /
 #                 \        /
-#       (4,5) ----- (5, 5) ---- (6, 5)
+#       (3, 2) ---- (3, 3) ---- (3, 4)
 #                 /        \
 #                /          \
-#             (4, 6)      (5, 6)
-#
-# Neighbors of (q, r) are:
-#   (q+1, r), (q-1, r), (q, r+1), (q, r-1), (q+1, r-1), (q-1, r+1)
+#             (4, 3)      (4, 4)
 #
 ############################## ACTION DESCRIPTION #############################
 #
@@ -56,7 +54,7 @@ from .AkropolisConstants import *
 #               + orient_idx
 # Where:
 #   - tile_idx_in_cs ∈ [0, CONSTR_SITE_SIZE − 1] # index of the tile type being placed
-#   - site_idx       ∈ [0, CITY_AREA − 1]        # global index of the hexagon on the board
+#   - site_idx       ∈ [0, CITY_AREA − 1]        # 1D index of the center hexagon on the board
 #   - orient_idx     ∈ [0, N_ORIENTS − 1]        # rotation/orientation index
 
 # @njit(cache=True, fastmath=True, nogil=True)
@@ -91,6 +89,55 @@ def my_unpackbits(values):
 	bools = bits_matrix.reshape(-1)
 	return bools
 
+# Pre-compute the list of 6 neighbours of position idx
+NEIGHBORS = np.full((CITY_AREA, 6), -1, dtype=np.int16)
+for r in range(CITY_SIZE):
+	for q in range(CITY_SIZE):
+		idx = r * CITY_SIZE + q
+		cnt = 0
+		for dq, dr in DIRECTIONS_ODD if (r%2)==1 else DIRECTIONS_EVEN:
+			nq, nr = q + dq, r + dr
+			if 0 <= nq < CITY_SIZE and 0 <= nr < CITY_SIZE:
+				NEIGHBORS[idx, cnt] = nr * CITY_SIZE + nq
+				cnt += 1
+
+# Pre-compute the list of positions of the 3 hexes of tile depending on
+#   the position of its center (idx)
+#   its orientation (orient)
+# PATTERNS[idx*N_ORIENTS+orient, :] = (n1, s, n2) or (-1, -1, -1)
+N_PATTERNS = CITY_AREA * N_ORIENTS
+PATTERNS = np.full((N_PATTERNS, 3), -1, dtype=np.int16)
+for s in range(CITY_AREA):
+	r, q = divmod(s, CITY_SIZE)
+	for o in range(N_ORIENTS):
+		idx = s * N_ORIENTS + o
+		if (r%2)==1:
+			d1, d2 = DIRECTIONS_ODD[o] , DIRECTIONS_ODD[(o + 1) % N_ORIENTS]
+		else:
+			d1, d2 = DIRECTIONS_EVEN[o], DIRECTIONS_EVEN[(o + 1) % N_ORIENTS]
+		pts = [
+			(q + d1[0], r + d1[1]),
+			(q        , r),
+			(q + d2[0], r + d2[1]),
+		]
+		if all(0 <= qq < CITY_SIZE and 0 <= rr < CITY_SIZE for qq, rr in pts):
+			for j, (qq, rr) in enumerate(pts):
+				PATTERNS[idx, j] = rr * CITY_SIZE + qq
+
+# Pre-compute the list of positions of the 9 (or less) neighbors of a tile
+# Using same index system as above
+PATTERN_NEI = np.full((N_PATTERNS, 9), -1, dtype=np.int16)
+for p in range(N_PATTERNS):
+	triplet = PATTERNS[p]
+	neighbors_set = set()
+	for cell in triplet:
+		if cell < 0:
+			continue
+		for neighbor in NEIGHBORS[cell]:
+			if neighbor >= 0 and neighbor not in triplet:
+				neighbors_set.add(neighbor)
+	PATTERN_NEI[p, :len(neighbors_set)] = sorted(neighbors_set)
+
 # spec = [
 # 	('state'            , numba.int8[:,:,:]),
 # 	('board'            , numba.int8[:,:,:,:]),
@@ -115,14 +162,13 @@ class Board():
 		self.tiles_bitpack[:] = my_packbits(TILES_DATA[:,3] <= N_PLAYERS)
 		self.misc[1] = N_STACKS
 		# Set initial tile
-		self.board[START_TILE_Q  , START_TILE_R  , :, 0] = PLAZA*8 + BLUE
-		self.board[START_TILE_Q  , START_TILE_R-1, :, 0] = QUARRY*8
-		self.board[START_TILE_Q+1, START_TILE_R  , :, 0] = QUARRY*8
-		self.board[START_TILE_Q-1, START_TILE_R+1, :, 0] = QUARRY*8
-		self.board[START_TILE_Q  , START_TILE_R  , :, 1] = 1
-		self.board[START_TILE_Q  , START_TILE_R-1, :, 1] = 1
-		self.board[START_TILE_Q+1, START_TILE_R  , :, 1] = 1
-		self.board[START_TILE_Q-1, START_TILE_R+1, :, 1] = 1
+		self.board[START_TILE_R, START_TILE_Q, :, 0] = PLAZA*8 + BLUE
+		self.board[START_TILE_R, START_TILE_Q, :, 1] = 1
+		for idx in NEIGHBORS[START_TILE_R*CITY_SIZE+START_TILE_Q, ::2]:
+			rr, qq = divmod(idx, CITY_SIZE)
+			self.board[rr, qq, :, 0] = QUARRY*8
+			self.board[rr, qq, :, 1] = 1
+
 		# Build construction site
 		self.construction_site[:] = -1
 		self._draw_tiles_constr_site(initial_draw=True)
@@ -145,26 +191,23 @@ class Board():
 
 	def make_move(self, move, player, random_seed):
 		# decode "move" using divmod
-		rem, orient          = divmod(move, N_ORIENTS)
-		tile_idx_in_cs, site = divmod(rem, CITY_AREA)
-		q, r                 = divmod(site, CITY_SIZE)
+		tile_idx_in_cs, rem  = divmod(move, N_PATTERNS)
+		idx, orient          = divmod(rem, N_ORIENTS)
 
 		# remove tile from construction_site, and move further tiles
 		tile_id = self.construction_site[tile_idx_in_cs]
 		self.construction_site[tile_idx_in_cs:-1] = self.construction_site[tile_idx_in_cs+1:]
 		self.construction_site[-1] = -1
-		# put tile onto the city
-		d1, d2 = DIRECTIONS[orient], DIRECTIONS[(orient+1) % N_ORIENTS]
-		for desc, (dq, dr) in zip(TILES_DATA[tile_id][:3], [d1, (0,0), d2]):
-			qq, rr = q + dq, r + dr
+		for desc, hex_idx in zip(TILES_DATA[tile_id][:3], PATTERNS[idx*N_ORIENTS+orient]):
+			rr, qq = divmod(hex_idx, CITY_SIZE)
 			# update internals if building upon a quarry or plaza (district will be managed later)
-			under_type, under_color = divmod(self.board[qq, rr, player, 0], 8)
+			under_type, under_color = divmod(self.board[rr, qq, player, 0], 8)
 			if under_type == PLAZA:
 				self.plazas[player, under_color] += 1
 			if under_type == QUARRY:
 				self.stones[player] += 1
-			self.board[qq, rr, player, 0] = desc
-			self.board[qq, rr, player, 1] += 1
+			self.board[rr, qq, player, 0] = desc
+			self.board[rr, qq, player, 1] += 1
 			# Update plazas
 			if desc // 8 == PLAZA:
 				self.plazas[player, desc % 8] += 1
@@ -179,7 +222,7 @@ class Board():
 		self.misc[0] += 1
 
 		# if only 1 tile remaining in construction_site, draw a new set of tiles
-		if self.construction_site[1] == -1 and self.misc[1] > 0:
+		if self.construction_site[1] < 0 and self.misc[1] > 0:
 			self._draw_tiles_constr_site(initial_draw=False)
 			self.misc[1] -= 1 # remaining number of stacks
 
@@ -188,10 +231,9 @@ class Board():
 	def valid_moves(self, player):
 		heights_flat = self.board[:, :, player, 1].ravel()
 
-		# Identify which patterns are valid placements (independent of tile slots)
-		total_patterns = CITY_AREA * N_ORIENTS
-		pattern_is_valid = np.zeros(total_patterns, dtype=np.bool_)
-		for pattern_id in range(total_patterns):
+		# Identify which patterns are valid placements (independent of the chosen tile)
+		pattern_is_valid = np.zeros(N_PATTERNS, dtype=np.bool_)
+		for pattern_id in range(N_PATTERNS):
 			cell_a = PATTERNS[pattern_id, 0]
 			# Skip patterns that go off the board
 			if cell_a < 0:
@@ -224,15 +266,15 @@ class Board():
 			# Pattern is valid for placement
 			pattern_is_valid[pattern_id] = True
 
-		result = np.zeros(CONSTR_SITE_SIZE * CITY_AREA * N_ORIENTS, dtype=np.bool_)
+		result = np.zeros(CONSTR_SITE_SIZE * N_PATTERNS, dtype=np.bool_)
 		# For each available tile slot, apply the valid patterns
 		for slot_index in range(CONSTR_SITE_SIZE):
-			if self.construction_site[slot_index] == -1:
+			if self.construction_site[slot_index] < 0:
 				# Skip empty slots
 				continue
 
-			base_offset = slot_index * total_patterns
-			for pattern_id in range(total_patterns):
+			base_offset = slot_index * N_PATTERNS
+			for pattern_id in range(N_PATTERNS):
 				if pattern_is_valid[pattern_id]:
 					result[base_offset + pattern_id] = True
 
@@ -242,7 +284,7 @@ class Board():
 		return self.state
 
 	def check_end_game(self, next_player):
-		if (self.misc[1] <= 0 and self.construction_site[1] == -1):
+		if (self.misc[1] <= 0 and self.construction_site[1] < 0):
 			m = self.total_scores.max()
 			single_winner = int((self.total_scores == m).sum()) == 1
 			return np.where(self.total_scores == m, np.float32(1.0 if single_winner else 0.001), np.float32(-1.0))
@@ -310,21 +352,21 @@ class Board():
 	    mask_green = desc == (DISTRICT*8 + GREEN)
 	    district[GREEN] = h[mask_green].sum()
 
-	    # 2) YELLOW (Markets isolés)
-	    mask_yellow2d = (desc2d == (DISTRICT*8 + YELLOW)).astype(np.int32)
-	    nbr_y = np.zeros_like(mask_yellow2d)
-	    for di, dj in DIRECTIONS:
-	        nbr_y += np.roll(np.roll(mask_yellow2d, di, axis=0), dj, axis=1)
-	    mask_yellow = desc == (DISTRICT*8 + YELLOW)
-	    district[YELLOW] = h[mask_yellow & (nbr_y.ravel() == 0)].sum()
+	    # # 2) YELLOW (Markets isolés)
+	    # mask_yellow2d = (desc2d == (DISTRICT*8 + YELLOW)).astype(np.int32)
+	    # nbr_y = np.zeros_like(mask_yellow2d)
+	    # for di, dj in DIRECTIONS:
+	    #     nbr_y += np.roll(np.roll(mask_yellow2d, di, axis=0), dj, axis=1)
+	    # mask_yellow = desc == (DISTRICT*8 + YELLOW)
+	    # district[YELLOW] = h[mask_yellow & (nbr_y.ravel() == 0)].sum()
 
-	    # 3) PURPLE (Temples entourés)
-	    occ2d = (h2d > 0).astype(np.int32)
-	    nbr_occ = np.zeros_like(occ2d)
-	    for di, dj in DIRECTIONS:
-	        nbr_occ += np.roll(np.roll(occ2d, di, axis=0), dj, axis=1)
-	    mask_purple = desc == (DISTRICT*8 + PURPLE)
-	    district[PURPLE] = h[mask_purple & (nbr_occ.ravel() == 6)].sum()
+	    # # 3) PURPLE (Temples entourés)
+	    # occ2d = (h2d > 0).astype(np.int32)
+	    # nbr_occ = np.zeros_like(occ2d)
+	    # for di, dj in DIRECTIONS:
+	    #     nbr_occ += np.roll(np.roll(occ2d, di, axis=0), dj, axis=1)
+	    # mask_purple = desc == (DISTRICT*8 + PURPLE)
+	    # district[PURPLE] = h[mask_purple & (nbr_occ.ravel() == 6)].sum()
 
 	    # 4) Flood-fill des vides extérieurs
 	    #    - empties reliés à bord du plateau

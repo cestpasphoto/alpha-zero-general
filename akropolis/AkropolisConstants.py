@@ -38,8 +38,10 @@ TOTAL_TILES = CONSTR_SITE_SIZE + DECK_SIZE # 2p = 36 (5B), 3p = 48 (6B), 4p = 60
 
 # =============================================================================
 
-# SW, SE, E, NE, NW, W
-DIRECTIONS = [(-1,1), (0,1), (1,0), (1,-1), (0,-1), (-1,0)]
+# odd-r offset
+#                     SW        SE        E        NE        NW        W
+DIRECTIONS_EVEN = [(-1, +1), ( 0, +1), (+1, 0), ( 0, -1), (-1, -1), (-1, 0)]
+DIRECTIONS_ODD  = [( 0, +1), (+1, +1), (+1, 0), (+1, -1), ( 0, -1), (-1, 0)]
 
 # Maximum number of orientations per tile
 N_ORIENTS = 6
@@ -47,49 +49,6 @@ N_ORIENTS = 6
 # Size in bytes of total tiles stored in a bitfield
 # At most 61 tiles, so fits into 8 bytes
 PACKED_TILES_BYTES = 8
-
-# Pre-computed neighbors
-NEIGHBORS = np.full((CITY_AREA, 6), -1, dtype=np.int16)
-for i in range(CITY_SIZE):
-	for j in range(CITY_SIZE):
-		idx = i * CITY_SIZE + j
-		cnt = 0
-		for di, dj in DIRECTIONS:
-			ni, nj = i + di, j + dj
-			if 0 <= ni < CITY_SIZE and 0 <= nj < CITY_SIZE:
-				NEIGHBORS[idx, cnt] = ni * CITY_SIZE + nj
-				cnt += 1
-
-# PATTERNS[p] = (n1, s, n2) or (-1, -1, -1)
-N_PATTERNS = CITY_AREA * N_ORIENTS
-PATTERNS = np.full((N_PATTERNS, 3), -1, dtype=np.int16)
-for s in range(CITY_AREA):
-	q, r = divmod(s, CITY_SIZE)
-	for o in range(N_ORIENTS):
-		idx = s * N_ORIENTS + o
-		d1 = DIRECTIONS[o]
-		d2 = DIRECTIONS[(o + 1) % N_ORIENTS]
-		pts = [
-			(q + d1[0], r + d1[1]),
-			(q        , r),
-			(q + d2[0], r + d2[1]),
-		]
-		if all(0 <= qq < CITY_SIZE and 0 <= rr < CITY_SIZE for qq, rr in pts):
-			for j, (qq, rr) in enumerate(pts):
-				PATTERNS[idx, j] = qq * CITY_SIZE + rr
-
-# PATTERN_NEI[p] = list of 9 neighbours around the tile
-PATTERN_NEI = np.full((N_PATTERNS, 9), -1, dtype=np.int16)
-for p in range(N_PATTERNS):
-	triplet = PATTERNS[p]
-	nbrs = set()
-	for cell in triplet:
-		if cell < 0:
-			continue
-		for neighbor in NEIGHBORS[cell]:
-			if neighbor not in triplet:
-				nbrs.add(neighbor)
-	PATTERN_NEI[p, :len(nbrs)] = sorted(nbrs)
 
 # =============================================================================
 
