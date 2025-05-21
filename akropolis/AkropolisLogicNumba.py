@@ -3,7 +3,7 @@ from .AkropolisConstants import *
 
 ############################## BOARD DESCRIPTION ##############################
 #
-# Game.state : np.ndarray[int8] of shape (CITY_SIZE, CITY_SIZE + OVERHEAD, N_PLAYERS, 2)
+# Game.state : np.ndarray[int8] of shape (CITY_SIZE, CITY_SIZE, 2*N_PLAYERS+2)
 #
 #   axis 0 → r                ∈ [0..CITY_SIZE-1]
 #   axis 1 → q                ∈ [0..CITY_SIZE-1]
@@ -14,13 +14,13 @@ from .AkropolisConstants import *
 #      ...
 #      z=2*N_PLAYERS-1     → tile height for city of player N_PLAYERS-1
 #
-#      z=2*N_PLAYERS       → per-player scalars packed. For position (q,r):
+#      z=2*N_PLAYERS       → per-player scalars packed. For position (r,q):
 #         (0..N_PLAYERS-1            , 0..N_COLORS-1) → plazas[p, c], nb of valid plazas of color c for player p
 #         (N_PLAYERS..2*N_PLAYERS-1  , 0..N_COLORS-1) → districts[p, c], nb of valid districts (weighted by height) of color c for player p
 #         (2*N_PLAYERS..3*N_PLAYERS-1, 0)             → total_scores[p], current score of player p (ensure no overflow)
 #         (2*N_PLAYERS..3*N_PLAYERS-1, 1)             → stones[p], current nb of stones for player p
 #
-#      z=2*N_PLAYERS+1     → global scalars packed. For position (q,r):
+#      z=2*N_PLAYERS+1     → global scalars packed. For position (r,q):
 #         (0,0..CONSTR_SITE_SIZE-1)   → construction_site[i], tile id in i-th place of construction site (-1 for empty slots at the end)
 #         (1,0..PACKED_TILES_BYTES-1) → tiles_bitpack, i-th bit is 1 if tile id i is available
 #         (2,0..1)                    → misc: 0 = round number, 1 = remaining number of not visible stacks
@@ -59,7 +59,7 @@ from .AkropolisConstants import *
 
 # @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (CITY_SIZE, CITY_SIZE, 2*N_PLAYERS+2)
+	return (CITY_SIZE*CITY_SIZE, 2*N_PLAYERS+2)
 
 # @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -284,6 +284,12 @@ class Board():
 	def get_state(self):
 		return self.state
 
+	def get_round(self):
+		return self.misc[0]
+
+	def get_score(self, player):
+		return self.total_scores[player]
+
 	def check_end_game(self, next_player):
 		if (self.misc[1] <= 0 and self.construction_site[1] < 0):
 			m = self.total_scores.max()
@@ -325,11 +331,95 @@ class Board():
 		symmetries = [(self.state.copy(), policy.copy(), valids.copy())]
 		state_backup, policy_backup, valids_backup = symmetries[0]
 
-		# Rotate board by 60°, 120°, 180°, 240° and 300°
+		# Precompute a mapping from pattern triples to pattern_id
+		patterns_map = {tuple(PATTERNS[i]): i for i in range(N_PATTERNS)}
 
-		# Translate board by +1 and -1 in q and r
+		# Helper to rotate a single cell index by k*60° around board center
+		def _rotate_cell(idx, k):
+			if idx < 0:
+				return -1
+			r, q = divmod(idx, CITY_SIZE)
+			# Convert odd-r offset to cube coordinates
+			x = q - (r - (r & 1)) // 2
+			z = r
+			y = -x - z
+			# Rotate k times 60° clockwise
+			for _ in range(k):
+				x, y, z = -z, -x, -y
+			# Convert back to odd-r offset
+			r2 = z
+			q2 = x + (r2 - (r2 & 1)) // 2
+			if 0 <= q2 < CITY_SIZE and 0 <= r2 < CITY_SIZE:
+				return r2 * CITY_SIZE + q2
+			return -1
 
-		
+		# Map an old pattern_id through rotation
+		def _rotate_pattern(pat, k):
+			cells = PATTERNS[pat]
+			new_cells = [_rotate_cell(c, k) for c in cells]
+			return patterns_map.get(tuple(new_cells), -1)
+
+		# Helper to translate a single cell by (dq, dr)
+		def _translate_cell(idx, dq, dr):
+			if idx < 0:
+				return -1
+			r, q = divmod(idx, CITY_SIZE)
+			r2 = r + dr
+			q2 = q + dq
+			if 0 <= q2 < CITY_SIZE and 0 <= r2 < CITY_SIZE:
+				return r2 * CITY_SIZE + q2
+			return -1
+
+		# Map an old pattern_id through translation
+		def _translate_pattern(pat, dq, dr):
+			cells = PATTERNS[pat]
+			new_cells = [_translate_cell(c, dq, dr) for c in cells]
+			return patterns_map.get(tuple(new_cells), -1)
+
+		# ROTATIONS: 60°, 120°, ..., 300°
+		for k in range(1, N_ORIENTS):
+			# Rotate state grid
+			new_state = np.zeros_like(state_backup)
+			for r in range(CITY_SIZE):
+				for q in range(CITY_SIZE):
+					idx_old = r * CITY_SIZE + q
+					idx_new = _rotate_cell(idx_old, k)
+					if idx_new >= 0:
+						r2, q2 = divmod(idx_new, CITY_SIZE)
+						new_state[r2, q2, :] = state_backup[r, q, :]
+			# Remap policy & valids
+			new_policy = np.zeros_like(policy_backup)
+			new_valids = np.zeros_like(valids_backup)
+			for a in range(policy_backup.size):
+				cs, pat = divmod(a, N_PATTERNS)
+				new_pat = _rotate_pattern(pat, k)
+				new_idx = cs * N_PATTERNS + new_pat
+				new_policy[new_idx] = policy_backup[a]
+				new_valids[new_idx] = valids_backup[a]
+			symmetries.append((new_state, new_policy, new_valids))
+
+		# TRANSLATIONS: dq/dr in [-2,-1,+1,+2] on q, on r, and on both coords
+		deltas = range(-2, 3)
+		for dq, dr in [(dq, dr) for dq in deltas for dr in deltas if not (dq == 0 and dr == 0)]:
+			# Translate state grid
+			new_state = np.zeros_like(state_backup)
+			for r in range(CITY_SIZE):
+				for q in range(CITY_SIZE):
+					r0 = r - dr
+					q0 = q - dq
+					if 0 <= q0 < CITY_SIZE and 0 <= r0 < CITY_SIZE:
+						new_state[r, q, :] = state_backup[r0, q0, :]
+			# Remap policy & valids
+			new_policy = np.zeros_like(policy_backup)
+			new_valids = np.zeros_like(valids_backup)
+			for a in range(policy_backup.size):
+				cs, pat = divmod(a, N_PATTERNS)
+				new_pat = _translate_pattern(pat, dq, dr)
+				new_idx = cs * N_PATTERNS + new_pat
+				new_policy[new_idx] = policy_backup[a]
+				new_valids[new_idx] = valids_backup[a]
+			symmetries.append((new_state, new_policy, new_valids))
+
 		return symmetries
 
 	def _draw_tiles_constr_site(self, initial_draw=False):
