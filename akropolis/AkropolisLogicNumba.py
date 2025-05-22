@@ -8,26 +8,24 @@ from .AkropolisConstants import *
 #   axis 0 → r                ∈ [0..CITY_SIZE-1]
 #   axis 1 → q                ∈ [0..CITY_SIZE-1]
 #   axis 3 → cities and misc  ∈ [0..N_PLAYERS+1]
-#      z=0                 → tile description for city of player 0 
-#      z=1                 → tile height for city of player 0  (0 if empty)
-#      z=2                 → tile description for city of player 1
-#      ...
-#      z=2*N_PLAYERS-1     → tile height for city of player N_PLAYERS-1
+#     z=0             → tile description for city of player 0 
+#     z=1             → tile height for city of player 0  (0 if empty)
+#     z=2             → tile description for city of player 1
+#     ...
+#     z=2*N_PLAYERS-1 → tile height for city of player N_PLAYERS-1
 #
-#      z=2*N_PLAYERS       → per-player scalars packed. For position (r,q):
-#         (0..N_PLAYERS-1            , 0..N_COLORS-1) → plazas[p, c], nb of valid plazas of color c for player p
-#         (N_PLAYERS..2*N_PLAYERS-1  , 0..N_COLORS-1) → districts[p, c], nb of valid districts (weighted by height) of color c for player p
-#         (2*N_PLAYERS..3*N_PLAYERS-1, 0)             → total_scores[p], current score of player p (ensure no overflow)
-#         (2*N_PLAYERS..3*N_PLAYERS-1, 1)             → stones[p], current nb of stones for player p
+#     z=2*N_PLAYERS   → per-player scalars packed. For position (r,q):
+#       (0..N_PLAYERS-1            , 0..N_COLORS-1) → plazas[p, c], nb of valid plazas of color c for player p
+#       (N_PLAYERS..2*N_PLAYERS-1  , 0..N_COLORS-1) → districts[p, c], nb of valid districts (weighted by height) of
+#                                                     color c for player p
+#       (2*N_PLAYERS..3*N_PLAYERS-1, 0)             → total_scores[p], current score of player p (ensure no overflow)
+#       (2*N_PLAYERS..3*N_PLAYERS-1, 1)             → stones[p], current nb of stones for player p
 #
-#      z=2*N_PLAYERS+1     → global scalars packed. For position (r,q):
-#         (0,0..CONSTR_SITE_SIZE-1)   → construction_site[i], tile id in i-th place of construction site (-1 for empty slots at the end)
-#         (1,0..PACKED_TILES_BYTES-1) → tiles_bitpack, i-th bit is 1 if tile id i is available
-#         (2,0..1)                    → misc: 0 = round number, 1 = remaining number of not visible stacks
-#
-# Tile description = color + (type * 8), see AkropolisConstants.py
-# color       = description  % 8
-# type        = description // 8
+#     z=2*N_PLAYERS+1 → global scalars packed. For position (r,q):
+#       (0..CONSTR_SITE_SIZE-1, 0..2)               → construction_site[i][j] is the descr of the j-th hex of the i-th
+#                                                     tile on the construction site (empty always at the end)
+#       (CONSTR_SITE_SIZE,0..PACKED_TILES_BYTES-1)  → tiles_bitpack, i-th bit is 1 if tile id i is available
+#       (CONSTR_SITE_SIZE+1,0..1)                   → misc: 0 = round number, 1 = remaining number of stacks
 #
 # The grid uses an odd-r offset coordinate system (r, q) for each hex. See
 # https://www.redblobgames.com/grids/hexagons/#coordinates q increases eastward
@@ -43,6 +41,10 @@ from .AkropolisConstants import *
 #                 /        \
 #                /          \
 #             (4, 3)      (4, 4)
+#
+# Tile description = color + (type * 8), see AkropolisConstants.py
+# color       = description  % 8
+# type        = description // 8
 #
 ############################## ACTION DESCRIPTION #############################
 #
@@ -65,16 +67,15 @@ def observation_size():
 def action_size():
 	return CONSTR_SITE_SIZE * CITY_AREA * N_ORIENTS
 
+mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
 #@njit(cache=True, fastmath=True, nogil=True)
 def my_packbits(array):
 	b = np.asarray(array, dtype=np.uint8)
 	pad = (-b.size) % 8
 	if pad:
-		b = np.concatenate([b, np.zeros(pad, dtype=np.uint8)])
+		b = np.concatenate((b, np.zeros(pad, dtype=np.uint8)))
 	b = b.reshape(-1, 8)
-
-	mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
 	packed = (b * mask).sum(axis=1).astype(np.int8)
 	return packed
@@ -82,8 +83,6 @@ def my_packbits(array):
 #@njit(cache=True, fastmath=True, nogil=True)
 def my_unpackbits(values):
 	p = np.asarray(values, dtype=np.int8).astype(np.uint8)
-
-	mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
 	bits_matrix = (p[:, None] & mask) > 0
 	bools = bits_matrix.reshape(-1)
@@ -149,7 +148,6 @@ for p in range(N_PATTERNS):
 # 	('tiles_bitpack'    , numba.int8[:]),
 # 	('misc'             , numba.int8[:]),
 # ]
-# We will enable such flag later
 # @numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
@@ -171,8 +169,8 @@ class Board():
 			self.board[rr, qq, :, 1] = 1
 
 		# Build construction site
-		self.construction_site[:] = -1
-		self._draw_tiles_constr_site(initial_draw=True)
+		self.construction_site[:, :] = EMPTY
+		self._draw_tiles_constr_site(random_seed=0, initial_draw=True)
 		# All other items are zero
 
 	def copy_state(self, state, copy_or_not):
@@ -185,10 +183,10 @@ class Board():
 		self.districts         = self.state[  N_PLAYERS:2*N_PLAYERS, :N_COLORS, 2*N_PLAYERS]
 		self.total_scores      = self.state[2*N_PLAYERS:3*N_PLAYERS, 0        , 2*N_PLAYERS]
 		self.stones            = self.state[2*N_PLAYERS:3*N_PLAYERS, 1        , 2*N_PLAYERS]
-		self.construction_site = self.state[0, :CONSTR_SITE_SIZE  , 2*N_PLAYERS+1]
-		self.tiles_bitpack     = self.state[1, :PACKED_TILES_BYTES, 2*N_PLAYERS+1]
+		self.construction_site = self.state[0:CONSTR_SITE_SIZE, :3                 , 2*N_PLAYERS+1]
+		self.tiles_bitpack     = self.state[CONSTR_SITE_SIZE  , :PACKED_TILES_BYTES, 2*N_PLAYERS+1]
 		# misc contains round number (0) and remaining number of stacks (1)
-		self.misc              = self.state[2, :2                 , 2*N_PLAYERS+1]
+		self.misc              = self.state[CONSTR_SITE_SIZE+1, :2                 , 2*N_PLAYERS+1]
 
 	def make_move(self, move, player, random_seed):
 		# decode "move" using divmod
@@ -196,10 +194,10 @@ class Board():
 		idx, orient          = divmod(rem, N_ORIENTS)
 
 		# remove tile from construction_site, and move further tiles
-		tile_id = self.construction_site[tile_idx_in_cs]
-		self.construction_site[tile_idx_in_cs:-1] = self.construction_site[tile_idx_in_cs+1:]
-		self.construction_site[-1] = -1
-		for desc, hex_idx in zip(TILES_DATA[tile_id][:3], PATTERNS[idx*N_ORIENTS+orient]):
+		tile = self.construction_site[tile_idx_in_cs, :].copy()
+		self.construction_site[tile_idx_in_cs:-1, :] = self.construction_site[tile_idx_in_cs+1:, :]
+		self.construction_site[-1, :] = EMPTY
+		for desc, hex_idx in zip(tile, PATTERNS[idx*N_ORIENTS+orient]):
 			rr, qq = divmod(hex_idx, CITY_SIZE)
 			# update internals if building upon a quarry or plaza (district will be managed later)
 			under_type, under_color = divmod(self.board[rr, qq, player, 0], 8)
@@ -223,8 +221,8 @@ class Board():
 		self.misc[0] += 1
 
 		# if only 1 tile remaining in construction_site, draw a new set of tiles
-		if self.construction_site[1] < 0 and self.misc[1] > 0:
-			self._draw_tiles_constr_site(initial_draw=False)
+		if self.construction_site[1, 0] == EMPTY and self.misc[1] > 0:
+			self._draw_tiles_constr_site(random_seed, initial_draw=False)
 			self.misc[1] -= 1 # remaining number of stacks
 
 		return (player+1)%N_PLAYERS
@@ -269,8 +267,8 @@ class Board():
 
 		result = np.zeros(CONSTR_SITE_SIZE * N_PATTERNS, dtype=np.bool_)
 		# For each available tile slot, apply the valid patterns
-		for slot_index in range(min(self.stones[player], CONSTR_SITE_SIZE)):
-			if self.construction_site[slot_index] < 0:
+		for slot_index in range(min(self.stones[player]+1, CONSTR_SITE_SIZE)):
+			if self.construction_site[slot_index, 0] == EMPTY:
 				# Skip empty slots
 				continue
 
@@ -291,7 +289,7 @@ class Board():
 		return self.total_scores[player]
 
 	def check_end_game(self, next_player):
-		if (self.misc[1] <= 0 and self.construction_site[1] < 0):
+		if (self.misc[1] <= 0 and self.construction_site[1, 0] == EMPTY):
 			m = self.total_scores.max()
 			single_winner = int((self.total_scores == m).sum()) == 1
 			return np.where(self.total_scores == m, np.float32(1.0 if single_winner else 0.001), np.float32(-1.0))
@@ -422,13 +420,20 @@ class Board():
 
 		return symmetries
 
-	def _draw_tiles_constr_site(self, initial_draw=False):
-		available_tiles = my_unpackbits(self.tiles_bitpack)
+	def _draw_tiles_constr_site(self, random_seed, initial_draw=False):
+		tiles_availability = my_unpackbits(self.tiles_bitpack)
+		available_tiles = np.flatnonzero(tiles_availability)
 		for i in range(0 if initial_draw else 1, CONSTR_SITE_SIZE):
-			tile_id = np.random.choice(np.flatnonzero(available_tiles))
-			self.construction_site[i] = tile_id
-			available_tiles[tile_id] = False
-		self.tiles_bitpack[:] = my_packbits(available_tiles)
+			if random_seed == 0:
+				tile_id = np.random.choice(available_tiles)
+			else:
+				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
+				# m=61, c=42, a=2013+1
+				rnd_value = (2014 * (random_seed+np.int64(self.misc[0])) + 42) % 61
+				tile_id = available_tiles[rnd_value%len(available_tiles)]
+			self.construction_site[i, :] = TILES_DATA[tile_id, :3]
+			tiles_availability[tile_id] = False
+		self.tiles_bitpack[:] = my_packbits(tiles_availability)
 
 
 	def _update_districts(self, player: int):

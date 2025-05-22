@@ -211,7 +211,7 @@ class GenericNNetWrapper(NeuralNet):
 			print("No model in path {}".format(filepath))
 			return			
 		try:
-			checkpoint = torch.load(filepath, map_location='cpu')
+			checkpoint = torch.load(filepath, map_location='cpu', weights_only=False)
 			self.load_network(checkpoint, strict=(self.args['nn_version']>0))
 		except:
 			print("MODEL {} CAN'T BE READ but file exists".format(filepath))

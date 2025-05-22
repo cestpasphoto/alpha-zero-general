@@ -120,11 +120,11 @@ def print_board(game):
         print()
 
     # construction site
-    # remaining = [str(t) for t in game.construction_site if t != -1]
     remaining = [
-        ''.join([_print_glyph(t//8, t%8, 1, center=False) for t in TILES_DATA[tile_id, :3]])
-        for tile_id in game.construction_site if tile_id != -1
-        ]
+        ''.join([_print_glyph(t//8, t%8, 1, center=False) for t in tile[:3]])
+        for tile in game.construction_site if tile[0] != EMPTY
+    ]
+    # remaining = [str(tile) for tile in game.construction_site if tile[0] != EMPTY]
     print("Construction site:", ' '.join(remaining))
 
 
