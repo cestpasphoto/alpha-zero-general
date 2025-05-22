@@ -10,4 +10,4 @@ class NNetWrapper(GenericNNetWrapper):
 
 	def reshape_boards(self, numpy_boards):
 		# Some game needs to reshape boards before being an input of NNet
-		return numpy_boards.reshape(-1, CITY_SIZE*CITY_SIZE, 2*N_PLAYERS+2)
+		return numpy_boards.reshape(-1, CITY_SIZE*CITY_SIZE, 3*N_PLAYERS+2)

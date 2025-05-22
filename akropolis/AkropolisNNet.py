@@ -140,14 +140,14 @@ class AkropolisNNet(nn.Module):
 
 	def forward(self, input_data, valid_actions):
 		# Switch from NHWC to NCHW
-		x = input_data.reshape(-1, CITY_SIZE, CITY_SIZE, 2*self.num_players+2).permute(0, 3, 1, 2)
-		split_data = x.split([2]*self.num_players+[1,1], dim=1) # players board with 2 channels each, then per-player data, then global data
+		x = input_data.reshape(-1, CITY_SIZE, CITY_SIZE, 3*self.num_players+2).permute(0, 3, 1, 2)
+		split_data = x.split([3]*self.num_players+[1,1], dim=1) # players board with 3 channels each, then per-player data, then global data
 		inp_per_player_data = split_data[-2]
 		global_data = split_data[-1]
 
 		if self.version in [1]:
-			# x.shape = Nx6x12x12
-			# split_data[i].shape = Nx2x12x12
+			# x.shape = Nx8x12x12
+			# split_data[i].shape = Nx3x12x12
 			x_1d = torch.cat([inp_per_player_data.flatten(1), global_data.flatten(1)], dim=1) # x_1d.shape = Nx288
 			x_1d = self.trunk_1d(x_1d) # x_1d.shape = Nx100
 			v = self.final_layers_V(x_1d)
