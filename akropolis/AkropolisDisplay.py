@@ -36,13 +36,13 @@ def _print_glyph(type_, color, height, center=True):
     tile = glyph.center(4) if center else glyph
     return f"{col}{tile}{Style.RESET_ALL}"
 
-def _print_lines(board: np.ndarray) -> list[str]:
+def _print_lines(board_descr: np.ndarray, board_height: np.ndarray) -> list[str]:
     lines = []
-    for r in range(board.shape[1]):
+    for r in range(board_descr.shape[1]):
         row = '  ' if r%2==1 else ''
-        for q in range(board.shape[0]):
-            type_, color = divmod(board[r, q, 0], 8)
-            height = int(board[r, q, 1])
+        for q in range(board_descr.shape[0]):
+            type_, color = divmod(board_descr[r, q], 8)
+            height = int(board_height[r, q])
             if type_ == EMPTY and q % 3 == 0 and r % 3 == 0:
                 # print some coordinates instead of glyph
                 coords = f'{r},{q}'.center(4).translate(sub_digits)
@@ -59,11 +59,6 @@ def print_board(game):
       - colored score breakdown P×D per color
       - the hex boards
       - remaining construction site tiles
-    Assumes:
-      game.board.shape         == (size, size, N_PLAYERS, 2)
-      game.plazas.shape        == (N_PLAYERS, N_COLORS)
-      game.districts.shape     == (N_PLAYERS, N_COLORS)
-      game.construction_site   == (CONSTR_SITE_SIZE,)
     """
     def center_cols(texts: list[str], widths: list[int]) -> str:
         """Center each text in its visible-width column, join with separators."""
@@ -80,13 +75,9 @@ def print_board(game):
         return line
 
     for p in range(0, N_PLAYERS, 2):
-        # extract per-player sub-boards (size, size, 2)
-        sub0 = game.board[:, :, p, :]
-        sub1 = game.board[:, :, p+1, :] if (p+1) < N_PLAYERS else None
-
         # generate line lists and raw widths
-        lines0 = _print_lines(sub0)
-        lines1 = _print_lines(sub1) if sub1 is not None else []
+        lines0 = _print_lines(game.board_descr[:, :, p]  , game.board_height[:, :, p])
+        lines1 = _print_lines(game.board_descr[:, :, p+1], game.board_height[:, :, p+1]) if (p+1) < N_PLAYERS else []
         raw0   = [strip_ansi(l) for l in lines0]
         raw1   = [strip_ansi(l) for l in lines1]
         w0     = max((len(r) for r in raw0), default=0)

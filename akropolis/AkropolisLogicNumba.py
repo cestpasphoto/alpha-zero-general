@@ -1,4 +1,7 @@
 import numpy as np
+from numba import njit
+import numba
+
 from .AkropolisConstants import *
 
 ############################## BOARD DESCRIPTION ##############################
@@ -7,13 +10,14 @@ from .AkropolisConstants import *
 #
 #   axis 0 → r                ∈ [0..CITY_SIZE-1]
 #   axis 1 → q                ∈ [0..CITY_SIZE-1]
-#   axis 3 → cities and misc  ∈ [0..N_PLAYERS+1]
+#   axis 2 → cities and misc  ∈ [0..3*N_PLAYERS+1]
 #     z=0             → tile description for city of player 0 
-#     z=1             → tile height for city of player 0  (0 if empty)
-#     z=2             → tile ID city of player 0
-#     z=3             → tile description for city of player 1
+#     z=1             → tile description for city of player 1
 #     ...
-#     z=3*N_PLAYERS-1 → tile ID city of player N_PLAYERS-1
+#     z=N_PLAYERS     → tile height for city of player 0  (0 if empty)
+#     ...
+#     z=2*N_PLAYERS   → tile ID city of player 0
+#     ...
 #
 #     z=3*N_PLAYERS   → per-player scalars packed. For position (r,q):
 #       (0..N_PLAYERS-1            , 0..N_COLORS-1) → plazas[p, c], nb of valid plazas of color c for player p
@@ -61,17 +65,17 @@ from .AkropolisConstants import *
 #   - site_idx       ∈ [0, CITY_AREA − 1]        # 1D index of the center hexagon on the board
 #   - orient_idx     ∈ [0, N_ORIENTS − 1]        # rotation/orientation index
 
-# @njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
 	return (CITY_SIZE*CITY_SIZE, 3*N_PLAYERS+2)
 
-# @njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def action_size():
 	return CONSTR_SITE_SIZE * CITY_AREA * N_ORIENTS
 
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
 
-#@njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def my_packbits(array):
 	b = np.asarray(array, dtype=np.uint8)
 	pad = (-b.size) % 8
@@ -82,13 +86,74 @@ def my_packbits(array):
 	packed = (b * mask).sum(axis=1).astype(np.int8)
 	return packed
 
-#@njit(cache=True, fastmath=True, nogil=True)
+@njit(cache=True, fastmath=True, nogil=True)
 def my_unpackbits(values):
 	p = np.asarray(values, dtype=np.int8).astype(np.uint8)
 
 	bits_matrix = (p[:, None] & mask) > 0
 	bools = bits_matrix.reshape(-1)
 	return bools
+
+@njit(cache=True, fastmath=True, nogil=True, inline='always')
+def rotate_cell(idx, k):
+    if idx < 0:
+        return -1
+    # coord on odd-r grid → cube coords
+    r = idx // CITY_SIZE
+    q = idx - r * CITY_SIZE
+    x = q - ((r - (r & 1)) // 2)
+    z = r
+    y = -x - z
+    # k× rotation 60° CW
+    for _ in range(k):
+        x, y, z = -z, -x, -y
+    # back to odd-r
+    r2 = z
+    q2 = x + ((r2 - (r2 & 1)) // 2)
+    if 0 <= r2 < CITY_SIZE and 0 <= q2 < CITY_SIZE:
+        return r2 * CITY_SIZE + q2
+    else:
+        return -1
+
+@njit(cache=True, fastmath=True, nogil=True, inline='always')
+def translate_cell(idx, dq, dr):
+    if idx < 0:
+        return -1
+    r = idx // CITY_SIZE
+    q = idx - r * CITY_SIZE
+    r2 = r + dr
+    q2 = q + dq
+    if 0 <= r2 < CITY_SIZE and 0 <= q2 < CITY_SIZE:
+        return r2 * CITY_SIZE + q2
+    else:
+        return -1
+
+@njit(cache=True, fastmath=True, nogil=True, inline='always')
+def rotate_pattern(pat, k):
+    # PATTERNS est un np.ndarray (N_PATTERNS×3)
+    c0 = rotate_cell(PATTERNS[pat, 0], k)
+    c1 = rotate_cell(PATTERNS[pat, 1], k)
+    c2 = rotate_cell(PATTERNS[pat, 2], k)
+    # recherche linéaire
+    for j in range(N_PATTERNS):
+        if (PATTERNS[j, 0] == c0 and
+            PATTERNS[j, 1] == c1 and
+            PATTERNS[j, 2] == c2):
+            return j
+    return -1
+
+@njit(cache=True, fastmath=True, nogil=True, inline='always')
+def translate_pattern(pat, dq, dr):
+    c0 = translate_cell(PATTERNS[pat, 0], dq, dr)
+    c1 = translate_cell(PATTERNS[pat, 1], dq, dr)
+    c2 = translate_cell(PATTERNS[pat, 2], dq, dr)
+    for j in range(N_PATTERNS):
+        if (PATTERNS[j, 0] == c0 and
+            PATTERNS[j, 1] == c1 and
+            PATTERNS[j, 2] == c2):
+            return j
+    return -1
+
 
 # Pre-compute the list of 6 neighbours of position idx
 NEIGHBORS = np.full((CITY_AREA, 6), -1, dtype=np.int16)
@@ -139,18 +204,20 @@ for p in range(N_PATTERNS):
 				neighbors_set.add(neighbor)
 	PATTERN_NEI[p, :len(neighbors_set)] = sorted(neighbors_set)
 
-# spec = [
-# 	('state'            , numba.int8[:,:,:]),
-# 	('board'            , numba.int8[:,:,:,:]),
-# 	('plazas'           , numba.int8[:,:]),
-# 	('districts'        , numba.int8[:,:]),
-# 	('total_scores'     , numba.int8[:]),
-# 	('stones'           , numba.int8[:]),
-# 	('construction_site', numba.int8[:]),
-# 	('tiles_bitpack'    , numba.int8[:]),
-# 	('misc'             , numba.int8[:]),
-# ]
-# @numba.experimental.jitclass(spec)
+spec = [
+	('state'            , numba.int8[:,:,:]),
+	('board_descr'      , numba.int8[:,:,:]),
+	('board_height'     , numba.int8[:,:,:]),
+	('board_tileID'     , numba.int8[:,:,:]),
+	('plazas'           , numba.int8[:,:]),
+	('districts'        , numba.int8[:,:]),
+	('total_scores'     , numba.int8[:]),
+	('stones'           , numba.int8[:]),
+	('construction_site', numba.int8[:,:]),
+	('tiles_bitpack'    , numba.int8[:]),
+	('misc'             , numba.int8[:]),
+]
+@numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
 		self.state = np.zeros((CITY_SIZE, CITY_SIZE, 3*N_PLAYERS+2), dtype=np.int8)
@@ -162,15 +229,15 @@ class Board():
 		self.tiles_bitpack[:] = my_packbits(TILES_DATA[:,3] <= N_PLAYERS)
 		self.misc[1] = N_STACKS
 		# Set initial tile
-		self.board[START_TILE_R, START_TILE_Q, :, 0] = PLAZA*8 + BLUE      # tile description
-		self.board[START_TILE_R, START_TILE_Q, :, 1] = 1                   # height
-		self.board[START_TILE_R, START_TILE_Q, :, 2] = TILES_DATA.shape[0] # tile ID
+		self.board_descr [START_TILE_R, START_TILE_Q, :] = PLAZA*8 + BLUE
+		self.board_height[START_TILE_R, START_TILE_Q, :] = 1
+		self.board_tileID[START_TILE_R, START_TILE_Q, :] = TILES_DATA.shape[0]
 		self.plazas[:,BLUE] = 1
 		for idx in NEIGHBORS[START_TILE_R*CITY_SIZE+START_TILE_Q, ::2]:
 			rr, qq = divmod(idx, CITY_SIZE)
-			self.board[rr, qq, :, 0] = QUARRY*8
-			self.board[rr, qq, :, 1] = 1
-			self.board[rr, qq, :, 2] = TILES_DATA.shape[0]
+			self.board_descr [rr, qq, :] = QUARRY*8
+			self.board_height[rr, qq, :] = 1
+			self.board_tileID[rr, qq, :] = TILES_DATA.shape[0]
 
 		# Build construction site
 		self.construction_site[:, :] = EMPTY
@@ -182,7 +249,9 @@ class Board():
 			return
 		self.state = state.copy() if copy_or_not else state
 
-		self.board             = self.state[:, :, :3*N_PLAYERS].reshape(CITY_SIZE, CITY_SIZE, N_PLAYERS, 3)
+		self.board_descr       = self.state[:, :,            :  N_PLAYERS]
+		self.board_height      = self.state[:, :,   N_PLAYERS:2*N_PLAYERS]
+		self.board_tileID      = self.state[:, :, 2*N_PLAYERS:3*N_PLAYERS]
 		self.plazas            = self.state[           :  N_PLAYERS, :N_COLORS, 3*N_PLAYERS]
 		self.districts         = self.state[  N_PLAYERS:2*N_PLAYERS, :N_COLORS, 3*N_PLAYERS]
 		self.total_scores      = self.state[2*N_PLAYERS:3*N_PLAYERS, 0        , 3*N_PLAYERS]
@@ -204,14 +273,14 @@ class Board():
 		for desc, hex_idx in zip(tile[:3], PATTERNS[idx*N_ORIENTS+orient]):
 			rr, qq = divmod(hex_idx, CITY_SIZE)
 			# update internals if building upon a quarry or plaza (district will be managed later)
-			under_type, under_color = divmod(self.board[rr, qq, player, 0], 8)
+			under_type, under_color = divmod(self.board_descr[rr, qq, player], 8)
 			if under_type == PLAZA:
 				self.plazas[player, under_color] += 1
 			if under_type == QUARRY:
 				self.stones[player] += 1
-			self.board[rr, qq, player, 0] = desc
-			self.board[rr, qq, player, 1] += 1
-			self.board[rr, qq, player, 2] = tile[3]
+			self.board_descr [rr, qq, player] = desc
+			self.board_height[rr, qq, player] += 1
+			self.board_tileID[rr, qq, player] = tile[3]
 			# Update plazas
 			if desc // 8 == PLAZA:
 				self.plazas[player, desc % 8] += 1
@@ -233,8 +302,8 @@ class Board():
 		return (player+1)%N_PLAYERS
 
 	def valid_moves(self, player):
-		heights_flat = self.board[:, :, player, 1].ravel()
-		tilesID_flat = self.board[:, :, player, 2].ravel()
+		heights_flat = self.board_height[:, :, player].ravel()
+		tilesID_flat = self.board_tileID[:, :, player].ravel()
 
 		# Identify which patterns are valid placements (independent of the chosen tile)
 		pattern_is_valid = np.zeros(N_PATTERNS, dtype=np.bool_)
@@ -318,119 +387,91 @@ class Board():
 			return
 
 		# Create temporary copy vectors
-		tmp_board = np.empty_like(self.board)
+		tmp_board_descr  = np.empty_like(self.board_descr)
+		tmp_board_height = np.empty_like(self.board_height)
+		tmp_board_tileID = np.empty_like(self.board_tileID)
 		tmp_plazas = np.empty_like(self.plazas)
 		tmp_districts = np.empty_like(self.districts)
 		tmp_scores = np.empty_like(self.total_scores)
 		tmp_stones = np.empty_like(self.stones)
 
-		# Roll data
+		# Roll data - np.roll not available on Numba
 		for p in range(N_PLAYERS):
-			tmp_board[:, :, p, :] = self.board[:, :, (p + nb_swaps) % N_PLAYERS, :]
+			tmp_board_descr[:, :, p] = self.board_descr[:, :, (p + nb_swaps) % N_PLAYERS]
+			tmp_board_height[:, :, p] = self.board_height[:, :, (p + nb_swaps) % N_PLAYERS]
+			tmp_board_tileID[:, :, p] = self.board_tileID[:, :, (p + nb_swaps) % N_PLAYERS]
 			tmp_plazas[p, :] = self.plazas[(p + nb_swaps) % N_PLAYERS, :]
 			tmp_districts[p, :] = self.districts[(p + nb_swaps) % N_PLAYERS, :]
 			tmp_scores[p] = self.total_scores[(p + nb_swaps) % N_PLAYERS]
 			tmp_stones[p] = self.stones[(p + nb_swaps) % N_PLAYERS]
 
-		self.board[:, :, :, :] = tmp_board
+		self.board_descr [:, :, :] = tmp_board_descr
+		self.board_height[:, :, :] = tmp_board_height
+		self.board_tileID[:, :, :] = tmp_board_tileID
 		self.plazas[:, :] = tmp_plazas
 		self.districts[:, :] = tmp_districts
 		self.total_scores[:] = tmp_scores
 		self.stones[:] = tmp_stones
 
 	def get_symmetries(self, policy, valids):
-		# Always called on canonical board, meaning player = 0
 		symmetries = [(self.state.copy(), policy.copy(), valids.copy())]
 		state_backup, policy_backup, valids_backup = symmetries[0]
 
-		# Precompute a mapping from pattern triples to pattern_id
-		patterns_map = {tuple(PATTERNS[i]): i for i in range(N_PATTERNS)}
-
-		# Helper to rotate a single cell index by k*60° around board center
-		def _rotate_cell(idx, k):
-			if idx < 0:
-				return -1
-			r, q = divmod(idx, CITY_SIZE)
-			# Convert odd-r offset to cube coordinates
-			x = q - (r - (r & 1)) // 2
-			z = r
-			y = -x - z
-			# Rotate k times 60° clockwise
-			for _ in range(k):
-				x, y, z = -z, -x, -y
-			# Convert back to odd-r offset
-			r2 = z
-			q2 = x + (r2 - (r2 & 1)) // 2
-			if 0 <= q2 < CITY_SIZE and 0 <= r2 < CITY_SIZE:
-				return r2 * CITY_SIZE + q2
-			return -1
-
-		# Map an old pattern_id through rotation
-		def _rotate_pattern(pat, k):
-			cells = PATTERNS[pat]
-			new_cells = [_rotate_cell(c, k) for c in cells]
-			return patterns_map.get(tuple(new_cells), -1)
-
-		# Helper to translate a single cell by (dq, dr)
-		def _translate_cell(idx, dq, dr):
-			if idx < 0:
-				return -1
-			r, q = divmod(idx, CITY_SIZE)
-			r2 = r + dr
-			q2 = q + dq
-			if 0 <= q2 < CITY_SIZE and 0 <= r2 < CITY_SIZE:
-				return r2 * CITY_SIZE + q2
-			return -1
-
-		# Map an old pattern_id through translation
-		def _translate_pattern(pat, dq, dr):
-			cells = PATTERNS[pat]
-			new_cells = [_translate_cell(c, dq, dr) for c in cells]
-			return patterns_map.get(tuple(new_cells), -1)
-
-		# ROTATIONS: 60°, 120°, ..., 300°
+		# — ROTATIONS —
 		for k in range(1, N_ORIENTS):
-			# Rotate state grid
-			new_state = np.zeros_like(state_backup)
+			# rotation de l’état
+			new_s = np.zeros_like(self.state)
 			for r in range(CITY_SIZE):
 				for q in range(CITY_SIZE):
-					idx_old = r * CITY_SIZE + q
-					idx_new = _rotate_cell(idx_old, k)
-					if idx_new >= 0:
-						r2, q2 = divmod(idx_new, CITY_SIZE)
-						new_state[r2, q2, :] = state_backup[r, q, :]
-			# Remap policy & valids
-			new_policy = np.zeros_like(policy_backup)
-			new_valids = np.zeros_like(valids_backup)
-			for a in range(policy_backup.size):
-				cs, pat = divmod(a, N_PATTERNS)
-				new_pat = _rotate_pattern(pat, k)
-				new_idx = cs * N_PATTERNS + new_pat
-				new_policy[new_idx] = policy_backup[a]
-				new_valids[new_idx] = valids_backup[a]
-			symmetries.append((new_state, new_policy, new_valids))
+					old = r * CITY_SIZE + q
+					nb  = rotate_cell(old, k)
+					if nb >= 0:
+						r2 = nb // CITY_SIZE
+						q2 = nb - r2 * CITY_SIZE
+						new_s[r2, q2, :] = self.state[r, q, :]
 
-		# TRANSLATIONS: dq/dr in [-2,-1,+1,+2] on q, on r, and on both coords
-		deltas = range(-2, 3)
-		for dq, dr in [(dq, dr) for dq in deltas for dr in deltas if not (dq == 0 and dr == 0)]:
-			# Translate state grid
-			new_state = np.zeros_like(state_backup)
-			for r in range(CITY_SIZE):
-				for q in range(CITY_SIZE):
-					r0 = r - dr
-					q0 = q - dq
-					if 0 <= q0 < CITY_SIZE and 0 <= r0 < CITY_SIZE:
-						new_state[r, q, :] = state_backup[r0, q0, :]
-			# Remap policy & valids
-			new_policy = np.zeros_like(policy_backup)
-			new_valids = np.zeros_like(valids_backup)
-			for a in range(policy_backup.size):
-				cs, pat = divmod(a, N_PATTERNS)
-				new_pat = _translate_pattern(pat, dq, dr)
-				new_idx = cs * N_PATTERNS + new_pat
-				new_policy[new_idx] = policy_backup[a]
-				new_valids[new_idx] = valids_backup[a]
-			symmetries.append((new_state, new_policy, new_valids))
+			# remapping de policy & valids
+			new_p = np.zeros_like(policy)
+			new_v = np.zeros_like(valids)
+			for a in range(policy.size):
+				cs = a // N_PATTERNS
+				pt = a - cs * N_PATTERNS
+				rp = rotate_pattern(pt, k)
+				ni = cs * N_PATTERNS + rp
+				new_p[ni] = policy[a]
+				new_v[ni] = valids[a]
+
+			symmetries.append((new_s, new_p, new_v))
+
+		# — TRANSLATIONS —
+		for dq in range(-2, 3):
+			for dr in range(-2, 3):
+				if dq == 0 and dr == 0:
+					continue
+
+				# translation de l’état
+				new_s = np.zeros_like(self.state)
+				for r in range(CITY_SIZE):
+					for q in range(CITY_SIZE):
+						old = r * CITY_SIZE + q
+						nb  = translate_cell(old, dq, dr)
+						if nb >= 0:
+							r0 = nb // CITY_SIZE
+							q0 = nb - r0 * CITY_SIZE
+							new_s[r, q, :] = self.state[r0, q0, :]
+
+				# remapping de policy & valids
+				new_p = np.zeros_like(policy)
+				new_v = np.zeros_like(valids)
+				for a in range(policy.size):
+					cs = a // N_PATTERNS
+					pt = a - cs * N_PATTERNS
+					tp = translate_pattern(pt, dq, dr)
+					ni = cs * N_PATTERNS + tp
+					new_p[ni] = policy[a]
+					new_v[ni] = valids[a]
+
+				symmetries.append((new_s, new_p, new_v))
 
 		return symmetries
 
@@ -453,8 +494,8 @@ class Board():
 
 	def _update_districts(self, player: int):
 		# 0) Récupère desc + hauteur et met à plat
-		desc2d = self.board[:, :, player, 0]
-		h2d    = self.board[:, :, player, 1]
+		desc2d = self.board_descr [:, :, player]
+		h2d    = self.board_height[:, :, player]
 		desc   = desc2d.ravel()
 		h      = h2d.ravel()
 		district = np.zeros(N_COLORS, dtype=np.int32)

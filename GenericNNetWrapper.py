@@ -398,7 +398,7 @@ if __name__ == "__main__":
 
 	if not args.training:
 		if args.input:
-			checkpoint = torch.load(args.input, map_location='cpu')
+			checkpoint = torch.load(args.input, map_location='cpu', weights_only=False)
 			for k in sorted(checkpoint.keys()):
 				if k not in ['state_dict', 'full_model', 'optim_state']:
 					print(f'  {k}: {checkpoint[k]}')
