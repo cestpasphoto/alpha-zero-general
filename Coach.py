@@ -170,7 +170,10 @@ class Coach():
 				self.trainExamplesHistory.append(iterationTrainExamples)
 
 				# Check average number of valid moves, and compare to Dirichlet
-				nb_valid_moves = [sum(pickle.loads(zlib.decompress(x))[3]) for x in iterationTrainExamples]
+				if self.args.no_compression:
+					nb_valid_moves = [sum(x[3]) for x in iterationTrainExamples]
+				else:
+					nb_valid_moves = [sum(pickle.loads(zlib.decompress(x))[3]) for x in iterationTrainExamples]
 				avg_valid_moves = sum(nb_valid_moves) / len(nb_valid_moves)
 				if self.args.dirichletAlpha > 0 and not (1/1.5 < self.args.dirichletAlpha / (10/avg_valid_moves) < 1.5):
 					print(f'There are about {avg_valid_moves:.1f} valid moves per state, so I advise to set dirichlet to {10/avg_valid_moves:.1f} instead')
