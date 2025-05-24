@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torchvision.models._utils import _make_divisible
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
 
-from .AkropolisConstants import N_COLORS, CITY_SIZE
+from .AkropolisConstants import N_COLORS, CITY_SIZE, CONSTR_SITE_SIZE, TYPECOL_LIST
 
 class LinearNormActivation(nn.Module):
 	def __init__(self, in_size, out_size, activation_layer, depthwise=False, channels=None):
@@ -112,9 +112,17 @@ class AkropolisNNet(nn.Module):
 
 		if self.version == 1: # Ultra simple NN
 			num_filters = 100
-			self.trunk_1d = nn.Linear(2*CITY_SIZE*CITY_SIZE, num_filters)
+			self.trunk_1d = nn.Linear(3*self.num_players*N_COLORS+3*CONSTR_SITE_SIZE, num_filters)
 			self.final_layers_V = nn.Linear(num_filters, 1)
-			self.final_layers_PI = nn.Linear(num_filters, self.action_size)
+			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters, self.action_size), nn.Linear(self.action_size, self.action_size))
+		elif self.version == 5: # Ultra simple NN using one-hot
+			num_filters = 32
+			self.trunk_3d = nn.Sequential(
+				nn.Conv2d(2*len(TYPECOL_LIST), num_filters, kernel_size=3, padding=1, bias=False),
+				inverted_residual(num_filters, 64, num_filters, False, "RE")
+			)
+			self.final_layers_V = nn.Linear(num_filters*3*3, 1)
+			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters*3*3, self.action_size), nn.Linear(self.action_size, self.action_size))
 		elif self.version == 10: # Very small version using MobileNetV3 building blocks
 			### NN working on 3d data per player
 			self.trunk_board = filters_for_boards(2, 8, N_COLORS)
@@ -141,15 +149,35 @@ class AkropolisNNet(nn.Module):
 	def forward(self, input_data, valid_actions):
 		# Switch from NHWC to NCHW
 		x = input_data.reshape(-1, CITY_SIZE, CITY_SIZE, 3*self.num_players+2).permute(0, 3, 1, 2)
-		split_data = x.split([3]*self.num_players+[1,1], dim=1) # players board with 3 channels each, then per-player data, then global data
-		inp_per_player_data = split_data[-2]
-		global_data = split_data[-1]
+		# Split data
+		split_input_data = x.split([self.num_players, self.num_players, self.num_players, 1 ,1], dim=1)
+		boards_descr, boards_height, _, per_pl_data, global_data = split_input_data
+		scores_data = per_pl_data.squeeze(1)[:, :3*self.num_players, :N_COLORS]
+		constrs_site = global_data.squeeze(1)[:, :CONSTR_SITE_SIZE, :3]
+		# x.shape = Nx8x12x12
+		# boards_descr.shape = boards_height.shape = Nx2x12x12
+		# per_pl_data.shape = global_data.shape = Nx1x12x12
+		# scores_data.shape = Nx6x5
+		# constrs_site.shape = Nx3x3
 
 		if self.version in [1]:
-			# x.shape = Nx8x12x12
-			# split_data[i].shape = Nx3x12x12
-			x_1d = torch.cat([inp_per_player_data.flatten(1), global_data.flatten(1)], dim=1) # x_1d.shape = Nx288
-			x_1d = self.trunk_1d(x_1d) # x_1d.shape = Nx100
+			x_1d = torch.cat([scores_data.flatten(1), constrs_site.flatten(1)], dim=1) # x_1d.shape = Nx39
+			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training) # x_1d.shape = Nx100
+			v = self.final_layers_V(x_1d)
+			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
+		elif self.version in [5]:
+			# convert constrs_site in one-hot
+			typecol_lut = torch.tensor(TYPECOL_LIST)
+			constrs_onehot = (constrs_site.unsqueeze(-1) == typecol_lut).float() # constrs_site.shape = Nx3x3xN_TYPECOL
+			# convert scores_data in one-hot
+			h_idx = torch.tensor([2*self.num_players] + [0]*N_COLORS + [self.num_players]*N_COLORS, dtype=torch.long)
+			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
+			scores_pl0_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
+			# scores_pl1_onehot = pass # NxN_TYPECOL
+			x_3d = torch.cat([constrs_onehot, scores_pl0_onehot.unsqueeze(1).unsqueeze(2).expand(-1, 3, 3, -1)], dim=3) # x_3d.shape = Nx3x3x2N_TYPECOL
+			x_3d = x_3d.permute(0, 3, 1, 2) # x_3d.shape = Nx2N_TYPECOLx3x3
+			x_3d = self.trunk_3d(x_3d) # x_3d.shape = Nx32x3x3
+			x_1d = x_3d.flatten(1) # x_1d.shape = Nx288
 			v = self.final_layers_V(x_1d)
 			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
 		elif self.version in [10]:

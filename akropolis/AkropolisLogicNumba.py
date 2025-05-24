@@ -429,6 +429,7 @@ class Board():
 						r2 = nb // CITY_SIZE
 						q2 = nb - r2 * CITY_SIZE
 						new_s[r2, q2, :] = self.state[r, q, :]
+			new_s[:, :, 3*N_PLAYERS:] =self.state[:, :, 3*N_PLAYERS:].copy() 
 
 			# remapping de policy & valids
 			new_p = np.zeros_like(policy)
@@ -459,6 +460,7 @@ class Board():
 							r0 = nb // CITY_SIZE
 							q0 = nb - r0 * CITY_SIZE
 							new_s[r, q, :] = self.state[r0, q0, :]
+				new_s[:, :, 3*N_PLAYERS:] =self.state[:, :, 3*N_PLAYERS:].copy() 
 
 				# remapping de policy & valids
 				new_p = np.zeros_like(policy)
@@ -490,7 +492,6 @@ class Board():
 			self.construction_site[i, 3] = tile_id
 			tiles_availability[tile_id] = False
 		self.tiles_bitpack[:] = my_packbits(tiles_availability)
-
 
 	def _update_districts(self, player: int):
 		# 0) Récupère desc + hauteur et met à plat
