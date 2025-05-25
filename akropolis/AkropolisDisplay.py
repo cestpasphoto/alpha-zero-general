@@ -11,7 +11,21 @@ def strip_ansi(s: str) -> str:
     return _ANSI_RE.sub('', s)
 
 # Glyphs for district (house) and plaza (star), plus superscripts for heights
-SYMBOLS      = {QUARRY: 'Q', PLAZA: '★', DISTRICT: '⌂'}
+SYMBOLS = {
+    (EMPTY, BLUE)     : ('·', Fore.BLACK),
+    (QUARRY, BLUE)    : ('Q', Fore.BLACK),
+    (PLAZA, BLUE)     : ('*', Fore.BLUE),
+    (PLAZA, YELLOW)   : ('⁑', Fore.YELLOW),
+    (PLAZA, RED)      : ('⁑', Fore.RED),
+    (PLAZA, PURPLE)   : ('⁑', Fore.MAGENTA),
+    (PLAZA, GREEN)    : ('⁂', Fore.GREEN),
+    (DISTRICT, BLUE)  : ('⌂', Fore.BLUE),
+    (DISTRICT, YELLOW): ('⌂', Fore.YELLOW),
+    (DISTRICT, RED)   : ('⌂', Fore.RED),
+    (DISTRICT, PURPLE): ('⌂', Fore.MAGENTA),
+    (DISTRICT, GREEN) : ('⌂', Fore.GREEN),
+}
+COLORS = [Fore.BLUE, Fore.YELLOW, Fore.RED, Fore.MAGENTA, Fore.GREEN, Fore.BLACK]
 SUPERSCRIPTS = {1: '', 2: '²', 3: '³', 4: '⁴'}
 sub_digits = str.maketrans({
     '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
@@ -19,20 +33,8 @@ sub_digits = str.maketrans({
     '-': '₋'
 })
 
-
-# Palette
-COLORS = [
-    Fore.BLUE, Fore.YELLOW, Fore.RED, Fore.MAGENTA, Fore.GREEN,
-    Fore.BLACK # for Quarry
-]
-
 def _print_glyph(type_, color, height, center=True):
-    if type_ == EMPTY:
-        glyph = '·'
-        col   = ''
-    else:
-        glyph = SYMBOLS.get(type_, '?') + SUPERSCRIPTS.get(height, '')
-        col   = COLORS[-1] if type_ == QUARRY else COLORS[color]
+    glyph, col = SYMBOLS.get( (type_, color), ('?', Fore.RED))
     tile = glyph.center(4) if center else glyph
     return f"{col}{tile}{Style.RESET_ALL}"
 
@@ -94,7 +96,7 @@ def print_board(game):
             if i >= N_PLAYERS:
                 color_scores.append('')
             else:
-                terms = [f"{game.plazas[i, c]}×{game.districts[i, c]}" for c in range(N_COLORS)]
+                terms = [f"{game.plazas[i, c]}×{game.districts[i, c]*PLAZA_STARS[c]}" for c in range(N_COLORS)]
                 stones = game.stones[i]
                 total = game.total_scores[i]
                 colored = ' + '.join(f"{COLORS[c]}{terms[c]}{Style.RESET_ALL}" for c in range(N_COLORS)) + f" + {stones} = {total}"

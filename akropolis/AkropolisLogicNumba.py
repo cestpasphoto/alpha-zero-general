@@ -288,7 +288,7 @@ class Board():
 		# update stones, districts, total_scores for current player
 		self.stones[player] -= tile_idx_in_cs
 		self._update_districts(player)
-		total = (self.districts[player, :] * self.plazas[player, :]).sum() + self.stones[player]
+		total = (self.districts[player, :] * self.plazas[player, :] * PLAZA_STARS[:]).sum() + self.stones[player]
 		self.total_scores[player] = min(127, total)
 
 		# Round number

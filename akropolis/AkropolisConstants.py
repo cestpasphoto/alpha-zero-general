@@ -24,6 +24,7 @@ GREEN  = 4
 N_COLORS = 5
 
 TYPECOL_LIST = [
+	EMPTY,
 	8*QUARRY,
 	8*PLAZA+BLUE, 8*PLAZA+YELLOW, 8*PLAZA+RED, 8*PLAZA+PURPLE, 8*PLAZA+GREEN,
 	8*DISTRICT+BLUE, 8*DISTRICT+YELLOW, 8*DISTRICT+RED, 8*DISTRICT+PURPLE, 8*DISTRICT+GREEN,
@@ -32,6 +33,8 @@ TYPECOL_LIST = [
 # Tile description = color + (type * 8)
 # color       = description  % 8
 # type        = description // 8
+
+PLAZA_STARS = np.array([1, 2, 2, 2, 3], dtype=np.int8)
 
 # Size of construction size (visible deck)
 CONSTR_SITE_SIZE = N_PLAYERS + 1
