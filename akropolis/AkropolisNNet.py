@@ -116,24 +116,37 @@ class AkropolisNNet(nn.Module):
 			self.final_layers_V = nn.Linear(num_filters, 1)
 			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters, self.action_size), nn.Linear(self.action_size, self.action_size))
 		elif self.version == 5: # Ultra simple NN using one-hot
-			num_filters = 32
+			num_filters = 64
 			self.trunk_3d = nn.Sequential(
-				nn.Conv2d(2*len(TYPECOL_LIST), num_filters, kernel_size=3, padding=1, bias=False),
-				inverted_residual(num_filters, 64, num_filters, False, "RE")
+				nn.Conv2d(3*len(TYPECOL_LIST), num_filters, kernel_size=3, padding=1, bias=False),
+				inverted_residual(num_filters, 2*num_filters, num_filters, False, "RE")
 			)
 			self.final_layers_V = nn.Linear(num_filters*3*3, 1)
 			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters*3*3, self.action_size), nn.Linear(self.action_size, self.action_size))
-		elif self.version == 10: # Very small version using MobileNetV3 building blocks
-			### NN working on 3d data per player
-			self.trunk_board = filters_for_boards(2, 8, N_COLORS)
-			### NN working on 1d data + 0d data per player
-			self.trunk_1d_per_pl = nn.Sequential(nn.Linear(CITY_SIZE, CITY_SIZE*2), nn.Linear(CITY_SIZE*2, CITY_SIZE))
-			self.trunk_per_player = nn.Sequential(nn.Linear(N_COLORS+CITY_SIZE, CITY_SIZE*2), nn.Linear(CITY_SIZE*2, CITY_SIZE))
-			### NN working on global data
-			self.trunk_global = nn.Sequential(nn.Linear(2*CITY_SIZE*self.num_players+2*CITY_SIZE, 3*CITY_SIZE*self.num_players))
-			self.final_layers_V = nn.Sequential(nn.Linear(3*CITY_SIZE*self.num_players, self.num_players), nn.Linear(self.num_players, 1))
-			self.final_layers_PI = nn.Sequential(nn.Linear(3*CITY_SIZE*self.num_players, 3*self.action_size), nn.Linear(3*self.action_size, self.action_size))
-	
+		elif self.version == 7: # Ultra simple NN using one-hot
+			num_filters = 128
+			self.trunk_1d = nn.Sequential(
+				nn.Linear(len(TYPECOL_LIST)*(2+3*CONSTR_SITE_SIZE), num_filters),
+				nn.Linear(num_filters, num_filters)
+			)
+			self.final_layers_V = nn.Linear(num_filters, 1)
+			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters, self.action_size), nn.Linear(self.action_size, self.action_size))
+		elif self.version == 8: # Simple version using Embedding
+			D = 5
+			T = 16
+			G = 32
+			S = 8
+			self.embed = nn.Embedding(num_embeddings=len(TYPECOL_LIST), embedding_dim=D)
+			self.conv1d_constr = nn.Conv1d(D, T, kernel_size=3, stride=1, padding=0)
+			self.dense_scores = nn.Linear(N_COLORS*3*self.num_players, G)
+			self.dense_globs = nn.Linear(2, S)
+			self.fused_to_1d = nn.MaxPool1d(T+G+S)
+			self.final_layers_V = nn.Sequential(
+				nn.Linear(CONSTR_SITE_SIZE, 1)
+			)
+			self.final_layers_PI = nn.Sequential(
+				nn.Linear(CONSTR_SITE_SIZE, self.action_size)
+			)
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -154,6 +167,7 @@ class AkropolisNNet(nn.Module):
 		boards_descr, boards_height, _, per_pl_data, global_data = split_input_data
 		scores_data = per_pl_data.squeeze(1)[:, :3*self.num_players, :N_COLORS]
 		constrs_site = global_data.squeeze(1)[:, :CONSTR_SITE_SIZE, :3]
+		globals_data = global_data.squeeze(1)[:, CONSTR_SITE_SIZE+1, :2]
 		# x.shape = Nx8x12x12
 		# boards_descr.shape = boards_height.shape = Nx2x12x12
 		# per_pl_data.shape = global_data.shape = Nx1x12x12
@@ -173,28 +187,60 @@ class AkropolisNNet(nn.Module):
 			h_idx = torch.tensor([2*self.num_players] + [0]*N_COLORS + [self.num_players]*N_COLORS, dtype=torch.long)
 			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
 			scores_pl0_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
-			# scores_pl1_onehot = pass # NxN_TYPECOL
-			x_3d = torch.cat([constrs_onehot, scores_pl0_onehot.unsqueeze(1).unsqueeze(2).expand(-1, 3, 3, -1)], dim=3) # x_3d.shape = Nx3x3x2N_TYPECOL
-			x_3d = x_3d.permute(0, 3, 1, 2) # x_3d.shape = Nx2N_TYPECOLx3x3
-			x_3d = self.trunk_3d(x_3d) # x_3d.shape = Nx32x3x3
-			x_1d = x_3d.flatten(1) # x_1d.shape = Nx288
+			h_idx = torch.tensor([2*self.num_players+1] + [1]*N_COLORS + [self.num_players+1]*N_COLORS, dtype=torch.long)
+			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
+			scores_pl1_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
+			x_3d = torch.cat([
+				constrs_onehot,
+				scores_pl0_onehot.unsqueeze(1).unsqueeze(2).expand(-1, 3, 3, -1),
+				scores_pl1_onehot.unsqueeze(1).unsqueeze(2).expand(-1, 3, 3, -1),
+			], dim=3) # x_3d.shape = Nx3x3x3N_TYPECOL
+			x_3d = x_3d.permute(0, 3, 1, 2) # x_3d.shape = Nx3N_TYPECOLx3x3
+			x_3d = self.trunk_3d(x_3d) # x_3d.shape = Nx64x3x3
+			x_1d = x_3d.flatten(1)
 			v = self.final_layers_V(x_1d)
 			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
-		elif self.version in [10]:
-			list_per_player_1d = []
-			for p in range(self.num_players):
-				x_1d_board_pl = self.trunk_board(split_data[2*p:2*p+2])                 # Nx2xSIZExSIZE -> NxNCOLORS
-				x_1d_data_pl    = self.trunk_1d_per_pl(inp_per_player_data[:, 0, p, :]) # NxSIZE -> NxSIZE
-				x_1d_pl = self.trunk_per_player(torch.cat([x_1d_board_pl, x_1d_data_pl], dim=1))   # NxNCOLORS+SIZE -> Nx2SIZE
-				list_per_player_1d.append(x_1d_pl)
+		elif self.version in [7]:
+			# convert constrs_site in one-hot
+			typecol_lut = torch.tensor(TYPECOL_LIST)
+			constrs_onehot = (constrs_site.unsqueeze(-1) == typecol_lut).float() # constrs_site.shape = Nx3x3xN_TYPECOL
+			# convert scores_data in one-hot
+			h_idx = torch.tensor([2*self.num_players] + [0]*N_COLORS + [self.num_players]*N_COLORS, dtype=torch.long)
+			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
+			scores_pl0_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
+			h_idx = torch.tensor([2*self.num_players+1] + [1]*N_COLORS + [self.num_players+1]*N_COLORS, dtype=torch.long)
+			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
+			scores_pl1_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
+			x_1d = torch.cat([
+				constrs_onehot.flatten(1),
+				scores_pl0_onehot.flatten(1),
+				scores_pl1_onehot.flatten(1),
+			], dim=1) # x_1d.shape = Nx11TYPE_COL
+			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training) # x_1d.shape = Nx100
+			v = self.final_layers_V(x_1d)
+			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
+		elif self.version in [8]:
+			# Convert constrs_site to embeddings (need to change its values to 0..P-1 first)
+			# constrs_site = constrs_site.clamp(min=0., max=len(TYPECOL_LIST)-1).round().long()
+			constrs_flat = constrs_site.long().reshape(-1).tolist()
+			val2idx = {v: i for i, v in enumerate(TYPECOL_LIST)}
+			idx_flat = [val2idx[v] for v in constrs_flat]
+			constrs_idx = torch.tensor(idx_flat, dtype=torch.long).view_as(constrs_site)
+			constrs_embed = self.embed(constrs_idx) # N,CS,3,D
+			constrs_3d = constrs_embed.flatten(start_dim=0, end_dim=1).permute(0, 2, 1) # N*CS, D, 3
+			constrs_3d = F.dropout(self.conv1d_constr(constrs_3d), p=self.args['dropout'], training=self.training) # N*CS, T
+			constrs_3d = constrs_3d.squeeze(-1).view(constrs_embed.shape[0], constrs_embed.shape[1], -1) # N, CS, T
 
-			x_glob_1d = self.trunk_global(
-				torch.cat(list_per_player_1d + [global_data[:, 0, 0, :], global_data[:, 0, 2, :]], dim=1),
-			) # Nx(2*SIZE*NPLAYERS+SIZE+SIZE) -> NxZ
+			s1 = F.dropout(self.dense_scores(scores_data.flatten(1)), p=self.args['dropout'], training=self.training) # N,3*NUM_PLAYERS,N_COLORS -> N,G
+			scores_3d = s1.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # N, CS, G
 
-			v = self.final_layers_V(x_glob_1d)  # NxZ -> N
-			pi = torch.where(valid_actions, self.final_layers_PI(x_glob_1d), self.lowvalue) # NxZ -> NxY
+			g1 = F.dropout(self.dense_globs(globals_data), p=self.args['dropout'], training=self.training) # 2 -> N,S
+			glob_3d = g1.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # N, CS, S
 
+			fused = torch.cat([constrs_3d, scores_3d, glob_3d], dim=-1) # N,CS,T+G+S
+			fused_1d = self.fused_to_1d(fused).squeeze(-1)
+			v = self.final_layers_V(fused_1d)
+			pi = torch.where(valid_actions, self.final_layers_PI(fused_1d), self.lowvalue)
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
 
