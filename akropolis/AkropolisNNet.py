@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torchvision.models._utils import _make_divisible
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
 
-from .AkropolisConstants import N_COLORS, CITY_SIZE, CONSTR_SITE_SIZE, TYPECOL_LIST
+from .AkropolisConstants import N_COLORS, CITY_SIZE, CONSTR_SITE_SIZE, CODES_LIST
 
 class LinearNormActivation(nn.Module):
 	def __init__(self, in_size, out_size, activation_layer, depthwise=False, channels=None):
@@ -115,28 +115,12 @@ class AkropolisNNet(nn.Module):
 			self.trunk_1d = nn.Linear(3*self.num_players*N_COLORS+3*CONSTR_SITE_SIZE, num_filters)
 			self.final_layers_V = nn.Linear(num_filters, 1)
 			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters, self.action_size), nn.Linear(self.action_size, self.action_size))
-		elif self.version == 5: # Ultra simple NN using one-hot
-			num_filters = 64
-			self.trunk_3d = nn.Sequential(
-				nn.Conv2d(3*len(TYPECOL_LIST), num_filters, kernel_size=3, padding=1, bias=False),
-				inverted_residual(num_filters, 2*num_filters, num_filters, False, "RE")
-			)
-			self.final_layers_V = nn.Linear(num_filters*3*3, 1)
-			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters*3*3, self.action_size), nn.Linear(self.action_size, self.action_size))
-		elif self.version == 7: # Ultra simple NN using one-hot
-			num_filters = 128
-			self.trunk_1d = nn.Sequential(
-				nn.Linear(len(TYPECOL_LIST)*(2+3*CONSTR_SITE_SIZE), num_filters),
-				nn.Linear(num_filters, num_filters)
-			)
-			self.final_layers_V = nn.Linear(num_filters, 1)
-			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters, self.action_size), nn.Linear(self.action_size, self.action_size))
 		elif self.version == 8: # Simple version using Embedding
 			D = 5
 			T = 16
 			G = 32
 			S = 8
-			self.embed = nn.Embedding(num_embeddings=len(TYPECOL_LIST), embedding_dim=D)
+			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
 			self.conv1d_constr = nn.Conv1d(D, T, kernel_size=3, stride=1, padding=0)
 			self.dense_scores = nn.Linear(N_COLORS*3*self.num_players, G)
 			self.dense_globs = nn.Linear(2, S)
@@ -179,54 +163,10 @@ class AkropolisNNet(nn.Module):
 			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training) # x_1d.shape = Nx100
 			v = self.final_layers_V(x_1d)
 			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
-		elif self.version in [5]:
-			# convert constrs_site in one-hot
-			typecol_lut = torch.tensor(TYPECOL_LIST)
-			constrs_onehot = (constrs_site.unsqueeze(-1) == typecol_lut).float() # constrs_site.shape = Nx3x3xN_TYPECOL
-			# convert scores_data in one-hot
-			h_idx = torch.tensor([2*self.num_players] + [0]*N_COLORS + [self.num_players]*N_COLORS, dtype=torch.long)
-			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
-			scores_pl0_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
-			h_idx = torch.tensor([2*self.num_players+1] + [1]*N_COLORS + [self.num_players+1]*N_COLORS, dtype=torch.long)
-			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
-			scores_pl1_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
-			x_3d = torch.cat([
-				constrs_onehot,
-				scores_pl0_onehot.unsqueeze(1).unsqueeze(2).expand(-1, 3, 3, -1),
-				scores_pl1_onehot.unsqueeze(1).unsqueeze(2).expand(-1, 3, 3, -1),
-			], dim=3) # x_3d.shape = Nx3x3x3N_TYPECOL
-			x_3d = x_3d.permute(0, 3, 1, 2) # x_3d.shape = Nx3N_TYPECOLx3x3
-			x_3d = self.trunk_3d(x_3d) # x_3d.shape = Nx64x3x3
-			x_1d = x_3d.flatten(1)
-			v = self.final_layers_V(x_1d)
-			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
-		elif self.version in [7]:
-			# convert constrs_site in one-hot
-			typecol_lut = torch.tensor(TYPECOL_LIST)
-			constrs_onehot = (constrs_site.unsqueeze(-1) == typecol_lut).float() # constrs_site.shape = Nx3x3xN_TYPECOL
-			# convert scores_data in one-hot
-			h_idx = torch.tensor([2*self.num_players] + [0]*N_COLORS + [self.num_players]*N_COLORS, dtype=torch.long)
-			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
-			scores_pl0_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
-			h_idx = torch.tensor([2*self.num_players+1] + [1]*N_COLORS + [self.num_players+1]*N_COLORS, dtype=torch.long)
-			w_idx = torch.tensor([1] + list(range(N_COLORS)) + list(range(N_COLORS)), dtype=torch.long)
-			scores_pl1_onehot = scores_data[:, h_idx, w_idx] # NxN_TYPECOL
-			x_1d = torch.cat([
-				constrs_onehot.flatten(1),
-				scores_pl0_onehot.flatten(1),
-				scores_pl1_onehot.flatten(1),
-			], dim=1) # x_1d.shape = Nx11TYPE_COL
-			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training) # x_1d.shape = Nx100
-			v = self.final_layers_V(x_1d)
-			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
 		elif self.version in [8]:
-			# Convert constrs_site to embeddings (need to change its values to 0..P-1 first)
-			# constrs_site = constrs_site.clamp(min=0., max=len(TYPECOL_LIST)-1).round().long()
-			constrs_flat = constrs_site.long().reshape(-1).tolist()
-			val2idx = {v: i for i, v in enumerate(TYPECOL_LIST)}
-			idx_flat = [val2idx[v] for v in constrs_flat]
-			constrs_idx = torch.tensor(idx_flat, dtype=torch.long).view_as(constrs_site)
-			constrs_embed = self.embed(constrs_idx) # N,CS,3,D
+			# Convert constrs_site to embeddings (need to clamp when input is random)
+			constrs_long = constrs_site.clamp(min=0., max=len(CODES_LIST)-1).long()
+			constrs_embed = self.embed(constrs_long) # N,CS,3,D
 			constrs_3d = constrs_embed.flatten(start_dim=0, end_dim=1).permute(0, 2, 1) # N*CS, D, 3
 			constrs_3d = F.dropout(self.conv1d_constr(constrs_3d), p=self.args['dropout'], training=self.training) # N*CS, T
 			constrs_3d = constrs_3d.squeeze(-1).view(constrs_embed.shape[0], constrs_embed.shape[1], -1) # N, CS, T

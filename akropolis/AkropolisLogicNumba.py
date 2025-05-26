@@ -48,9 +48,7 @@ from .AkropolisConstants import *
 #                /          \
 #             (4, 3)      (4, 4)
 #
-# Tile description = color + (type * 8), see AkropolisConstants.py
-# color       = description  % 8
-# type        = description // 8
+# Tile description is defined in AkropolisConstants.py
 #
 ############################## ACTION DESCRIPTION #############################
 #
@@ -229,13 +227,13 @@ class Board():
 		self.tiles_bitpack[:] = my_packbits(TILES_DATA[:,3] <= N_PLAYERS)
 		self.misc[1] = N_STACKS
 		# Set initial tile
-		self.board_descr [START_TILE_R, START_TILE_Q, :] = PLAZA*8 + BLUE
+		self.board_descr [START_TILE_R, START_TILE_Q, :] = PLAZA_BLUE
 		self.board_height[START_TILE_R, START_TILE_Q, :] = 1
 		self.board_tileID[START_TILE_R, START_TILE_Q, :] = TILES_DATA.shape[0]
 		self.plazas[:,BLUE] = 1
 		for idx in NEIGHBORS[START_TILE_R*CITY_SIZE+START_TILE_Q, ::2]:
 			rr, qq = divmod(idx, CITY_SIZE)
-			self.board_descr [rr, qq, :] = QUARRY*8
+			self.board_descr [rr, qq, :] = QUARRY
 			self.board_height[rr, qq, :] = 1
 			self.board_tileID[rr, qq, :] = TILES_DATA.shape[0]
 
@@ -273,7 +271,7 @@ class Board():
 		for desc, hex_idx in zip(tile[:3], PATTERNS[idx*N_ORIENTS+orient]):
 			rr, qq = divmod(hex_idx, CITY_SIZE)
 			# update internals if building upon a quarry or plaza (district will be managed later)
-			under_type, under_color = divmod(self.board_descr[rr, qq, player], 8)
+			under_type, under_color = DESCR_TO_TYPE_COLOR[self.board_descr[rr, qq, player]]
 			if under_type == PLAZA:
 				self.plazas[player, under_color] += 1
 			if under_type == QUARRY:
@@ -282,8 +280,8 @@ class Board():
 			self.board_height[rr, qq, player] += 1
 			self.board_tileID[rr, qq, player] = tile[3]
 			# Update plazas
-			if desc // 8 == PLAZA:
-				self.plazas[player, desc % 8] += 1
+			if DESCR_TO_TYPE_COLOR[desc][0] == PLAZA:
+				self.plazas[player, DESCR_TO_TYPE_COLOR[desc][1]] += 1
 
 		# update stones, districts, total_scores for current player
 		self.stones[player] -= tile_idx_in_cs
@@ -502,18 +500,18 @@ class Board():
 		district = np.zeros(N_COLORS, dtype=np.int32)
 
 		# 1) GREEN (Jardins)
-		mask_green = desc == (DISTRICT*8 + GREEN)
+		mask_green = (desc == DISTRICT_GREEN)
 		district[GREEN] = h[mask_green].sum()
 
 		# 2) YELLOW (Marchés isolés)
-		mask_yellow = desc == (DISTRICT*8 + YELLOW)
+		mask_yellow = (desc == DISTRICT_YELLOW)
 		yellow_idxs = np.nonzero(mask_yellow)[0]
 		score_y = 0
 		for idx in yellow_idxs:
 			isolated = True
 			# si un voisin est aussi un marché YELLOW, ce n'est pas isolé
 			for nb in NEIGHBORS[idx]:
-				if nb >= 0 and desc[nb] == (DISTRICT*8 + YELLOW):
+				if nb >= 0 and desc[nb] == DISTRICT_YELLOW:
 					isolated = False
 					break
 			if isolated:
@@ -521,7 +519,7 @@ class Board():
 		district[YELLOW] = score_y
 
 		# 3) PURPLE (Temples entourés)
-		mask_purple = desc == (DISTRICT*8 + PURPLE)
+		mask_purple = (desc == DISTRICT_PURPLE)
 		purple_idxs = np.nonzero(mask_purple)[0]
 		score_p = 0
 		for idx in purple_idxs:
@@ -537,7 +535,8 @@ class Board():
 					score_p += h[idx]
 		district[PURPLE] = score_p
 
-		# 4) Flood-fill des vides extérieurs (inchangé)
+		# 5) RED (Caserne en périphérie réelle)
+		# Using flood fill algorithm to list tiles connected to the border
 		is_empty = desc == EMPTY
 		outer_empty = np.zeros_like(is_empty)
 		for idx in np.nonzero(is_empty)[0]:
@@ -552,9 +551,7 @@ class Board():
 					continue
 				outer_empty[nb] = True
 				stack.append(nb)
-
-		# 5) RED (Caserne en périphérie réelle)
-		mask_red = desc == (DISTRICT*8 + RED)
+		mask_red = (desc == DISTRICT_RED)
 		red_touch = np.zeros_like(mask_red)
 		for idx in np.nonzero(mask_red)[0]:
 			for nb in NEIGHBORS[idx]:
@@ -564,7 +561,7 @@ class Board():
 		district[RED] = h[red_touch].sum()
 
 		# 6) BLUE (Maisons) : plus longue chaîne
-		mask_blue = desc == (DISTRICT*8 + BLUE)
+		mask_blue = (desc == DISTRICT_BLUE)
 		visited = np.zeros_like(mask_blue)
 		max_chain = 0
 		for start in np.nonzero(mask_blue)[0]:

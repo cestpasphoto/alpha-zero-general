@@ -395,6 +395,8 @@ if __name__ == "__main__":
 	# flops.uncalled_modules_warnings(False)
 	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 	# print(flops.by_module().most_common(15))
+	# print({ k:v//1000 for k,v in flops.by_module().items() if k.count('.') <= 2 })
+	# breakpoint()
 
 	if not args.training:
 		if args.input:

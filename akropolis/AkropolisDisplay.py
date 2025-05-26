@@ -12,18 +12,18 @@ def strip_ansi(s: str) -> str:
 
 # Glyphs for district (house) and plaza (star), plus superscripts for heights
 SYMBOLS = {
-    (EMPTY, BLUE)     : ('·', Fore.BLACK),
-    (QUARRY, BLUE)    : ('Q', Fore.BLACK),
-    (PLAZA, BLUE)     : ('*', Fore.BLUE),
-    (PLAZA, YELLOW)   : ('⁑', Fore.YELLOW),
-    (PLAZA, RED)      : ('⁑', Fore.RED),
-    (PLAZA, PURPLE)   : ('⁑', Fore.MAGENTA),
-    (PLAZA, GREEN)    : ('⁂', Fore.GREEN),
-    (DISTRICT, BLUE)  : ('⌂', Fore.BLUE),
-    (DISTRICT, YELLOW): ('⌂', Fore.YELLOW),
-    (DISTRICT, RED)   : ('⌂', Fore.RED),
-    (DISTRICT, PURPLE): ('⌂', Fore.MAGENTA),
-    (DISTRICT, GREEN) : ('⌂', Fore.GREEN),
+    EMPTY          : ('·', Fore.BLACK),
+    QUARRY         : ('Q', Fore.BLACK),
+    PLAZA_BLUE     : ('*', Fore.BLUE),
+    PLAZA_YELLOW   : ('⁑', Fore.YELLOW),
+    PLAZA_RED      : ('⁑', Fore.RED),
+    PLAZA_PURPLE   : ('⁑', Fore.MAGENTA),
+    PLAZA_GREEN    : ('⁂', Fore.GREEN),
+    DISTRICT_BLUE  : ('⌂', Fore.BLUE),
+    DISTRICT_YELLOW: ('⌂', Fore.YELLOW),
+    DISTRICT_RED   : ('⌂', Fore.RED),
+    DISTRICT_PURPLE: ('⌂', Fore.MAGENTA),
+    DISTRICT_GREEN : ('⌂', Fore.GREEN),
 }
 COLORS = [Fore.BLUE, Fore.YELLOW, Fore.RED, Fore.MAGENTA, Fore.GREEN, Fore.BLACK]
 SUPERSCRIPTS = {1: '', 2: '²', 3: '³', 4: '⁴'}
@@ -33,8 +33,8 @@ sub_digits = str.maketrans({
     '-': '₋'
 })
 
-def _print_glyph(type_, color, height, center=True):
-    glyph, col = SYMBOLS.get( (type_, color), ('?', Fore.RED))
+def _print_glyph(code, height, center=True):
+    glyph, col = SYMBOLS.get(code, ('?', Fore.RED))
     tile = glyph.center(4) if center else glyph
     return f"{col}{tile}{Style.RESET_ALL}"
 
@@ -43,14 +43,14 @@ def _print_lines(board_descr: np.ndarray, board_height: np.ndarray) -> list[str]
     for r in range(board_descr.shape[1]):
         row = '  ' if r%2==1 else ''
         for q in range(board_descr.shape[0]):
-            type_, color = divmod(board_descr[r, q], 8)
+            code = board_descr[r, q]
             height = int(board_height[r, q])
-            if type_ == EMPTY and q % 3 == 0 and r % 3 == 0:
+            if code == EMPTY and q % 3 == 0 and r % 3 == 0:
                 # print some coordinates instead of glyph
                 coords = f'{r},{q}'.center(4).translate(sub_digits)
                 row += f"{Style.DIM}{coords}{Style.RESET_ALL}"
             else:
-                row += _print_glyph(type_, color, height)
+                row += _print_glyph(code, height)
         lines.append(row)
     return lines
 
@@ -114,7 +114,7 @@ def print_board(game):
 
     # construction site
     remaining = [
-        ''.join([_print_glyph(t//8, t%8, 1, center=False) for t in tile[:3]])
+        ''.join([_print_glyph(t, 1, center=False) for t in tile[:3]])
         for tile in game.construction_site if tile[0] != EMPTY
     ]
     # remaining = [str(tile) for tile in game.construction_site if tile[0] != EMPTY]
