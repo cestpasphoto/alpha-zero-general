@@ -93,6 +93,7 @@ class AkropolisNNet(nn.Module):
 		# self.dim1d_per_pl = N_COLORS
 		# self.dim3d_per_pl = (CITY_SIZE, CITY_SIZE, 2)
 	
+		self.board_size = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.num_players = game.num_players
 		self.args = args

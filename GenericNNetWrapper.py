@@ -33,7 +33,7 @@ class GenericNNetWrapper(NeuralNet):
 		self.init_nnet(game, nn_args)
 		self.ort_session = None
 
-		self.nb_vect, self.vect_dim = game.getBoardSize()
+		self.board_size = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.num_players = game.num_players
 		self.requestKnowledgeTransfer = False
@@ -59,7 +59,7 @@ class GenericNNetWrapper(NeuralNet):
 			for i_batch in range(batch_count):
 				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False)
 				boards, pis, vs, valid_actions, qs = self.pick_examples(examples, sample_ids)
-				boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
+				boards = torch.FloatTensor(np.array(boards).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 				target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 				target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
@@ -102,15 +102,15 @@ class GenericNNetWrapper(NeuralNet):
 
 		if self.current_mode == 'onnx':
 			ort_outs = self.ort_session.run(None, {
-				'board': board.astype(np.float32).reshape((-1, self.nb_vect, self.vect_dim)),
-				'valid_actions': np.array(valid_actions).astype(np.bool_).reshape((-1, self.action_size)),
+				'board': np.expand_dims(board.astype(np.float32), 0),
+				'valid_actions': np.expand_dims(np.array(valid_actions).astype(np.bool_), 0),
 			})
 			pi, v = np.exp(ort_outs[0][0]), ort_outs[1][0]
 			return pi, v
 
 		else:
-			board = torch.FloatTensor(board.astype(np.float32)).reshape((-1, self.nb_vect, self.vect_dim))
-			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_)).reshape((-1, self.action_size))
+			board = torch.FloatTensor(board.astype(np.float32)).unsqueeze(0)
+			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_)).unsqueeze(0)
 			if self.current_mode == 'cuda':
 				board, valid_actions = board.contiguous().cuda(), valid_actions.contiguous().cuda()
 			self.nnet.eval()
@@ -126,8 +126,8 @@ class GenericNNetWrapper(NeuralNet):
 
 		# Store inputs in shared memory
 		shared_memory[i_thread] = (
-			board.astype(np.float32).reshape((-1, self.nb_vect, self.vect_dim)),
-			np.array(valid_actions).astype(np.bool_).reshape((-1, self.action_size)),
+			np.expand_dims(board.astype(np.float32), 0),
+			np.expand_dims(np.array(valid_actions).astype(np.bool_), 0),
 		)
 		# Unblock next thread (= next MCTS or server), and wait for our turn
 		locks[i_thread+1].release()
@@ -165,7 +165,7 @@ class GenericNNetWrapper(NeuralNet):
 		with torch.no_grad():
 			picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
 			boards, pis, vs, valid_actions, qs = list(zip(*picked_examples))
-			boards = torch.FloatTensor(self.reshape_boards(np.array(boards)).astype(np.float32))
+			boards = torch.FloatTensor(np.array(boards).astype(np.float32))
 			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
 			target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
 			target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
@@ -298,8 +298,8 @@ class GenericNNetWrapper(NeuralNet):
 		self.current_mode = target_device
 
 	def export_and_load_onnx(self):
-		dummy_board         = torch.randn(1, self.nb_vect, self.vect_dim, dtype=torch.float32)
-		dummy_valid_actions = torch.BoolTensor(torch.randn(1, self.action_size)>0.5)
+		dummy_board         = torch.randn(self.board_size, dtype=torch.float32).unsqueeze(0)
+		dummy_valid_actions = torch.BoolTensor(torch.randn(self.action_size)>0.5).unsqueeze(0)
 		self.nnet.to('cpu')
 		self.nnet.eval()
 
@@ -387,7 +387,7 @@ if __name__ == "__main__":
 		raise Exception("You have to specify at least a NN file to load or a NN version")
 
 	from fvcore.nn import FlopCountAnalysis
-	dummy_board         = torch.randn(1, g.getBoardSize()[0], g.getBoardSize()[1], dtype=torch.float32)
+	dummy_board         = torch.randn(g.getBoardSize(), dtype=torch.float32).unsqueeze(0)
 	dummy_valid_actions = torch.BoolTensor(torch.randn(1, g.getActionSize())>0.5)
 	nnet.nnet.eval()
 	flops = FlopCountAnalysis(nnet.nnet, (dummy_board, dummy_valid_actions))

@@ -92,7 +92,7 @@ from .BotanikConstants import *
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return ((6 + 6*NB_ROWS_FOR_MACH)*5, 7) # True size is 36,5,7 but other functions expects 2-dim answer
+	return ((6 + 6*NB_ROWS_FOR_MACH), 5, 7) # True size is 36,5,7 but other functions expects 2-dim answer
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -143,14 +143,14 @@ spec = [
 @numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
-		self.state = np.zeros((6+6*NB_ROWS_FOR_MACH,5,7), dtype=np.int8)
+		self.state = np.zeros(observation_size(), dtype=np.int8)
 		self.init_game()
 
 	def get_score(self, player):
 		return self.misc[1, player]
 
 	def init_game(self):
-		self.copy_state(np.zeros((6+6*NB_ROWS_FOR_MACH,5,7), dtype=np.int8), copy_or_not=False)
+		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
 		# Set all cards as available
 		enable_all_cards = packedUint_to_int8(my_packbits(np.ones(len(mask), dtype=np.int8)))
 		for color in range(5):

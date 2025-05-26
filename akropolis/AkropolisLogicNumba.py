@@ -65,7 +65,7 @@ from .AkropolisConstants import *
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (CITY_SIZE*CITY_SIZE, 3*N_PLAYERS+2)
+	return (CITY_SIZE, CITY_SIZE, 3*N_PLAYERS+2)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
