@@ -112,26 +112,82 @@ class AkropolisNNet(nn.Module):
 			return nn.Sequential(*filters)
 
 		if self.version == 1: # Ultra simple NN
-			num_filters = 100
-			self.trunk_1d = nn.Linear(3*self.num_players*N_COLORS+3*CONSTR_SITE_SIZE, num_filters)
-			self.final_layers_V = nn.Linear(num_filters, 1)
-			self.final_layers_PI = nn.Sequential(nn.Linear(num_filters, self.action_size), nn.Linear(self.action_size, self.action_size))
-		elif self.version == 8: # Simple version using Embedding
-			D = 5
-			T = 16
-			G = 32
-			S = 8
-			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
-			self.conv1d_constr = nn.Conv1d(D, T, kernel_size=3, stride=1, padding=0)
-			self.dense_scores = nn.Linear(N_COLORS*3*self.num_players, G)
-			self.dense_globs = nn.Linear(2, S)
-			self.fused_to_1d = nn.MaxPool1d(T+G+S)
+			num_filters = 32
+			self.trunk_1d = nn.Sequential(
+				nn.Linear(3*self.num_players*N_COLORS+3*CONSTR_SITE_SIZE, num_filters),
+				nn.BatchNorm1d(num_filters),
+				nn.ReLU(),
+				# nn.Linear(num_filters, num_filters),
+				# nn.BatchNorm1d(num_filters),
+				# nn.ReLU(),
+			)
 			self.final_layers_V = nn.Sequential(
-				nn.Linear(CONSTR_SITE_SIZE, 1)
+				nn.Linear(num_filters, num_filters),
+				nn.BatchNorm1d(num_filters),
+				nn.ReLU(),
+				nn.Linear(num_filters, 1),
 			)
 			self.final_layers_PI = nn.Sequential(
-				nn.Linear(CONSTR_SITE_SIZE, self.action_size)
+				nn.Linear(num_filters, self.action_size),
 			)
+		elif self.version == 8: # Simple version using Embedding
+			D, T, S, G = 3, 32, 32, 8
+			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
+			self.conv1d_constr = nn.Conv1d(D, T, kernel_size=3, stride=1, padding=0)
+			self.dense_scores = nn.Sequential(
+				nn.Linear(N_COLORS*3*self.num_players, S),
+				nn.BatchNorm1d(S),
+				nn.ReLU(),
+				# nn.Linear(S, S),
+				# nn.BatchNorm1d(S),
+				# nn.ReLU(),
+			)
+			self.dense_globs = nn.Linear(2, G)
+			new_size = CONSTR_SITE_SIZE*(T+S+G) // 8
+			self.fused_to_1d = nn.Sequential(
+				nn.Flatten(1),
+				nn.Linear(CONSTR_SITE_SIZE*(T+S+G), new_size),
+				nn.BatchNorm1d(new_size),
+				nn.ReLU(),
+			)
+			self.final_layers_V = nn.Sequential(
+				nn.Linear(new_size, new_size),
+				nn.BatchNorm1d(new_size),
+				nn.ReLU(),
+				nn.Linear(new_size, 1),
+			)
+			self.final_layers_PI = nn.Sequential(
+				nn.Linear(new_size, self.action_size),
+			)
+		elif self.version >= 18: # Less simple version using Embedding
+			constants = {
+				18:	(3, 32, 32, 8, 16, 32),
+				19: (3, 8, 16, 8, 16, 32),
+				# INSERT_PARAMS_HERE
+			}
+			D, T, S, G, B, r = constants[self.version]
+			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
+			self.conv1d_constr = nn.Conv1d(D, T, kernel_size=3, stride=1, padding=0)
+			self.dense_scores = nn.Sequential(
+				nn.Linear(N_COLORS*3*self.num_players, S),
+				# nn.BatchNorm1d(S),
+				# nn.ReLU(),
+				# nn.Linear(S, S),
+				# nn.BatchNorm1d(S),
+				# nn.ReLU(),
+			)
+			self.conv2d_boards = nn.Conv2d(D+2, B, kernel_size=1)
+			self.dense_globs = nn.Linear(2, G)
+	
+			self.final_layers_V = nn.Sequential(
+				nn.Flatten(1),
+				nn.Linear(CONSTR_SITE_SIZE*(T+S+G), 1),
+			)
+
+			self.proj_i = nn.Linear(T+S+G, r)
+			self.proj_p = nn.Conv2d(self.num_players*B+G+S, r, kernel_size=1)
+			self.U_o = nn.Parameter(torch.randn(6, r))
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -146,10 +202,10 @@ class AkropolisNNet(nn.Module):
 
 	def forward(self, input_data, valid_actions):
 		# Switch from NHWC to NCHW
-		x = input_data.reshape(-1, CITY_SIZE, CITY_SIZE, 3*self.num_players+2).permute(0, 3, 1, 2)
+		x = input_data.permute(0, 3, 1, 2)
 		# Split data
 		split_input_data = x.split([self.num_players, self.num_players, self.num_players, 1 ,1], dim=1)
-		boards_descr, boards_height, _, per_pl_data, global_data = split_input_data
+		boards_descr, boards_height, boards_tileID, per_pl_data, global_data = split_input_data
 		scores_data = per_pl_data.squeeze(1)[:, :3*self.num_players, :N_COLORS]
 		constrs_site = global_data.squeeze(1)[:, :CONSTR_SITE_SIZE, :3]
 		globals_data = global_data.squeeze(1)[:, CONSTR_SITE_SIZE+1, :2]
@@ -179,9 +235,48 @@ class AkropolisNNet(nn.Module):
 			glob_3d = g1.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # N, CS, S
 
 			fused = torch.cat([constrs_3d, scores_3d, glob_3d], dim=-1) # N,CS,T+G+S
-			fused_1d = self.fused_to_1d(fused).squeeze(-1)
+			fused_1d = self.fused_to_1d(fused)
 			v = self.final_layers_V(fused_1d)
 			pi = torch.where(valid_actions, self.final_layers_PI(fused_1d), self.lowvalue)
+		elif self.version >= 18:
+			# Work on scores and glob data first
+			s1 = F.dropout(self.dense_scores(scores_data.flatten(1)), p=self.args['dropout'], training=self.training) # N,3*NUM_PLAYERS,N_COLORS -> N,S
+			g1 = F.dropout(self.dense_globs(globals_data), p=self.args['dropout'], training=self.training) # 2 -> N,G
+
+			# Convert boards_descr to embeddings (need to clamp when input is random)
+			boards_descr_long = boards_descr.clamp(min=0., max=len(CODES_LIST)-1).long()
+			boards_descr_embed = self.embed(boards_descr_long) # N,2,12,12,D
+			boards = torch.cat([boards_descr_embed, boards_height.unsqueeze(-1), boards_tileID.unsqueeze(-1)], dim=-1) # N,2,12,12,D+2
+			boards_4d = [boards[:,i,:,:,:].permute(0,3,1,2) for i in range(self.num_players)] # N,D+2,12,12 (num_players times)
+			boards_4d = [self.conv2d_boards(boards_4d[i]) for i in range(self.num_players)] # N,B,12,12 (num_players times)
+
+			# Merge boards + scores + global data to a 4D vector
+			scores_4d = s1.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, CITY_SIZE, CITY_SIZE) # N, S, 12, 12
+			glob_4d   = g1.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, CITY_SIZE, CITY_SIZE) # N, G, 12, 12
+			fused_4d = torch.cat(boards_4d + [scores_4d, glob_4d], dim=1) # N,self.num_players*B+G+S,12,12
+
+			# Convert constrs_site to embeddings (need to clamp when input is random)
+			constrs_long = constrs_site.clamp(min=0., max=len(CODES_LIST)-1).long()
+			constrs_embed = self.embed(constrs_long) # N,CS,3,D
+			constrs_3d = constrs_embed.flatten(start_dim=0, end_dim=1).permute(0, 2, 1) # N*CS, D, 3
+			constrs_3d = F.dropout(self.conv1d_constr(constrs_3d), p=self.args['dropout'], training=self.training) # N*CS, T
+			constrs_3d = constrs_3d.squeeze(-1).view(constrs_embed.shape[0], constrs_embed.shape[1], -1) # N, CS, T
+
+			# Merge constrs + scores + global data to a 3D vector
+			scores_3d = s1.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # N, CS, S
+			glob_3d = g1.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # N, CS, G
+			fused_3d = torch.cat([constrs_3d, scores_3d, glob_3d], dim=-1) # N,CS,T+G+S
+
+			# Compute policy
+			fused_3d_proj = self.proj_i(fused_3d) # N, CS, r
+			fused_3d_proj = fused_3d_proj.unsqueeze(2).unsqueeze(2) # N, CS, 1, 1, r
+			fused_4d_proj = self.proj_p(fused_4d) # N, r, 12, 12
+			fused_4d_proj = fused_4d_proj.permute(0, 2, 3, 1).unsqueeze(1) # N, 1, 12, 12, r
+			
+			logits = torch.einsum('nchwt,ot->nchwo', fused_3d_proj*fused_4d_proj, self.U_o) # N, CS, 12, 12, r
+			pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
+
+			v = self.final_layers_V(fused_3d)
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
 

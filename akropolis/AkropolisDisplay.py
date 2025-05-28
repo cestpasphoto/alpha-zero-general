@@ -26,7 +26,7 @@ SYMBOLS = {
     DISTRICT_GREEN : ('⌂', Fore.GREEN),
 }
 COLORS = [Fore.BLUE, Fore.YELLOW, Fore.RED, Fore.MAGENTA, Fore.GREEN, Fore.BLACK]
-SUPERSCRIPTS = {1: '', 2: '²', 3: '³', 4: '⁴'}
+SUPERSCRIPTS = {0: '', 1: '', 2: '²', 3: '³', 4: '⁴'}
 sub_digits = str.maketrans({
     '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
     '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
@@ -35,6 +35,7 @@ sub_digits = str.maketrans({
 
 def _print_glyph(code, height, center=True):
     glyph, col = SYMBOLS.get(code, ('?', Fore.RED))
+    glyph += SUPERSCRIPTS[height]
     tile = glyph.center(4) if center else glyph
     return f"{col}{tile}{Style.RESET_ALL}"
 
