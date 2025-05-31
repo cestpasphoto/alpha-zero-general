@@ -181,6 +181,14 @@ class Board():
 		self.territories    = self.state[0                                  :NB_AREAS                             ,:]
 		self_peoples_2d     = self.state[NB_AREAS                           :NB_AREAS+3*NUMBER_PLAYERS            ,:]
 		self.peoples = np.ascontiguousarray(self_peoples_2d).reshape((NUMBER_PLAYERS, 3, 8))
+		# Warning: np.ascontiguousarray may return a copy in general case. but
+		# in this particular case it returns a view. And Numba needs it to
+		# ensure that reshape is done on a contiguous array.
+		# See this test code:
+		#   base_ptr = self.state.ctypes.data
+		#   total_bytes_big = self.state.size # itemsize = 1 for np.int8
+		#   view_ptr = self.peoples.ctypes.data
+		#   print((view_ptr >= base_ptr) and (view_ptr < base_ptr + total_bytes_big))
 		self.visible_deck   = self.state[NB_AREAS+3*NUMBER_PLAYERS          :NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE  ,:]
 		self.round_status   = self.state[NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE:NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE  ,:]
 		self.game_status    = self.state[NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE:NB_AREAS+5*NUMBER_PLAYERS+DECK_SIZE  ,:]

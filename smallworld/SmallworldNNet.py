@@ -202,6 +202,10 @@ class SmallworldNNet(nn.Module):
 			self.output_layers_V = nn.Sequential(*head_V)
 
 		elif self.version == 31: # Like V21 but in bigger
+
+			# Some input data are categorical so one track for improvement
+			# would be to use nn.Embedding()
+
 			self.first_layer = LinearNormActivation(self.nb_vect, 256, None)
 			confs  = []
 			confs += [InvertedResidual1d(256, 384, 256, 8, False, "RE")]

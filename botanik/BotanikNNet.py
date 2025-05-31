@@ -91,7 +91,7 @@ class BotanikNNet(nn.Module):
 	def __init__(self, game, args):
 		# game params
 		self.board_size = game.getBoardSize()
-		self.vect_dim = game.board_size[-1]
+		self.vect_dim = self.board_size[-1]
 		self.nb_vect_1d = 6*5
 		self.action_size = game.getActionSize()
 		self.num_players = game.num_players

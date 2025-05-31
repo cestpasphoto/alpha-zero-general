@@ -179,6 +179,14 @@ class Board():
 		self.p1_optim_neighbors = np.ascontiguousarray(self.state[6+3*NB_ROWS_FOR_MACH:6+4*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
 		self.p0_optim_needpipes = np.ascontiguousarray(self.state[6+4*NB_ROWS_FOR_MACH:6+5*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
 		self.p1_optim_needpipes = np.ascontiguousarray(self.state[6+5*NB_ROWS_FOR_MACH:6+6*NB_ROWS_FOR_MACH,:,:]).reshape(-1)[:MACHINE_SIZE*MACHINE_SIZE*7].reshape(MACHINE_SIZE, MACHINE_SIZE, 7)
+		# Warning: np.ascontiguousarray may return a copy in general case. but
+		# in this particular case it returns a view. And Numba needs it to
+		# ensure that reshape is done on a contiguous array.
+		# See this test code:
+		#   base_ptr = self.state.ctypes.data
+		#   total_bytes_big = self.state.size # itemsize = 1 for np.int8
+		#   view_ptr = self.p1_optim_needpipes.ctypes.data
+		#   print((view_ptr >= base_ptr) and (view_ptr < base_ptr + total_bytes_big))
 
 	def valid_moves(self, player):
 		result = np.zeros(action_size(), dtype=np.bool_)
