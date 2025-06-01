@@ -6,55 +6,65 @@ import numba
 
 
 ############################## BOARD DESCRIPTION ##############################
-# Board is described by a nx13 array
-# Colours are always in this order: 0: Blue, 1: Yellow, 2: Red, 3: Black, 4: White
+# Board is described by a 31x17 array
+# Colours are always in this order: 0: Yellow (Fields), 1: Dark Green (Woods),
+# 2: Blue (Sea), 3: Light Green (Grass), 4: Red (Desert), 5: Black (Cave)
 # Here is the description of each line of the board. For readibility, we defined
 # "shortcuts" that actually are views (numpy name) of overal board.
 ##### Index  Shortcut                Meaning
-#####   0    self.scores             P0 score, P1 score, Round num, 0, ..., 0
-#####  1-2   self.bag                Tiles in bag for each colour, 0
-#####  2-3   self.discards           Tiles in discard pile for each colour, 0
-#####  3-4   self.centre             Tiles of each colour in centre, (6th element is first player token)
-#####  4-9   self.factories          Tiles of each colour in each factory, 0
-#####  9     self.player_colours     Row colours of P0, -1 for empty, (6th element is first player token)
-#####  10        =                   Row colours of P1, -1 for empty, (6th element is first player token)
-#####  11    self.player_row_numbers Number of tiles on each row for P0, -1 for empty
-#####  12        =                   Number of tiles on each row for P1, -1 for empty
-#####  13-17 self.player_walls       P0 wall, 0 or 1 whether tile exists or not, 0
-#####  18-22     =                   P1 wall, 0 or 1 whether tile exists or not, 0
+#####   0    self.scores             P0 score, P1 score, Round num, Current tile index, Current tile, 0, ..., 0
+#####  1-3   self.bag                For each of the 33 tiles, how many are left in the bag, 0
+#####  3-4   self.visible_tiles      T0 index, T0 owner, T1 index, T1 owner, ... T8 index, T8 owner, 0
+#####  4-17  self.player_boards      P0 board, 7, 7, 7, 7
+#####  17-30     =                   P1 board, 7, 7, 7, 7
 # Any line follow by a 0 (or n 0s) means the last (or last n) columns is always 0
 
 
 ############################## ACTION DESCRIPTION #############################
-# There are 180 actions, 6 choices of factory/centre to chose from, 5 choices
+# There are 681 actions
+# First 4 are just choosing between the 4 tiles
+# Next is discarding the tile
+# Next 676 are placing the tile
+# 169 possible locations for the top left of the tile and 4 orientations
 # of colour and 6 choice of destination line.
 # 6*5*6 = 180
-# To get action number do factory * 30 + colour * 6 + line
-# Factory = {Centre: 0, Factory 1: 1, ..., Factory 5: 5}
-# Colour = {Blue: 0, Yellow: 1, Red: 2, Black: 3, White: 4}
-# Line = {Line 1: 0, Line 2: 1, ... Line 5: 4, Floor: 5}
+# To get action number for tile placement on (x, y)
+# 5 + (4 * (13 * x + y)) + tile_orientation
+# tile_orintation = {Left top down: 0, Left top right: 1, Right top down: 2,
+# Right top right: 3}
 # To further demonstrate:
 ##### Index  Meaning
-#####   0    Centre, Blue, Line 1
-#####   1    Centre, Blue, Line 2
+#####   0    Pick first tile
+#####   1    Pick second tile
 #####  ...
-#####   5    Centre, Blue, Floor
-#####   6    Centre, Yellow, Line 1
+#####   3    Pick fourth tile
+#####   4    Discard
+#####   5    Place tile at (0, 0) with it's left side at top facing down
+#####   6    Place tile at (0, 0) with it's left side at top facing right
+#####   7    Place tile at (0, 0) with it's right side at top facing down
+#####   8    Place tile at (0, 0) with it's right side at top facing right
+#####   9    Place tile at (0, 1) with it's right side at top facing right
+#####   10   Place tile at (0, 1) with it's right side at top facing right
+#####   11   Place tile at (0, 1) with it's right side at top facing right
+#####   12   Place tile at (0, 1) with it's right side at top facing right
 #####  ...
-#####   29   Centre, White, Floor
-#####   30   Factory 1, Blue, Line 1
+#####   57    Place tile at (1, 0) with it's left side at top facing down
+#####   58    Place tile at (1, 0) with it's left side at top facing right
+#####   59    Place tile at (1, 0) with it's right side at top facing down
+#####   60    Place tile at (1, 0) with it's right side at top facing right
 #####  ...
-#####   59   Factory 1, White, Floor
-#####  ...
-#####   179  Factory 5, White, Floor
+#####   677   Place tile at (12, 12) with it's left side at top facing down
+#####   678   Place tile at (12, 12) with it's left side at top facing right
+#####   679   Place tile at (12, 12) with it's right side at top facing down
+#####   680   Place tile at (12, 12) with it's right side at top facing right
 
 @njit(cache=True, fastmath=True, nogil=True)
-def observation_size(num_players):
-    return (23, 6)
+def observation_size(_num_players):
+    return (31, 17)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
-    return 180
+    return 681
 
 @njit(cache=True, fastmath=True, nogil=True)
 def my_random_choice(prob):
@@ -65,17 +75,56 @@ spec = [
     ('state' , numba.int8[:,:]),
     ('scores' , numba.int8[:,:]),
     ('bag' , numba.int8[:,:]),
-    ('discards' , numba.int8[:,:]),
-    ('centre' , numba.int8[:,:]),
-    ('factories' , numba.int8[:,:]),
-    ('player_colours' , numba.int8[:,:]),
-    ('player_row_numbers' , numba.int8[:,:]),
-    ('player_walls' , numba.int8[:,:]),
+    ('visible_tiles' , numba.int8[:,:]),
+    ('player_boards' , numba.int8[:,:]),
 ]
+
+tile_types = np.array([[0, 0, 0, 2],
+                       [1, 1, 0, 4],
+                       [2, 2, 0, 3],
+                       [3, 3, 0, 2],
+                       [4, 4, 0, 1],
+                       [0, 1, 0, 1],
+                       [0, 2, 0, 1],
+                       [0, 3, 0, 1],
+                       [0, 4, 0, 1],
+                       [1, 2, 0, 1],
+                       [1, 3, 0, 1],
+                       [0, 1, 1, 1],
+                       [0, 2, 1, 1],
+                       [0, 3, 1, 1],
+                       [0, 4, 1, 1],
+                       [0, 5, 1, 1],
+                       [1, 0, 1, 4],
+                       [1, 2, 1, 1],
+                       [1, 3, 1, 1],
+                       [2, 0, 1, 2],
+                       [2, 1, 1, 4],
+                       [3, 0, 1, 1],
+                       [3, 2, 1, 1],
+                       [4, 0, 1, 1],
+                       [4, 3, 1, 1],
+                       [5, 0, 1, 1],
+                       [3, 0, 2, 1],
+                       [3, 2, 2, 1],
+                       [4, 0, 2, 1],
+                       [4, 3, 2, 1],
+                       [5, 0, 2, 1],
+                       [5, 4, 2, 2],
+                       [5, 0, 3, 1],
+                       [0, 0, 0, 0]],
+                       dtype=np.int8)
+
+starting_boards = np.zeros((26, 17), dtype=np.int8)
+starting_boards = np.zeros((26, 17), dtype=np.int8)
+starting_boards[:, 13:] = 7
+starting_boards[6, 6] = 6
+starting_boards[19, 6] = 6
+
 @numba.experimental.jitclass(spec)
 class Board():
     def __init__(self):
-        self.state = np.zeros((23, 6), dtype=np.int8)
+        self.state = np.zeros((31, 17), dtype=np.int8)
 
     def get_score(self, player):
         return self.scores[0, player]
@@ -83,8 +132,8 @@ class Board():
     def init_game(self):
         self.copy_state(np.zeros((23, 6), dtype=np.int8), copy_or_not=False)
 
-        self.bag[:] = np.array([[20]*5 + [0]], dtype=np.int8)
-        self.player_colours[:] = np.array([[-1]*5 + [0]] * 2, dtype=np.int8)
+        self.bag[:] = tile_types[:, -1].reshape(2, 17)
+        self.player_boards[:] = starting_boards.copy()
         _ = self.setup_new_round(0)
         return
 
@@ -92,31 +141,8 @@ class Board():
         return self.state
 
     def valid_moves(self, player):
-        centre_colours_available = self.centre
-        factory_colours_available = np.array([factory[colour] > 0 for factory in self.factories for colour in range(5)]).reshape(5, 5)
-        player_colours = self.player_colours[player]
-        line_free = player_colours == -1
-        line_free[5] = True
-        player_row_numbers = self.player_row_numbers[player]
-        line_not_full = player_row_numbers < (np.arange(6) + 1)
-        result = np.zeros(180, dtype=np.bool_)
+        if 
 
-        for factory in range(6):
-            if factory == 0:
-                colour_available = centre_colours_available[0].astype(np.bool_)
-            else:
-                colour_available = factory_colours_available[factory - 1, :]
-            for colour in range(5):
-                line_correct_colour = player_colours == colour
-                wall_colour_free = np.ones(6, dtype=np.bool_)
-                for i in range(5):
-                    row_idx = 5 * player + i
-                    col_idx = (colour + i) % 5
-                    wall_colour_free[i] = self.player_walls[row_idx, col_idx] == 0
-                free_line_valid = np.logical_and(line_free, wall_colour_free)
-                partial_line_valid = np.logical_and(line_correct_colour, line_not_full)
-                valid_lines = np.logical_or(free_line_valid, partial_line_valid)
-                result[factory * 30 + colour * 6: factory * 30 + (colour + 1) * 6] = np.logical_and(colour_available[colour], valid_lines)
         return result
 
     def make_move(self, move, player, random_seed):
@@ -233,37 +259,29 @@ class Board():
 
 
     def setup_new_round(self, random_seed):
-        for i in range(5):
-            if np.sum(self.bag) < 4:
-                tiles_to_add = 4 - np.sum(self.bag)
-                self.factories[i] = self.bag.copy()
-                self.bag[:] = self.discards.copy()
-                self.discards[:] = np.array([[0]*6], dtype=np.int8)
-                self.factories[i] += self.select_tiles_from_bag(tiles_to_add, random_seed)
-            else:
-                self.factories[i] = self.select_tiles_from_bag(4, random_seed)
-        if self.player_colours[1, 5] == 1:
+        self.visible_tiles[8:16] = self.visible_tiles[0:8]
+        self.visible_tiles[:8:2] = self.select_tiles_from_bag(4, random_seed)
+        self.visible_tiles[1:9:2] = -1
+        if self.visible_tiles[9] == 1:
             next_player = 1
-            self.player_colours[1, 5] = 0
         else:
             next_player = 0
-            self.player_colours[0, 5] = 0
         self.scores[0, 2] += 1
-        self.centre[0, 5] = 1
         return next_player
 
 
     def select_tiles_from_bag(self, num, random_seed):
-        result = np.zeros(6, dtype=np.int8)
-        for _ in range(num):
+        result = np.zeros(4, dtype=np.int8)
+        for i in range(num):
+            tile_counts = self.bag.reshape(1, 34)[0, :33]
             if random_seed == 0:
-                selected_idx = my_random_choice(self.bag[0]/self.bag.sum())
+                selected_idx = my_random_choice(tile_counts/tile_counts.sum())
             else:
-                seed = (self.bag[0, :5] * 2**np.arange(5)).sum()
+                seed = (tile_counts * 2**np.arange(33)).sum()
                 fake_tile_num = (4594591 * (random_seed + seed)) % self.bag.sum()
-                selected_idx = np.searchsorted(np.cumsum(self.bag[0, :5]), fake_tile_num, side='right')
-            result[selected_idx] += 1
-            self.bag[0, selected_idx] -= 1
+                selected_idx = np.searchsorted(np.cumsum(tile_counts), fake_tile_num, side='right')
+            result[i] = selected_idx
+            self.bag[selected_idx // 17, selected_idx % 17] -= 1
         return result
 
 
@@ -272,13 +290,9 @@ class Board():
                 return
         self.state = state.copy() if copy_or_not else state
         self.scores = self.state[0 : 1 , :] # 1
-        self.bag = self.state[1 : 2 , :] # 1
-        self.discards = self.state[2 : 3 , :] # 1
-        self.centre = self.state[3 : 4 , :] # 1
-        self.factories = self.state[4 : 9 , :] # 5
-        self.player_colours = self.state[9 : 11 , :] # 2
-        self.player_row_numbers = self.state[11 : 13 , :] # 2
-        self.player_walls = self.state[13 : 23 , :]     # 10
+        self.bag = self.state[1 : 3 , :] # 2
+        self.visible_tiles = self.state[3 : 4 , :] # 1
+        self.player_boards = self.state[4 : 30 , :] # 26
 
     def check_end_game(self):
         if self.check_game_over():
