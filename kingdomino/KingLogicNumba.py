@@ -1,22 +1,25 @@
-from .KingLogic import np_factory_symmetries
+from .KingLogic import np_board_symmetries, reflection_perm, rotation_perm
 import numpy as np
 from numba import njit
 import numba
 
+### To Do: Make tiles fit in 7x7 box - either save furthest x and y can go to or set the parts off limit to -2 everytime placed. Design nice print function.
 
 
 ############################## BOARD DESCRIPTION ##############################
-# Board is described by a 31x17 array
+# Board is described by a 57x17 array
 # Colours are always in this order: 0: Yellow (Fields), 1: Dark Green (Woods),
 # 2: Blue (Sea), 3: Light Green (Grass), 4: Red (Desert), 5: Black (Cave)
 # Here is the description of each line of the board. For readibility, we defined
 # "shortcuts" that actually are views (numpy name) of overal board.
 ##### Index  Shortcut                Meaning
-#####   0    self.scores             P0 score, P1 score, Round num, Current tile index, Current tile, 0, ..., 0
+#####   0    self.scores             P0 score, P1 score, Round num, Tile num, Current tile index, Current tile, 0, ..., 0
 #####  1-3   self.bag                For each of the 33 tiles, how many are left in the bag, 0
 #####  3-4   self.visible_tiles      T0 index, T0 owner, T1 index, T1 owner, ... T8 index, T8 owner, 0
-#####  4-17  self.player_boards      P0 board, 7, 7, 7, 7
-#####  17-30     =                   P1 board, 7, 7, 7, 7
+#####  4-17  self.player_boards      P0 board, 0, 0, 0, 0
+#####  17-30     =                   P1 board, 0, 0, 0, 0
+#####  30-43 self.player_crowns      P0 crowns, 0, 0, 0, 0
+#####  43-56     =                   P1 crowns, 0, 0, 0, 0
 # Any line follow by a 0 (or n 0s) means the last (or last n) columns is always 0
 
 
@@ -43,9 +46,9 @@ import numba
 #####   6    Place tile at (0, 0) with it's left side at top facing right
 #####   7    Place tile at (0, 0) with it's right side at top facing down
 #####   8    Place tile at (0, 0) with it's right side at top facing right
-#####   9    Place tile at (0, 1) with it's right side at top facing right
-#####   10   Place tile at (0, 1) with it's right side at top facing right
-#####   11   Place tile at (0, 1) with it's right side at top facing right
+#####   9    Place tile at (0, 1) with it's left side at top facing down
+#####   10   Place tile at (0, 1) with it's left side at top facing right
+#####   11   Place tile at (0, 1) with it's right side at top facing down
 #####   12   Place tile at (0, 1) with it's right side at top facing right
 #####  ...
 #####   57    Place tile at (1, 0) with it's left side at top facing down
@@ -60,7 +63,7 @@ import numba
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(_num_players):
-    return (31, 17)
+    return (57, 17)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -77,6 +80,7 @@ spec = [
     ('bag' , numba.int8[:,:]),
     ('visible_tiles' , numba.int8[:,:]),
     ('player_boards' , numba.int8[:,:]),
+    ('player_crowns' , numba.int8[:,:]),
 ]
 
 tile_types = np.array([[0, 0, 0, 2],
@@ -116,153 +120,208 @@ tile_types = np.array([[0, 0, 0, 2],
                        dtype=np.int8)
 
 starting_boards = np.zeros((26, 17), dtype=np.int8)
-starting_boards = np.zeros((26, 17), dtype=np.int8)
-starting_boards[:, 13:] = 7
+starting_boards[:, :13] = -1
 starting_boards[6, 6] = 6
 starting_boards[19, 6] = 6
 
 @numba.experimental.jitclass(spec)
 class Board():
     def __init__(self):
-        self.state = np.zeros((31, 17), dtype=np.int8)
+        self.state = np.zeros((57, 17), dtype=np.int8)
 
     def get_score(self, player):
         return self.scores[0, player]
 
     def init_game(self):
-        self.copy_state(np.zeros((23, 6), dtype=np.int8), copy_or_not=False)
-
-        self.bag[:] = tile_types[:, -1].reshape(2, 17)
+        self.copy_state(np.zeros((57, 17), dtype=np.int8), copy_or_not=False)
+        self.bag[:] = np.ascontiguousarray(tile_types[:, -1]).reshape(2, 17)
         self.player_boards[:] = starting_boards.copy()
+        self.visible_tiles[:] = np.array([[0, -1]*4 + [0]*9], dtype=np.int8)
         _ = self.setup_new_round(0)
         return
 
     def get_state(self):
         return self.state
 
-    def valid_moves(self, player):
-        if 
+    @staticmethod
+    def adjacent_to_value(arr, target):
+        mask = (arr == target) | (arr == 6)
+        adjacent = np.zeros_like(mask, dtype=np.bool_)
+        adjacent[1:, :] |= mask[:-1, :]
+        adjacent[:-1, :] |= mask[1:, :]
+        adjacent[:, 1:] |= mask[:, :-1]
+        adjacent[:, :-1] |= mask[:, 1:]
+        return adjacent
 
+    def valid_moves(self, player):
+        result = np.zeros(681, dtype=np.bool_)
+        if np.sum(self.visible_tiles[0, 9:17:2] == -1) > np.sum(self.visible_tiles[0, 1:9:2] != -1):
+            result[:4] = self.visible_tiles[0, 1:9:2] == -1
+        else:
+            tile_board = self.player_boards[player*13:(player+1)*13, :13]
+            empty_placement = tile_board == -1
+            empty_placement_below = np.zeros_like(tile_board, dtype=np.bool_)
+            empty_placement_right = np.zeros_like(tile_board, dtype=np.bool_)
+            empty_placement_below[:-1, :] = empty_placement[1:, :]
+            empty_placement_right[:, :-1] = empty_placement[:, 1:]
+            tile_index = self.visible_tiles[0, 8:16:2][self.visible_tiles[0, 9:17:2] != -1][0]
+            tile_colours = tile_types[tile_index][:2]
+            adjacent_to_c0 = self.adjacent_to_value(tile_board, tile_colours[0])
+            if tile_colours[0] == tile_colours[1]:
+                adjacent_to_c1 = adjacent_to_c0
+            else:
+                adjacent_to_c1 = self.adjacent_to_value(tile_board, tile_colours[1])
+            adjacent_to_c0_below = np.zeros_like(adjacent_to_c0, dtype=np.bool_)
+            adjacent_to_c1_below = np.zeros_like(adjacent_to_c0, dtype=np.bool_)
+            adjacent_to_c0_right = np.zeros_like(adjacent_to_c0, dtype=np.bool_)
+            adjacent_to_c1_right = np.zeros_like(adjacent_to_c0, dtype=np.bool_)
+            adjacent_to_c0_below[:-1, :] = adjacent_to_c0[1:, :]
+            adjacent_to_c1_below[:-1, :] = adjacent_to_c1[1:, :]
+            adjacent_to_c0_right[:, :-1] = adjacent_to_c0[:, 1:]
+            adjacent_to_c1_right[:, :-1] = adjacent_to_c1[:, 1:]
+            result[5::4] = (empty_placement & empty_placement_below & (adjacent_to_c0 | adjacent_to_c1_below)).reshape(169)
+            result[6::4] = (empty_placement & empty_placement_right & (adjacent_to_c0 | adjacent_to_c1_right)).reshape(169)
+            result[7::4] = (empty_placement & empty_placement_below & (adjacent_to_c1 | adjacent_to_c0_below)).reshape(169)
+            result[8::4] = (empty_placement & empty_placement_right & (adjacent_to_c1 | adjacent_to_c0_right)).reshape(169)
+        if np.sum(result) == 0:
+            result[4] = True
         return result
 
+    def calculate_score(self, player):
+        tiles = self.player_boards[player*13:(player+1)*13, :13]
+        crowns = self.player_crowns[player*13:(player+1)*13, :13]
+        visited = np.zeros((13, 13), dtype=np.bool_)
+        score = 0
+        stack = [(0, 0)] * (13 * 13)
+        directions = [(-1,0), (1,0), (0,-1), (0,1)]
+
+        for i in range(13):
+            for j in range(13):
+                if visited[i, j]:
+                    continue
+
+                tile = tiles[i, j]
+                area = 1
+                stars = crowns[i, j]
+                visited[i, j] = True
+
+                stack_size = 1
+                stack[0] = (i, j)
+
+                while stack_size > 0:
+                    x, y = stack[stack_size - 1]
+                    stack_size -= 1
+                    for dx, dy in directions:
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < 13 and 0 <= ny < 13:
+                            if (not visited[nx, ny]) and (tiles[nx, ny] == tile):
+                                visited[nx, ny] = True
+                                area += 1
+                                stars += crowns[nx, ny]
+                                stack[stack_size] = (nx, ny)
+                                stack_size += 1
+
+                if stars > 0:
+                    score += area * stars
+
+        return score
+
     def make_move(self, move, player, random_seed):
-        if move < 30:
-            factory = self.centre[0]
+        tile_num = self.scores[0, 3]
+        if move < 4:
+            self.visible_tiles[0, 1:9:2][move] = player
+            if tile_num == 3:
+                if self.check_game_over():
+                    self.score_bonuses()
+                    next_player = 0
+                else:
+                    next_player = self.setup_new_round(random_seed)
+            else:
+                self.scores[0, 3] += 1
+                next_player = self.visible_tiles[0, 9+(tile_num+1)*2]
+                if next_player == -1:
+                    if tile_num < 2:
+                        next_player = 1
+                    else:
+                        next_player = 0
         else:
-            factory = self.factories[(move - 30) // 30]
-        colour = (move % 30) // 6
-        line = move % 6
-        num_tiles = factory[colour]
-        if line == 5:
-            to_floor = num_tiles
-        else:
-            num_on_line = self.player_row_numbers[player][line]
-            to_line = min(line + 1 - num_on_line, num_tiles)
-            to_floor = num_tiles - to_line
-            self.player_row_numbers[player, line] += to_line
-            self.player_colours[player, line] = colour
-        self.player_row_numbers[player, 5] += to_floor
-        self.discards[0, colour] += to_floor
-        factory[colour] = 0
-        if move < 30:
-            if factory[5] == 1:
-                self.player_row_numbers[player][5] += 1
-                self.player_colours[player][5] = 1
-                factory[5] = 0
-        else:
-            self.centre += factory
-            factory[:] = [0]*6
-        if np.logical_and(np.all(self.factories == 0), np.all(self.centre[0, :5] == 0)):
-            self.score_round()
-            next_player = self.setup_new_round(random_seed)
-            if self.check_game_over():
-                self.score_bonuses()
-        else:
-            next_player = (player + 1) % 2
+            self.visible_tiles[0, 8+tile_num*2:8+(tile_num+1)*2] = [0, -1]
+            next_player = player
+            if move > 4:
+                tile_orientation = (move - 5) % 4
+                x = ((move - 5) // 4) // 13
+                y = ((move - 5) // 4) % 13
+                if tile_orientation < 2:
+                    self.player_boards[13*player + x, y] = self.scores[0, 5]
+                    self.player_crowns[13*player + x, y] = self.scores[0, 7]
+                else:
+                    self.player_boards[13*player + x, y] = self.scores[0, 6]
+                if tile_orientation == 0:
+                    self.player_boards[13*player + x + 1, y] = self.scores[0, 6]
+                elif tile_orientation == 1:
+                    self.player_boards[13*player + x, y + 1] = self.scores[0, 6]
+                elif tile_orientation == 2:
+                    self.player_boards[13*player + x + 1, y] = self.scores[0, 5]
+                    self.player_crowns[13*player + x + 1, y] = self.scores[0, 7]
+                elif tile_orientation == 3:
+                    self.player_boards[13*player + x, y + 1] = self.scores[0, 5]
+                    self.player_crowns[13*player + x, y + 1] = self.scores[0, 7]
+                if tile_num < 3:
+                    self.scores[0, 4] = self.visible_tiles[0, 8+(tile_num+1)*2]
+                    self.scores[0, 5:9] = tile_types[self.scores[0, 4]]
+                self.scores[0, player] = self.calculate_score(player)
+            if self.scores[0, 2] == 13:
+                if self.check_game_over():
+                    self.score_bonuses()
+                else:
+                    self.scores[0, 3] += 1
+                    next_player = self.visible_tiles[0, 9+(tile_num+1)*2]
         return next_player
 
     def check_game_over(self):
-        game_over = False
-        for i in range(10):
-            if np.all(self.player_walls[i, :5] == 1):
-                game_over = True
-                break
+        game_over = (np.sum(self.bag) == 0) & (self.visible_tiles[0, 15] == -1)
         return game_over
 
-    def score_round(self):
-        rows_complete = self.player_row_numbers[:, :5] == np.arange(1, 6)
-        player, row_nums = np.where(rows_complete)
-        colours = np.empty(len(player), dtype=np.int8)
-        for idx in range(len(player)):
-            colours[idx] = self.player_colours[player[idx], row_nums[idx]]
-        columns = (colours + row_nums) % 5
-        wall_indices = zip(player, row_nums, columns)
-        for p, r, c in wall_indices:
-            self.scores[0, p] += self.score_change(self.player_walls[p*5: 5 + p*5, :5], r, c)
-            self.player_walls[5*p + r, c] = 1
-        for i in range(len(colours)):
-            self.discards[0, colours[i]] += row_nums[i]
-        for i in range(len(player)):
-            self.player_row_numbers[player[i], row_nums[i]] = 0
-            self.player_colours[player[i], row_nums[i]] = -1
-        discard_mapping = {0:0, 1:1, 2:2, 3:4, 4:6, 5:8, 6:11, 7:14}
-        self.scores[0, 0] = max(self.scores[0, 0] - discard_mapping[min(self.player_row_numbers[0, 5], 7)], 0)
-        self.scores[0, 1] = max(self.scores[0, 1] - discard_mapping[min(self.player_row_numbers[1, 5], 7)], 0)
-        self.player_row_numbers[0, 5] = 0
-        self.player_row_numbers[1, 5] = 0
-        return
 
     def score_bonuses(self):
+        def all_masked_equal_minus_one(board, mask):
+            for i in range(board.shape[0]):
+                for j in range(board.shape[1]):
+                    if mask[i, j]:
+                        if board[i, j] != -1:
+                            return False
+            return True
+
+        def all_masked_not_equal_minus_one(board, mask):
+            for i in range(board.shape[0]):
+                for j in range(board.shape[1]):
+                    if mask[i, j]:
+                        if board[i, j] == -1:
+                            return False
+            return True
+
+        mask = np.ones((13, 13), dtype=np.bool_)
+        mask[3:10, 3:10] = False
         for p in range(2):
-            player_walls = self.player_walls[5*p : 5 + 5*p, :5]
-            for row in player_walls:
-                if np.all(row == 1):
-                    self.scores[0, p] += 2
-            for col in range(5):
-                if np.all(player_walls[:, col] == 1):
-                    self.scores[0, p] += 7
-            num_diags = 0
-            num_diags = 0
-            for i in range(5):
-                diagonal_check = True
-                for j in range(5):
-                    if player_walls[j, (j + i) % 5] != 1:
-                        diagonal_check = False
-                        break
-                if diagonal_check:
-                    num_diags += 1
-            self.scores[0, p] += num_diags * 10
+            board = self.player_boards[13*p:13*(p+1), :13]
+            if all_masked_equal_minus_one(board, mask):
+                self.scores[0, p] += 10
+            if all_masked_not_equal_minus_one(board, ~mask):
+                self.scores[0, p] += 5
         return
 
-    @staticmethod
-    def count_consecutive_ones(array, index):
-        count = 1
-        left = index - 1
-        right = index + 1
-        while left >= 0 and array[left] == 1:
-            count += 1
-            left -= 1
-        while right < len(array) and array[right] == 1:
-            count += 1
-            right += 1
-        return count
-
-    def score_change(self, grid, r, c):
-        grid[r, c] = 1
-        row_adjacent = (c > 0 and grid[r, c-1] == 1) or (c < grid.shape[1] - 1 and grid[r, c+1] == 1)
-        col_adjacent = (r > 0 and grid[r-1, c] == 1) or (r < grid.shape[0] - 1 and grid[r+1, c] == 1)
-        if not row_adjacent and not col_adjacent:
-            return 1
-        row_score = self.count_consecutive_ones(grid[r, :], c) if row_adjacent else 0
-        col_score = self.count_consecutive_ones(grid[:, c], r) if col_adjacent else 0
-        return row_score + col_score
-
-
     def setup_new_round(self, random_seed):
-        self.visible_tiles[8:16] = self.visible_tiles[0:8]
-        self.visible_tiles[:8:2] = self.select_tiles_from_bag(4, random_seed)
-        self.visible_tiles[1:9:2] = -1
-        if self.visible_tiles[9] == 1:
+        self.visible_tiles[0, 8:16] = self.visible_tiles[0, 0:8]
+        if np.sum(self.bag) > 0:
+            self.visible_tiles[0, :8:2] = np.sort(self.select_tiles_from_bag(4, random_seed))
+            self.visible_tiles[0, 1:9:2] = -1
+        else:
+            self.visible_tiles[0, :8] = -2
+        self.scores[0, 3] = 0
+        if self.visible_tiles[0, 9] != -1:
+            self.scores[0, 4] = self.visible_tiles[0, 8]
+            self.scores[0, 5:9] = tile_types[self.scores[0, 4]]
+        if self.visible_tiles[0, 9] == 1:
             next_player = 1
         else:
             next_player = 0
@@ -273,7 +332,7 @@ class Board():
     def select_tiles_from_bag(self, num, random_seed):
         result = np.zeros(4, dtype=np.int8)
         for i in range(num):
-            tile_counts = self.bag.reshape(1, 34)[0, :33]
+            tile_counts = np.ascontiguousarray(self.bag).reshape(34)[:33]
             if random_seed == 0:
                 selected_idx = my_random_choice(tile_counts/tile_counts.sum())
             else:
@@ -293,54 +352,129 @@ class Board():
         self.bag = self.state[1 : 3 , :] # 2
         self.visible_tiles = self.state[3 : 4 , :] # 1
         self.player_boards = self.state[4 : 30 , :] # 26
+        self.player_crowns = self.state[30 : 56 , :] # 26
+
+
+    @staticmethod
+    def largest_connected_component_size(arr):
+        n, m = arr.shape
+        visited = np.zeros((n, m), dtype=np.bool_)
+        max_size = 0
+
+        stack_x = np.empty(n * m, dtype=np.int16)
+        stack_y = np.empty(n * m, dtype=np.int16)
+
+        for i in range(n):
+            for j in range(m):
+                if visited[i, j]:
+                    continue
+
+                val = arr[i, j]
+                visited[i, j] = True
+                size = 1
+                stack_ptr = 1
+                stack_x[0] = i
+                stack_y[0] = j
+
+                while stack_ptr > 0:
+                    stack_ptr -= 1
+                    x = stack_x[stack_ptr]
+                    y = stack_y[stack_ptr]
+
+                    for dx, dy in [(-1,0), (1,0), (0,-1), (0,1)]:
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < n and 0 <= ny < m:
+                            if (not visited[nx, ny]) and (arr[nx, ny] == val):
+                                visited[nx, ny] = True
+                                stack_x[stack_ptr] = nx
+                                stack_y[stack_ptr] = ny
+                                stack_ptr += 1
+                                size += 1
+
+                max_size = max(max_size, size)
+
+        return max_size
 
     def check_end_game(self):
         if self.check_game_over():
             row_totals = np.zeros(2, dtype=np.int8)
             for p in range(2):
-                player_walls = self.player_walls[5*p : 5 + 5*p, :5]
-                for row in player_walls:
+                player_board = self.player_boards[5*p : 5 + 5*p, :5]
+                for row in player_board:
                     if np.all(row == 1):
                         row_totals[p] += 1
 
-            # Determine the output based on scores and row_totals
-            if (self.scores[0, 0] > self.scores[0, 1]) or (self.scores[0, 0] == self.scores[0, 1] and row_totals[0] > row_totals[1]):
+            if (self.scores[0, 0] > self.scores[0, 1]):
                 out = np.array([1.0, -1.0], dtype=np.float32)
-            elif (self.scores[0, 1] > self.scores[0, 0]) or (self.scores[0, 0] == self.scores[0, 1] and row_totals[1] > row_totals[0]):
+            elif (self.scores[0, 1] > self.scores[0, 0]):
                 out = np.array([-1.0, 1.0], dtype=np.float32)
             else:
-                out = np.array([0.01, 0.01], dtype=np.float32)
+                p0_largest_ter = self.largest_connected_component_size(self.player_boards[:13, :13])
+                p1_largest_ter = self.largest_connected_component_size(self.player_boards[13:26, :13])
+                if p0_largest_ter > p1_largest_ter:
+                    out = np.array([1.0, -1.0], dtype=np.float32)
+                elif p1_largest_ter > p0_largest_ter:
+                    out = np.array([-1.0, 1.0], dtype=np.float32)
+                else:
+                    p0_crowns = np.sum(self.player_crowns[:13, :13])
+                    p1_crowns = np.sum(self.player_crowns[13:26, :13])
+                    if p0_crowns > p1_crowns:
+                        out = np.array([1.0, -1.0], dtype=np.float32)
+                    elif p1_largest_ter > p0_largest_ter:
+                        out = np.array([-1.0, 1.0], dtype=np.float32)
+                    else:
+                        out = np.array([0.01, 0.01], dtype=np.float32)
         else:
             out = np.array([0.0, 0.0], dtype=np.float32)
         return out
 
     def swap_players(self, _player):
         self.scores[0, 0], self.scores[0, 1] = self.scores[0, 1], self.scores[0, 0]
-        self.player_colours[0], self.player_colours[1] = self.player_colours[1].copy(), self.player_colours[0].copy()
-        self.player_row_numbers[0], self.player_row_numbers[1] = self.player_row_numbers[1].copy(), self.player_row_numbers[0].copy()
-        self.player_walls[:5], self.player_walls[5:] = self.player_walls[5:].copy(), self.player_walls[:5].copy()
+        self.player_boards[:13], self.player_boards[13:] = self.player_boards[13:].copy(), self.player_boards[:13].copy()
+        self.player_crowns[:13], self.player_crowns[13:] = self.player_crowns[13:].copy(), self.player_crowns[:13].copy()
+        mask_0 = self.visible_tiles[0, ::2] == 0
+        mask_1 = self.visible_tiles[0, ::2] == 1
+        self.visible_tiles[0, ::2][mask_0] = 1
+        self.visible_tiles[0, ::2][mask_1] = 0
         return
 
     def get_symmetries(self, policy, valid_actions):
-            def permute_factories(permutation):
-                factories_copy = self.factories.copy()
-                for i in range(5):
-                    self.factories[i, :] = factories_copy[permutation[i], :]
+            def rotate_players_board(player):
+                board_copy = self.player_boards[13*player:13*(player+1)].copy()
+                self.player_boards[13*player:13*(player+1)] = np.rot90(board_copy)
                 return
-            def permute_array(array, permutation):
-                new_array = array.copy()
-                for i, p in enumerate(permutation):
-                    new_array[30*(i+1):30*(i+2)] = array[30*(p+1):30*(p+2)]
+            def rotate_array(array):
+                new_array = array[rotation_perm]
+                return new_array
+            def reflect_players_board(player):
+                board_copy = self.player_boards[13*player:13*(player+1)].copy()
+                self.player_boards[13*player:13*(player+1)] = np.fliplr(board_copy)
+                return
+            def rotate_array(array):
+                new_array = array[reflection_perm]
                 return new_array
 
             symmetries = []
-            for permutation in np_factory_symmetries:
-                factories_backup = self.factories.copy()
-                permute_factories(permutation)
-                new_policy = permute_array(policy, permutation)
-                new_valid_actions = permute_array(valid_actions, permutation)
+            for perm in np_board_symmetries:
+                boards_backup = self.player_board.copy()
+                new_policy = policy.copy()
+                new_valid_actions = valid_actions.copy()
+                for _ in range(perm[0]):
+                    rotate_players_board(0)
+                    new_policy = rotate_array(policy)
+                    new_valid_actions = rotate_array(valid_actions)
+                    rotat
+                for _ in range(perm[1]):
+                    rotate_players_board(1)
+                for _ in range(perm[2]):
+                    reflect_players_board(0)
+                    new_policy = reflect_array(policy)
+                    new_valid_actions = reflect_array(valid_actions)
+                    rotat
+                for _ in range(perm[3]):
+                    reflect_players_board(1)
                 symmetries.append((self.state.copy(), new_policy, new_valid_actions))
-                self.factories[:] = factories_backup
+                self.factories[:] = boards_backup
             return symmetries
 
     def get_round(self):

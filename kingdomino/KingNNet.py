@@ -85,7 +85,7 @@ class InvertedResidual1d(nn.Module):
 
 
 
-class AzulNNet(nn.Module):
+class KingNNet(nn.Module):
     def __init__(self, game, args):
         # game params
         self.nb_vect, self.vect_dim = game.getBoardSize()
@@ -94,7 +94,7 @@ class AzulNNet(nn.Module):
         self.args = args
         self.version = args['nn_version']
 
-        super(AzulNNet, self).__init__()
+        super(KingNNet, self).__init__()
         if self.version == 69: # Small but wide
             self.first_layer = LinearNormActivation(23, 128, None)
             confs  = []

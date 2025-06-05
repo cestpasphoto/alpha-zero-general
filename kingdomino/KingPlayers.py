@@ -9,7 +9,7 @@ class RandomPlayer():
 
     def play(self, board, _nb_moves):
         valids = self.game.getValidMoves(board, player=0)
-        action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int), k=1)[0]
+        action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int8), k=1)[0]
         return action
 
 
@@ -18,20 +18,10 @@ class HumanPlayer():
         self.game = game
 
     def play(self, board, nb_moves):
-        valid = self.game.getValidMoves(board, 0)
-        while True:
-            factory = input("Factory?: (0 for centre): ")
-            colour = input("Colour? : (0: Blue, 1: Yellow, 2: Red, 3: Black, 4: White: ")
-            line = input("Line? : (6 for floor) ")
-            input_move = int(factory) * 30 + int(colour) * 6 + int(line) - 1
-            try:
-                a = int(input_move)
-                if not valid[a]:
-                    raise Exception('')
-                break
-            except:
-                print('Invalid move:', input_move)
-        return a
+        valids = self.game.getValidMoves(board, 0)
+        _ = input("Continue? ")
+        action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int8), k=1)[0]
+        return action
 
 
 class GreedyPlayer():

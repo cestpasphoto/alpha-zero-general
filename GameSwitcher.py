@@ -3,6 +3,7 @@ import importlib
 class_names_dict = {
     'azul': 'Azul',
     'botanik': 'Botanik',
+    'kingdomino': 'King',
     'minivilles': 'Minivilles',
     'santorini': 'Santorini',
     'smallworld': 'Smallworld',
