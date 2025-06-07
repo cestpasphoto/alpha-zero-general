@@ -96,7 +96,7 @@ class KingNNet(nn.Module):
 
         super(KingNNet, self).__init__()
         if self.version == 69: # Small but wide
-            self.first_layer = LinearNormActivation(23, 128, None)
+            self.first_layer = LinearNormActivation(58, 128, None)
             confs  = []
             confs += [InvertedResidual1d(128, 159, 128, 6, False, "RE") for _ in range(2)]
             self.trunk = nn.Sequential(*confs)
@@ -121,14 +121,14 @@ class KingNNet(nn.Module):
             self.output_layers_V = nn.Sequential(*head_V)
 
         if self.version == 70: # Small but wide
-            self.first_layer = LinearNormActivation(23, 23, None)
+            self.first_layer = LinearNormActivation(58, 58, None)
             confs  = []
-            confs += [InvertedResidual1d(23, 159, 23, 6, False, "RE")]
+            confs += [InvertedResidual1d(58, 159, 58, 6, False, "RE")]
             self.trunk = nn.Sequential(*confs)
 
-            n_filters = 23
+            n_filters = 58
             head_PI = [
-                InvertedResidual1d(23, 159, 23, 6, True, "HS", setype='max'),
+                InvertedResidual1d(58, 159, 58, 6, True, "HS", setype='max'),
                 nn.Flatten(1),
                 nn.Linear(n_filters *6, self.action_size),
                 nn.ReLU(),
@@ -137,7 +137,7 @@ class KingNNet(nn.Module):
             self.output_layers_PI = nn.Sequential(*head_PI)
 
             head_V = [
-                InvertedResidual1d(23, 159, 23, 6, True, "HS", setype='max'),
+                InvertedResidual1d(58, 159, 58, 6, True, "HS", setype='max'),
                 nn.Flatten(1),
                 nn.Linear(n_filters *6, self.num_players),
                 nn.ReLU(),
@@ -145,7 +145,7 @@ class KingNNet(nn.Module):
             ]
             self.output_layers_V = nn.Sequential(*head_V)
         if self.version == 72: # Small but wide
-            self.first_layer = LinearNormActivation(23, 10, None)
+            self.first_layer = LinearNormActivation(58, 10, None)
             confs  = []
             confs += [InvertedResidual1d(10, 159, 10, 6, False, "RE")]
             self.trunk = nn.Sequential(*confs)
@@ -169,7 +169,7 @@ class KingNNet(nn.Module):
             ]
             self.output_layers_V = nn.Sequential(*head_V)
         if self.version == 74: # Small but wide
-            self.first_layer = LinearNormActivation(23, 56, None)
+            self.first_layer = LinearNormActivation(58, 56, None)
             confs  = []
             confs += [InvertedResidual1d(56, 159, 56, 6, False, "RE")]
             self.trunk = nn.Sequential(*confs)
@@ -194,7 +194,7 @@ class KingNNet(nn.Module):
             self.output_layers_V = nn.Sequential(*head_V)
 
         elif self.version == 76: # Like 74 but wider
-            self.first_layer = LinearNormActivation(23, 56, None)
+            self.first_layer = LinearNormActivation(58, 56, None)
             confs  = []
             confs += [InvertedResidual1d(56, 224, 56, 7, False, "RE")]
             self.trunk = nn.Sequential(*confs)

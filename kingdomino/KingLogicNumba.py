@@ -1,13 +1,11 @@
-from .KingLogic import np_board_symmetries, reflection_perm, rotation_perm
+from .KingLogic import np_board_symmetries, reflection_perm, rotation_perm, tile_types
 import numpy as np
 from numba import njit
 import numba
 
-### To Do: Make tiles fit in 7x7 box - either save furthest x and y can go to or set the parts off limit to -2 everytime placed. Design nice print function.
-
 
 ############################## BOARD DESCRIPTION ##############################
-# Board is described by a 57x17 array
+# Board is described by a 59x17 array
 # Colours are always in this order: 0: Yellow (Fields), 1: Dark Green (Woods),
 # 2: Blue (Sea), 3: Light Green (Grass), 4: Red (Desert), 5: Black (Cave)
 # Here is the description of each line of the board. For readibility, we defined
@@ -16,10 +14,12 @@ import numba
 #####   0    self.scores             P0 score, P1 score, Round num, Tile num, Current tile index, Current tile, 0, ..., 0
 #####  1-3   self.bag                For each of the 33 tiles, how many are left in the bag, 0
 #####  3-4   self.visible_tiles      T0 index, T0 owner, T1 index, T1 owner, ... T8 index, T8 owner, 0
-#####  4-17  self.player_boards      P0 board, 0, 0, 0, 0
-#####  17-30     =                   P1 board, 0, 0, 0, 0
-#####  30-43 self.player_crowns      P0 crowns, 0, 0, 0, 0
-#####  43-56     =                   P1 crowns, 0, 0, 0, 0
+#####  4-5   self.tiles_to_chose     T1, T2, T3, T4, 0
+#####  5-6   self.tiles_to_place     T1, T2, T3, T4, 0
+#####  6-19  self.player_boards      P0 board, 0, 0, 0, 0
+#####  19-32     =                   P1 board, 0, 0, 0, 0
+#####  32-45 self.player_crowns      P0 crowns, 0, 0, 0, 0
+#####  45-58     =                   P1 crowns, 0, 0, 0, 0
 # Any line follow by a 0 (or n 0s) means the last (or last n) columns is always 0
 
 
@@ -63,7 +63,7 @@ import numba
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(_num_players):
-    return (57, 17)
+    return (59, 17)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -79,45 +79,12 @@ spec = [
     ('scores' , numba.int8[:,:]),
     ('bag' , numba.int8[:,:]),
     ('visible_tiles' , numba.int8[:,:]),
+    ('tiles_to_chose' , numba.int8[:,:]),
+    ('tiles_to_place' , numba.int8[:,:]),
     ('player_boards' , numba.int8[:,:]),
     ('player_crowns' , numba.int8[:,:]),
 ]
 
-tile_types = np.array([[0, 0, 0, 2],
-                       [1, 1, 0, 4],
-                       [2, 2, 0, 3],
-                       [3, 3, 0, 2],
-                       [4, 4, 0, 1],
-                       [0, 1, 0, 1],
-                       [0, 2, 0, 1],
-                       [0, 3, 0, 1],
-                       [0, 4, 0, 1],
-                       [1, 2, 0, 1],
-                       [1, 3, 0, 1],
-                       [0, 1, 1, 1],
-                       [0, 2, 1, 1],
-                       [0, 3, 1, 1],
-                       [0, 4, 1, 1],
-                       [0, 5, 1, 1],
-                       [1, 0, 1, 4],
-                       [1, 2, 1, 1],
-                       [1, 3, 1, 1],
-                       [2, 0, 1, 2],
-                       [2, 1, 1, 4],
-                       [3, 0, 1, 1],
-                       [3, 2, 1, 1],
-                       [4, 0, 1, 1],
-                       [4, 3, 1, 1],
-                       [5, 0, 1, 1],
-                       [3, 0, 2, 1],
-                       [3, 2, 2, 1],
-                       [4, 0, 2, 1],
-                       [4, 3, 2, 1],
-                       [5, 0, 2, 1],
-                       [5, 4, 2, 2],
-                       [5, 0, 3, 1],
-                       [0, 0, 0, 0]],
-                       dtype=np.int8)
 
 starting_boards = np.zeros((26, 17), dtype=np.int8)
 starting_boards[:, :13] = -1
@@ -127,16 +94,17 @@ starting_boards[19, 6] = 6
 @numba.experimental.jitclass(spec)
 class Board():
     def __init__(self):
-        self.state = np.zeros((57, 17), dtype=np.int8)
+        self.state = np.zeros((59, 17), dtype=np.int8)
 
     def get_score(self, player):
         return self.scores[0, player]
 
     def init_game(self):
-        self.copy_state(np.zeros((57, 17), dtype=np.int8), copy_or_not=False)
+        self.copy_state(np.zeros((59, 17), dtype=np.int8), copy_or_not=False)
         self.bag[:] = np.ascontiguousarray(tile_types[:, -1]).reshape(2, 17)
         self.player_boards[:] = starting_boards.copy()
-        self.visible_tiles[:] = np.array([[0, -1]*4 + [0]*9], dtype=np.int8)
+        self.visible_tiles[:] = np.array([[-1]*8 + [0]*9], dtype=np.int8)
+        self.tiles_to_chose[:] = np.array([[-1]*16 + [0]], dtype=np.int8)
         _ = self.setup_new_round(0)
         return
 
@@ -245,7 +213,8 @@ class Board():
                     else:
                         next_player = 0
         else:
-            self.visible_tiles[0, 8+tile_num*2:8+(tile_num+1)*2] = [0, -1]
+            self.visible_tiles[0, 8+tile_num*2:8+(tile_num+1)*2] = [-1, -1]
+            self.tiles_to_place[0, tile_num*4:(tile_num + 1)*4] = [-1, -1, -1, -1]
             next_player = player
             if move > 4:
                 tile_orientation = (move - 5) % 4
@@ -258,18 +227,70 @@ class Board():
                     self.player_boards[13*player + x, y] = self.scores[0, 6]
                 if tile_orientation == 0:
                     self.player_boards[13*player + x + 1, y] = self.scores[0, 6]
+                    if x < 6:
+                        self.player_boards[13*player + x + 7, :13] = -2
+                    if x < 5:
+                        self.player_boards[13*player + x + 8, :13] = -2
+                    if x > 5:
+                        self.player_boards[13*player + x - 6, :13] = -2
+                    if x > 6:
+                        self.player_boards[13*player + x - 7, :13] = -2
+                    if y < 6:
+                        self.player_boards[13*player:13*(player+1), y+7] = -2
+                    if y > 6:
+                        self.player_boards[13*player:13*(player+1), y-7] = -2
                 elif tile_orientation == 1:
                     self.player_boards[13*player + x, y + 1] = self.scores[0, 6]
+                    if x < 6:
+                        self.player_boards[13*player + x + 7, :13] = -2
+                    if x > 6:
+                        self.player_boards[13*player + x - 7, :13] = -2
+                    if y < 6:
+                        self.player_boards[13*player:13*(player+1), y+7] = -2
+                    if y < 5:
+                        self.player_boards[13*player:13*(player+1), y+8] = -2
+                    if y > 6:
+                        self.player_boards[13*player:13*(player+1), y-7] = -2
+                    if y > 5:
+                        self.player_boards[13*player:13*(player+1), y-6] = -2
+                    if y > 7:
+                        self.player_boards[13*player:13*(player+1), y-7] = -2
                 elif tile_orientation == 2:
                     self.player_boards[13*player + x + 1, y] = self.scores[0, 5]
                     self.player_crowns[13*player + x + 1, y] = self.scores[0, 7]
+                    if x < 6:
+                        self.player_boards[13*player + x + 7, :13] = -2
+                    if x < 5:
+                        self.player_boards[13*player + x + 8, :13] = -2
+                    if x > 5:
+                        self.player_boards[13*player + x - 6, :13] = -2
+                    if x > 6:
+                        self.player_boards[13*player + x - 7, :13] = -2
+                    if y < 6:
+                        self.player_boards[13*player:13*(player+1), y+7] = -2
+                    if y > 6:
+                        self.player_boards[13*player:13*(player+1), y-7] = -2
                 elif tile_orientation == 3:
                     self.player_boards[13*player + x, y + 1] = self.scores[0, 5]
                     self.player_crowns[13*player + x, y + 1] = self.scores[0, 7]
-                if tile_num < 3:
-                    self.scores[0, 4] = self.visible_tiles[0, 8+(tile_num+1)*2]
-                    self.scores[0, 5:9] = tile_types[self.scores[0, 4]]
+                    if x < 6:
+                        self.player_boards[13*player + x + 7, :13] = -2
+                    if x > 6:
+                        self.player_boards[13*player + x - 7, :13] = -2
+                    if y < 6:
+                        self.player_boards[13*player:13*(player+1), y+7] = -2
+                    if y < 5:
+                        self.player_boards[13*player:13*(player+1), y+8] = -2
+                    if y > 6:
+                        self.player_boards[13*player:13*(player+1), y-7] = -2
+                    if y > 5:
+                        self.player_boards[13*player:13*(player+1), y-6] = -2
+                    if y > 7:
+                        self.player_boards[13*player:13*(player+1), y-7] = -2
                 self.scores[0, player] = self.calculate_score(player)
+            if tile_num < 3:
+                self.scores[0, 4] = self.visible_tiles[0, 8+(tile_num+1)*2]
+                self.scores[0, 5:9] = tile_types[self.scores[0, 4]]
             if self.scores[0, 2] == 13:
                 if self.check_game_over():
                     self.score_bonuses()
@@ -279,16 +300,16 @@ class Board():
         return next_player
 
     def check_game_over(self):
-        game_over = (np.sum(self.bag) == 0) & (self.visible_tiles[0, 15] == -1)
+        game_over = (np.sum(self.bag) == 0) & (self.visible_tiles[0, 15] == -1) & (self.visible_tiles[0, 0] == -2)
         return game_over
 
 
     def score_bonuses(self):
-        def all_masked_equal_minus_one(board, mask):
+        def all_masked_less_than_zero(board, mask):
             for i in range(board.shape[0]):
                 for j in range(board.shape[1]):
                     if mask[i, j]:
-                        if board[i, j] != -1:
+                        if board[i, j] > -1:
                             return False
             return True
 
@@ -304,7 +325,7 @@ class Board():
         mask[3:10, 3:10] = False
         for p in range(2):
             board = self.player_boards[13*p:13*(p+1), :13]
-            if all_masked_equal_minus_one(board, mask):
+            if all_masked_less_than_zero(board, mask):
                 self.scores[0, p] += 10
             if all_masked_not_equal_minus_one(board, ~mask):
                 self.scores[0, p] += 5
@@ -312,11 +333,15 @@ class Board():
 
     def setup_new_round(self, random_seed):
         self.visible_tiles[0, 8:16] = self.visible_tiles[0, 0:8]
+        self.tiles_to_place[:] = self.tiles_to_chose.copy()
         if np.sum(self.bag) > 0:
             self.visible_tiles[0, :8:2] = np.sort(self.select_tiles_from_bag(4, random_seed))
             self.visible_tiles[0, 1:9:2] = -1
+            for i in range(4):
+                self.tiles_to_chose[0, i*4:(i+1)*4] = tile_types[self.visible_tiles[0, i*2]]
         else:
             self.visible_tiles[0, :8] = -2
+            self.tiles_to_chose[:] = np.array([[-1]*16 + [0]], dtype=np.int8)
         self.scores[0, 3] = 0
         if self.visible_tiles[0, 9] != -1:
             self.scores[0, 4] = self.visible_tiles[0, 8]
@@ -351,8 +376,10 @@ class Board():
         self.scores = self.state[0 : 1 , :] # 1
         self.bag = self.state[1 : 3 , :] # 2
         self.visible_tiles = self.state[3 : 4 , :] # 1
-        self.player_boards = self.state[4 : 30 , :] # 26
-        self.player_crowns = self.state[30 : 56 , :] # 26
+        self.tiles_to_chose = self.state[4 : 5 , :] # 1
+        self.tiles_to_place = self.state[5 : 6 , :] # 1
+        self.player_boards = self.state[6 : 32 , :] # 26
+        self.player_crowns = self.state[32 : 58 , :] # 26
 
 
     @staticmethod
@@ -441,7 +468,9 @@ class Board():
     def get_symmetries(self, policy, valid_actions):
             def rotate_players_board(player):
                 board_copy = self.player_boards[13*player:13*(player+1)].copy()
+                crowns_copy = self.player_crowns[13*player:13*(player+1)].copy()
                 self.player_boards[13*player:13*(player+1)] = np.rot90(board_copy)
+                self.player_crowns[13*player:13*(player+1)] = np.rot90(crowns_copy)
                 return
             def rotate_array(array):
                 new_array = array[rotation_perm]
@@ -450,7 +479,7 @@ class Board():
                 board_copy = self.player_boards[13*player:13*(player+1)].copy()
                 self.player_boards[13*player:13*(player+1)] = np.fliplr(board_copy)
                 return
-            def rotate_array(array):
+            def reflect_array(array):
                 new_array = array[reflection_perm]
                 return new_array
 
@@ -463,14 +492,12 @@ class Board():
                     rotate_players_board(0)
                     new_policy = rotate_array(policy)
                     new_valid_actions = rotate_array(valid_actions)
-                    rotat
                 for _ in range(perm[1]):
                     rotate_players_board(1)
                 for _ in range(perm[2]):
                     reflect_players_board(0)
                     new_policy = reflect_array(policy)
                     new_valid_actions = reflect_array(valid_actions)
-                    rotat
                 for _ in range(perm[3]):
                     reflect_players_board(1)
                 symmetries.append((self.state.copy(), new_policy, new_valid_actions))
