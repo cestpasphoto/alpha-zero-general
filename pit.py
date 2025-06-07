@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import os.path
 import subprocess
+import sys
 from math import inf
 
 import numpy as np
@@ -106,7 +107,7 @@ def plays(list_tasks, args, callback_results=None):
 			print(f'\tPlease call same script {nb_threads - 1 - idx_thread} time(s) more in other console')
 		elif idx_thread >= nb_threads:
 			print(f'I already have enough processes, exiting current one')
-			exit()
+			sys.exit()
 	else:
 		idx_thread = 0
 		if n > 1:
@@ -121,7 +122,7 @@ def plays(list_tasks, args, callback_results=None):
 		except KeyboardInterrupt:
 			now = time.time()
 			if now - last_kbd_interrupt < 10:
-				exit(0)
+				sys.exit(0)
 			last_kbd_interrupt = now
 			print('Skipping this pit (hit CRTL-C once more to stop all)')
 		else:
