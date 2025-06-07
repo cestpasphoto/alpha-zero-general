@@ -467,17 +467,17 @@ class Board():
 
     def get_symmetries(self, policy, valid_actions):
             def rotate_players_board(player):
-                board_copy = self.player_boards[13*player:13*(player+1)].copy()
-                crowns_copy = self.player_crowns[13*player:13*(player+1)].copy()
-                self.player_boards[13*player:13*(player+1)] = np.rot90(board_copy)
-                self.player_crowns[13*player:13*(player+1)] = np.rot90(crowns_copy)
+                board_copy = self.player_boards[13*player:13*(player+1), :13].copy()
+                crowns_copy = self.player_crowns[13*player:13*(player+1), :13].copy()
+                self.player_boards[13*player:13*(player+1), :13] = np.rot90(board_copy)
+                self.player_crowns[13*player:13*(player+1), :13] = np.rot90(crowns_copy)
                 return
             def rotate_array(array):
                 new_array = array[rotation_perm]
                 return new_array
             def reflect_players_board(player):
-                board_copy = self.player_boards[13*player:13*(player+1)].copy()
-                self.player_boards[13*player:13*(player+1)] = np.fliplr(board_copy)
+                board_copy = self.player_boards[13*player:13*(player+1), :13].copy()
+                self.player_boards[13*player:13*(player+1), :13] = np.fliplr(board_copy)
                 return
             def reflect_array(array):
                 new_array = array[reflection_perm]
@@ -485,7 +485,7 @@ class Board():
 
             symmetries = []
             for perm in np_board_symmetries:
-                boards_backup = self.player_board.copy()
+                boards_backup = self.player_boards.copy()
                 new_policy = policy.copy()
                 new_valid_actions = valid_actions.copy()
                 for _ in range(perm[0]):
@@ -501,7 +501,7 @@ class Board():
                 for _ in range(perm[3]):
                     reflect_players_board(1)
                 symmetries.append((self.state.copy(), new_policy, new_valid_actions))
-                self.factories[:] = boards_backup
+                self.player_boards[:] = boards_backup
             return symmetries
 
     def get_round(self):

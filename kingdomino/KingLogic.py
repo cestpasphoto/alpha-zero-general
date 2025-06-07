@@ -158,7 +158,6 @@ def _print_visible_tiles(board):
     visible_tiles = board.visible_tiles[0]
     print()
     print("Tiles to choose:")
-    print(board.tiles_to_chose)
     print()
     row_lines = ['', '']  # top and bottom of each cell
     for i in range(4):
@@ -180,7 +179,6 @@ def _print_visible_tiles(board):
     print(row_lines[1])
     print()
     print("Tiles to place:")
-    print(board.tiles_to_place)
     print()
     row_lines = ['', '']  # top and bottom of each cell
     for i in range(4):

@@ -319,22 +319,22 @@ class KingNNet(nn.Module):
         elif self.version == 84: # x3.5
             self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
             confs  = []
-            confs += [InvertedResidual1d(self.nb_vect, 5*self.nb_vect, self.nb_vect, 6, False, "RE")]
+            confs += [InvertedResidual1d(self.nb_vect, 5*self.nb_vect, self.nb_vect, 17, False, "RE")]
             self.trunk = nn.Sequential(*confs)
 
             head_PI = [
-                InvertedResidual1d(self.nb_vect, 5*self.nb_vect, 2*self.nb_vect, 6, True, "HS", setype='avg'),
+                InvertedResidual1d(self.nb_vect, 5*self.nb_vect, 2*self.nb_vect, 17, True, "HS", setype='avg'),
                 nn.Flatten(1),
-                nn.Linear(self.nb_vect*12, self.action_size),
+                nn.Linear(self.nb_vect*34, self.action_size),
                 nn.ReLU(),
                 nn.Linear(self.action_size, self.action_size),
             ]
             self.output_layers_PI = nn.Sequential(*head_PI)
 
             head_V = [
-                InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 6, True, "HS", setype='avg'),
+                InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 17, True, "HS", setype='avg'),
                 nn.Flatten(1),
-                nn.Linear(self.nb_vect*6, self.num_players),
+                nn.Linear(self.nb_vect*17, self.num_players),
                 nn.ReLU(),
                 nn.Linear(self.num_players, self.num_players),
             ]
@@ -342,7 +342,7 @@ class KingNNet(nn.Module):
         elif self.version == 85: # x3.5
             self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
             confs  = []
-            confs += [InvertedResidual1d(self.nb_vect, 5*self.nb_vect, 5*self.nb_vect, 6, False, "RE")]
+            confs += [InvertedResidual1d(self.nb_vect, 5*self.nb_vect, 5*self.nb_vect, 17, False, "RE")]
             self.trunk = nn.Sequential(*confs)
 
             head_PI = [
