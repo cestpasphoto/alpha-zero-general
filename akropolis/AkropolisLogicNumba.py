@@ -479,7 +479,7 @@ class Board():
 		tiles_availability = my_unpackbits(self.tiles_bitpack)
 		available_tiles = np.flatnonzero(tiles_availability)
 		for i in range(0 if initial_draw else 1, CONSTR_SITE_SIZE):
-			if random_seed == 0:
+			if initial_draw or random_seed == 0:
 				tile_id = np.random.choice(available_tiles)
 			else:
 				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator

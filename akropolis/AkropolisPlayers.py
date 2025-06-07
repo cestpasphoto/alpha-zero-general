@@ -11,7 +11,7 @@ class RandomPlayer():
 
     def play(self, board, nb_moves):
         valids = self.game.getValidMoves(board, player=0)
-        print(f'{valids.sum()}/{len(valids)} valid moves')
+        # print(f'{valids.sum()}/{len(valids)} valid moves')
         action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int16), k=1)[0]
         return action
 

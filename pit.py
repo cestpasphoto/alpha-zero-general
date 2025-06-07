@@ -56,7 +56,8 @@ def create_player(name, args):
 		'no_mem_optim'    : False,
 	})
 	mcts = MCTS(game, net, mcts_args)
-	player = lambda x, n: np.argmax(mcts.getActionProb(x, temp=(0.5 if n <= 6 else 0.), force_full_search=True)[0])
+	nb_moves_with_temperature = 6
+	player = lambda x, n: np.argmax(mcts.getActionProb(x, temp=(0.5 if n <= nb_moves_with_temperature else 0.), force_full_search=True)[0])
 	return player
 
 
