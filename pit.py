@@ -99,7 +99,7 @@ def plays(list_tasks, args, callback_results=None):
 	nb_tasks_per_thread = math.ceil(n / args.max_compare_threads)
 	nb_threads = math.ceil(n / nb_tasks_per_thread)
 	if nb_threads > 1:
-		current_threads_list = subprocess.check_output(['ps', '-e', '-o', 'cmd']).decode('utf-8').split('\n')
+		current_threads_list = subprocess.check_output(['ps', 'ax', '-o', 'command']).decode('utf-8').split('\n')
 		idx_thread = sum([1 for t in current_threads_list if 'pit.py' in t]) - 1
 		if idx_thread == 0:
 			print(f'\t{n} pits to do, splitted in {nb_tasks_per_thread} tasks * {nb_threads} threads')

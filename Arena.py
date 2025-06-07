@@ -5,6 +5,7 @@ import bisect
 from tqdm import trange
 import zlib
 import base64
+from os import environ
 
 from MCTS import MCTS
 
@@ -29,6 +30,7 @@ class Arena():
         self.player2 = player2
         self.game = game
         self.display = display
+        self.macos_terminal = (environ.get("TERM_PROGRAM", "") == "Apple_Terminal" and "ITERM_SESSION_ID" not in environ)
 
     def playGame(self, initial_state="", verbose=False, other_way=False):
         """
@@ -82,10 +84,10 @@ class Arena():
             board, curPlayer = self.game.getNextState(board, curPlayer, action, random_seed=0)
             curPlayer = int(curPlayer)
 
-            if verbose:
-                data = board.tobytes() + curPlayer.to_bytes(1) + it.to_bytes(2)
-                compressed_board = base64.b64encode(zlib.compress(data, level=9, wbits=-15))
-                print(f'state = "{str(compressed_board, "UTF-8")}"')
+            # if verbose:
+            #     data = board.tobytes() + curPlayer.to_bytes(1) + it.to_bytes(2)
+            #     compressed_board = base64.b64encode(zlib.compress(data, level=9, wbits=-15))
+            #     print(f'state = "{str(compressed_board, "UTF-8")}"')
         if verbose:
             if self.display:
                 self.display(board)
@@ -110,6 +112,8 @@ class Arena():
         """
         ratio_boundaries = [        1-0.60,        1-0.55,        0.55,        0.60         ]
         colors           = ['#d60000',     '#d66b00',     '#f9f900',   '#a0d600',  '#6b8e00'] #https://icolorpalette.com/ff3b3b_ff9d3b_ffce3b_ffff3b_ceff3b
+        if self.macos_terminal:
+            colors = ['RED', 'MAGENTA', 'YELLOW', 'CYAN', 'GREEN']
 
         oneWon, twoWon, draws = 0, 0, 0
         t = trange(num, desc="Arena.playGames", ncols=120, disable=None)
