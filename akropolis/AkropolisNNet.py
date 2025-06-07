@@ -4,95 +4,10 @@ import torch.nn.functional as F
 from torchvision.models._utils import _make_divisible
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
 
-from .AkropolisConstants import N_COLORS, CITY_SIZE, CONSTR_SITE_SIZE, CODES_LIST
-
-class LinearNormActivation(nn.Module):
-	def __init__(self, in_size, out_size, activation_layer, depthwise=False, channels=None):
-		super().__init__()
-		self.linear     = nn.Linear(in_size, out_size, bias=False)
-		self.norm       = nn.BatchNorm1d(channels if depthwise else out_size)
-		self.activation = activation_layer(inplace=True) if activation_layer is not None else nn.Identity()
-		self.depthwise = depthwise
-
-	def forward(self, input):
-		if self.depthwise:
-			result = self.linear(input)
-		else:
-			result = self.linear(input.transpose(-1, -2)).transpose(-1, -2)
-			
-		result = self.norm(result)
-		result = self.activation(result)
-		return result
-
-class SqueezeExcitation1d(nn.Module):
-	def __init__(self, input_channels, squeeze_channels, scale_activation, setype='avg'):
-		super().__init__()
-		if setype == 'avg':
-			self.avgpool = torch.nn.AdaptiveAvgPool1d(1)
-		else:
-			self.avgpool = torch.nn.AdaptiveMaxPool1d(1)
-		self.fc1 = nn.Linear(input_channels, squeeze_channels)
-		self.activation = nn.ReLU()
-		self.fc2 = torch.nn.Linear(squeeze_channels, input_channels)
-		self.scale_activation = scale_activation()
-
-	def _scale(self, input):
-		scale = self.avgpool(input)
-		scale = self.fc1(scale.transpose(-1, -2)).transpose(-1, -2)
-		scale = self.activation(scale)
-		scale = self.fc2(scale.transpose(-1, -2)).transpose(-1, -2)
-		return self.scale_activation(scale)
-
-	def forward(self, input):
-
-		scale = self._scale(input)
-		return scale * input
-
-class InvertedResidual1d(nn.Module):
-	def __init__(self, in_channels, exp_channels, out_channels, kernel, use_hs, use_se, setype='avg'):
-		super().__init__()
-
-		self.use_res_connect = (in_channels == out_channels)
-
-		layers = []
-		activation_layer = nn.Hardswish if use_hs else nn.ReLU
-
-		# expand
-		if exp_channels != in_channels:
-			self.expand = LinearNormActivation(in_channels, exp_channels, activation_layer=activation_layer)
-		else:
-			self.expand = nn.Identity()
-
-		# depthwise
-		self.depthwise = LinearNormActivation(kernel, kernel, activation_layer=activation_layer, depthwise=True, channels=exp_channels)
-
-		if use_se:
-			squeeze_channels = _make_divisible(exp_channels // 4, 8)
-			self.se = SqueezeExcitation1d(exp_channels, squeeze_channels, scale_activation=nn.Hardsigmoid, setype=setype)
-		else:
-			self.se = nn.Identity()
-
-		# project
-		self.project = LinearNormActivation(exp_channels, out_channels, activation_layer=None)
-
-	def forward(self, input):
-		result = self.expand(input)
-		result = self.depthwise(result)
-		result = self.se(result)
-		result = self.project(result)
-
-		if self.use_res_connect:
-			result += input
-
-		return result
+from .AkropolisConstants import N_COLORS, CITY_SIZE, CITY_AREA, CONSTR_SITE_SIZE, CODES_LIST
 
 class AkropolisNNet(nn.Module):
-	def __init__(self, game, args):
-		# game params
-		# self.dim1, self.dim2, self.dim3 = game.getBoardSize()
-		# self.dim1d_per_pl = N_COLORS
-		# self.dim3d_per_pl = (CITY_SIZE, CITY_SIZE, 2)
-	
+	def __init__(self, game, args):	
 		self.board_size = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.num_players = game.num_players
@@ -112,14 +27,12 @@ class AkropolisNNet(nn.Module):
 			return nn.Sequential(*filters)
 
 		if self.version == 1: # Ultra simple NN
-			num_filters = 32
+			num_filters = 100
+			input_size = 3*self.num_players*N_COLORS + 3*CONSTR_SITE_SIZE + 2 + 2*self.num_players*CITY_AREA
 			self.trunk_1d = nn.Sequential(
-				nn.Linear(3*self.num_players*N_COLORS+3*CONSTR_SITE_SIZE, num_filters),
+				nn.Linear(input_size, num_filters),
 				nn.BatchNorm1d(num_filters),
-				nn.ReLU(),
-				# nn.Linear(num_filters, num_filters),
-				# nn.BatchNorm1d(num_filters),
-				# nn.ReLU(),
+				nn.Hardswish(),
 			)
 			self.final_layers_V = nn.Sequential(
 				nn.Linear(num_filters, num_filters),
@@ -130,63 +43,54 @@ class AkropolisNNet(nn.Module):
 			self.final_layers_PI = nn.Sequential(
 				nn.Linear(num_filters, self.action_size),
 			)
-		elif self.version == 8: # Simple version using Embedding
-			D, T, S, G = 3, 32, 32, 8
-			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
-			self.conv1d_constr = nn.Conv1d(D, T, kernel_size=3, stride=1, padding=0)
-			self.dense_scores = nn.Sequential(
-				nn.Linear(N_COLORS*3*self.num_players, S),
-				nn.BatchNorm1d(S),
-				nn.ReLU(),
-				# nn.Linear(S, S),
-				# nn.BatchNorm1d(S),
-				# nn.ReLU(),
-			)
-			self.dense_globs = nn.Linear(2, G)
-			new_size = CONSTR_SITE_SIZE*(T+S+G) // 8
-			self.fused_to_1d = nn.Sequential(
-				nn.Flatten(1),
-				nn.Linear(CONSTR_SITE_SIZE*(T+S+G), new_size),
-				nn.BatchNorm1d(new_size),
-				nn.ReLU(),
-			)
-			self.final_layers_V = nn.Sequential(
-				nn.Linear(new_size, new_size),
-				nn.BatchNorm1d(new_size),
-				nn.ReLU(),
-				nn.Linear(new_size, 1),
-			)
-			self.final_layers_PI = nn.Sequential(
-				nn.Linear(new_size, self.action_size),
-			)
-		elif self.version >= 18: # Less simple version using Embedding
+		elif self.version in [50, 51, 52]: # Less simple version using Embedding
 			constants = {
-				18:	(3, 32, 32, 8, 16, 32),
-				19: (3, 8, 16, 8, 16, 32),
-				# INSERT_PARAMS_HERE
+			 	#    D   T   S   G  B  r
+				50: (3,  8,  8,  8, 8, 16), # was 39 before
+				51: (3,  8,  8,  8, 8, 16), # was 40 before
+				52: (5, 16, 16, 16, 8, 16),
 			}
 			D, T, S, G, B, r = constants[self.version]
 			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
-			self.conv1d_constr = nn.Conv1d(D, T, kernel_size=3, stride=1, padding=0)
+			self.conv1d_constr = nn.Sequential(
+				nn.Conv1d(D, T, kernel_size=3, stride=1, padding=0),
+				# batchnorm not relevant since we put some channel data into the batch dimension
+				nn.Hardswish(),
+			)
 			self.dense_scores = nn.Sequential(
 				nn.Linear(N_COLORS*3*self.num_players, S),
-				# nn.BatchNorm1d(S),
-				# nn.ReLU(),
-				# nn.Linear(S, S),
-				# nn.BatchNorm1d(S),
-				# nn.ReLU(),
 			)
-			self.conv2d_boards = nn.Conv2d(D+2, B, kernel_size=1)
-			self.dense_globs = nn.Linear(2, G)
+			self.conv2d_boards = nn.Sequential(
+				nn.Conv2d(D+2, B, kernel_size=1),
+				nn.BatchNorm2d(B),
+				nn.Hardswish(),
+			)
+			self.dense_globs = nn.Sequential(
+				nn.Linear(2, G),
+				nn.BatchNorm1d(G),
+				nn.Hardswish(),
+			)
 	
+			# V head
 			self.final_layers_V = nn.Sequential(
 				nn.Flatten(1),
 				nn.Linear(CONSTR_SITE_SIZE*(T+S+G), 1),
 			)
 
+			# PI head
 			self.proj_i = nn.Linear(T+S+G, r)
-			self.proj_p = nn.Conv2d(self.num_players*B+G+S, r, kernel_size=1)
-			self.U_o = nn.Parameter(torch.randn(6, r))
+			self.proj_p = nn.Sequential(
+				inverted_residual(self.num_players*B+G+S, 2*r, r, False, "RE", kernel=1),
+			)
+			if self.version == 51:
+				self.proj_o = nn.Linear(T+G+S, 6 * r)
+			else:
+				self.U_o = nn.Parameter(torch.randn(6, r))
+				nn.init.xavier_uniform_(self.U_o)
+			self.b1n = nn.Sequential(
+				nn.BatchNorm1d(r),
+				nn.Hardswish(),
+			)
 
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
@@ -214,31 +118,14 @@ class AkropolisNNet(nn.Module):
 		# per_pl_data.shape = global_data.shape = Nx1x12x12
 		# scores_data.shape = Nx6x5
 		# constrs_site.shape = Nx3x3
+		# globals_data.shape = Nx2
 
 		if self.version in [1]:
-			x_1d = torch.cat([scores_data.flatten(1), constrs_site.flatten(1)], dim=1) # x_1d.shape = Nx39
+			x_1d = torch.cat([scores_data.flatten(1), constrs_site.flatten(1), globals_data, boards_descr.flatten(1), boards_height.flatten(1)], dim=1) # x_1d.shape = Nx39
 			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training) # x_1d.shape = Nx100
 			v = self.final_layers_V(x_1d)
 			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
-		elif self.version in [8]:
-			# Convert constrs_site to embeddings (need to clamp when input is random)
-			constrs_long = constrs_site.clamp(min=0., max=len(CODES_LIST)-1).long()
-			constrs_embed = self.embed(constrs_long) # N,CS,3,D
-			constrs_3d = constrs_embed.flatten(start_dim=0, end_dim=1).permute(0, 2, 1) # N*CS, D, 3
-			constrs_3d = F.dropout(self.conv1d_constr(constrs_3d), p=self.args['dropout'], training=self.training) # N*CS, T
-			constrs_3d = constrs_3d.squeeze(-1).view(constrs_embed.shape[0], constrs_embed.shape[1], -1) # N, CS, T
-
-			s1 = F.dropout(self.dense_scores(scores_data.flatten(1)), p=self.args['dropout'], training=self.training) # N,3*NUM_PLAYERS,N_COLORS -> N,G
-			scores_3d = s1.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # N, CS, G
-
-			g1 = F.dropout(self.dense_globs(globals_data), p=self.args['dropout'], training=self.training) # 2 -> N,S
-			glob_3d = g1.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # N, CS, S
-
-			fused = torch.cat([constrs_3d, scores_3d, glob_3d], dim=-1) # N,CS,T+G+S
-			fused_1d = self.fused_to_1d(fused)
-			v = self.final_layers_V(fused_1d)
-			pi = torch.where(valid_actions, self.final_layers_PI(fused_1d), self.lowvalue)
-		elif self.version >= 18:
+		elif self.version in [50, 51, 52]:
 			# Work on scores and glob data first
 			s1 = F.dropout(self.dense_scores(scores_data.flatten(1)), p=self.args['dropout'], training=self.training) # N,3*NUM_PLAYERS,N_COLORS -> N,S
 			g1 = F.dropout(self.dense_globs(globals_data), p=self.args['dropout'], training=self.training) # 2 -> N,G
@@ -269,13 +156,20 @@ class AkropolisNNet(nn.Module):
 
 			# Compute policy
 			fused_3d_proj = self.proj_i(fused_3d) # N, CS, r
+			fused_3d_proj = self.b1n(fused_3d_proj.permute(0,2,1)).permute(0,2,1)
 			fused_3d_proj = fused_3d_proj.unsqueeze(2).unsqueeze(2) # N, CS, 1, 1, r
 			fused_4d_proj = self.proj_p(fused_4d) # N, r, 12, 12
-			fused_4d_proj = fused_4d_proj.permute(0, 2, 3, 1).unsqueeze(1) # N, 1, 12, 12, r
-			
-			logits = torch.einsum('nchwt,ot->nchwo', fused_3d_proj*fused_4d_proj, self.U_o) # N, CS, 12, 12, r
+			fused_4d_proj = fused_4d_proj.permute(0, 2, 3, 1).unsqueeze(1) # N, 1, 12, 12, r	
+			if self.version == 51:
+				h_o = self.proj_o(fused_3d)                   # → (N, CS, 6*r)
+				h_o = h_o.view(h_o.shape[0], h_o.shape[1], 6, -1).unsqueeze(3).unsqueeze(4) # → (N, CS, 6, 1, 1, r)
+				prod = (fused_3d_proj.unsqueeze(2))*(fused_4d_proj.unsqueeze(1))*h_o        # prod : (N, CS, 6, H, W, r)
+				logits = prod.sum(dim=-1).permute(0,1,3,4,2)  # (N,CS,H,W,6)
+			else:
+				logits = torch.einsum('nchwt,ot->nchwo', fused_3d_proj*fused_4d_proj, self.U_o) # N, CS, 12, 12, r
 			pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
 
+			# Compute value
 			v = self.final_layers_V(fused_3d)
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
