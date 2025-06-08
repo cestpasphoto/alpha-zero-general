@@ -477,7 +477,9 @@ class Board():
                 return new_array
             def reflect_players_board(player):
                 board_copy = self.player_boards[13*player:13*(player+1), :13].copy()
+                crowns_copy = self.player_crowns[13*player:13*(player+1), :13].copy()
                 self.player_boards[13*player:13*(player+1), :13] = np.fliplr(board_copy)
+                self.player_crowns[13*player:13*(player+1), :13] = np.fliplr(crowns_copy)
                 return
             def reflect_array(array):
                 new_array = array[reflection_perm]

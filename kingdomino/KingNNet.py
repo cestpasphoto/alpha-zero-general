@@ -219,6 +219,35 @@ class KingNNet(nn.Module):
                 nn.ReLU(),
                 nn.Linear(128, self.num_players),  # self.num_players = 2
             )
+        elif self.version == 104:
+            n_filters = 12          # ↓ from 24
+            exp_factor = 2          # ↓ from 4
+
+            # First layer: linear projection
+            self.first_layer = LinearNormActivation(self.nb_vect, n_filters, activation_layer=nn.ReLU)
+
+            # Trunk: single depthwise block (removes 1 layer)
+            self.trunk = nn.Sequential(
+                InvertedResidual1d(n_filters, n_filters * exp_factor, n_filters, kernel=3, use_hs=True, use_se=False),
+            )
+
+            flattened_size = n_filters * self.vect_dim  # e.g., 12 * 17 = 204
+
+            # Policy head: smaller and simpler
+            self.output_layers_PI = nn.Sequential(
+                nn.Flatten(1),
+                nn.Linear(flattened_size, 64),
+                nn.ReLU(),
+                nn.Linear(64, self.action_size),  # e.g., 681
+            )
+
+            # Value head: same pattern, shallower
+            self.output_layers_V = nn.Sequential(
+                nn.Flatten(1),
+                nn.Linear(flattened_size, 32),
+                nn.ReLU(),
+                nn.Linear(32, self.num_players),  # typically 2
+            )
         elif self.version == 105:
             exp_factor = 3  # expansion factor smaller than 159
 
@@ -268,6 +297,53 @@ class KingNNet(nn.Module):
                 nn.Linear(n_filters * self.vect_dim, 32),
                 nn.ReLU(),
                 nn.Linear(32, self.num_players),
+            )
+        elif self.version == 110:
+            exp_factor = 2  # smaller expansion for speed
+
+            # First layer stays minimal
+            self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
+
+            # Trunk: kernel size 1 for max speed
+            self.trunk = nn.Sequential(
+                InvertedResidual1d(
+                    in_channels=self.nb_vect,
+                    exp_channels=self.nb_vect * exp_factor,
+                    out_channels=self.nb_vect,
+                    kernel=1,
+                    use_hs=False,
+                    use_se=False,
+                )
+            )
+
+            n_filters = self.nb_vect
+
+            # Policy head: flatter, fewer operations
+            self.output_layers_PI = nn.Sequential(
+                InvertedResidual1d(
+                    in_channels=n_filters,
+                    exp_channels=n_filters * exp_factor,
+                    out_channels=n_filters,
+                    kernel=1,
+                    use_hs=False,
+                    use_se=False
+                ),
+                nn.Flatten(1),
+                nn.Linear(n_filters * self.vect_dim, self.action_size),
+            )
+
+            # Value head: similar reduction
+            self.output_layers_V = nn.Sequential(
+                InvertedResidual1d(
+                    in_channels=n_filters,
+                    exp_channels=n_filters * exp_factor,
+                    out_channels=n_filters,
+                    kernel=1,
+                    use_hs=False,
+                    use_se=False
+                ),
+                nn.Flatten(1),
+                nn.Linear(n_filters * self.vect_dim, self.num_players),
             )
         elif self.version == 106:
             exp_factor = 6  # Increased expansion factor (was 3)
@@ -347,7 +423,7 @@ class KingNNet(nn.Module):
             x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
             v = self.output_layers_V(x)
             pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
-        elif self.version in [105, 106]:
+        elif self.version in [104, 105, 110, 106]:
             x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
             x = self.first_layer(x)
             x = self.trunk(x)

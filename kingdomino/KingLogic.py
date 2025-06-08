@@ -113,16 +113,16 @@ new_tile_orientation = (tile_orientation - 1) % 4
 new_x = y
 new_y = 12 - x
 new_y[(tile_orientation % 2) == 0] -= 1
-new_y = new_y % 12
+new_y = new_y % 13
 rotation_perm = np.arange(681, dtype=np.int16)
 rotation_perm[5:] = 5 + (4 * (new_x * 13 + new_y)) + new_tile_orientation
 
 new_tile_orientation = (tile_orientation + ((tile_orientation % 2) * 2)) % 4
 new_y = 12 - y
 new_y[(new_tile_orientation != tile_orientation)] -= 1
-new_y = new_y % 12
+new_y = new_y % 13
 reflection_perm = np.arange(681, dtype=np.int16)
-rotation_perm[5:] = 5 + (4 * (x * 13 + new_y)) + new_tile_orientation
+reflection_perm[5:] = 5 + (4 * (x * 13 + new_y)) + new_tile_orientation
 
 def move_to_str(move):
     if move < 4:
