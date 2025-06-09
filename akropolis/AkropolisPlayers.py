@@ -4,6 +4,7 @@ import random
 # from .AkropolisDisplay import print_board, move_to_str, directions_char
 from .AkropolisDisplay import move_to_str
 # from .AkropolisConstants import _encode_action
+from .AkropolisGame import AkropolisGame
 
 class RandomPlayer():
     def __init__(self, game):
@@ -46,4 +47,19 @@ class HumanPlayer():
         return a
 
 class GreedyPlayer():
-    pass
+    def __init__(self, game):
+        self.game = game
+
+    def play(self, board, nb_moves):
+        valids = self.game.getValidMoves(board, player=0)
+
+        best_action, best_diff_score = -1, -100
+        for i, v in enumerate(valids):
+            if v:
+                temp_game = AkropolisGame()
+                temp_game.board.copy_state(self.game.board.state, True)
+                temp_game.getNextState(temp_game.board.state, player=0, action=i, random_seed=0)
+                scores = [temp_game.getScore(temp_game.board.state, player=p) for p in range(2)]
+                if (scores[0]-scores[1]) > best_diff_score:
+                    best_action, best_diff_score = i, scores[0]-scores[1]
+        return best_action
