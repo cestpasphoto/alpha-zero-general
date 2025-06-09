@@ -97,7 +97,7 @@ class Board():
         self.state = np.zeros((59, 17), dtype=np.int8)
 
     def get_score(self, player):
-        return self.scores[0, player]
+        return self.scores[0, player] + 256 * (self.scores[0, player] < 0)
 
     def init_game(self):
         self.copy_state(np.zeros((59, 17), dtype=np.int8), copy_or_not=False)
@@ -398,6 +398,8 @@ class Board():
 
                 val = arr[i, j]
                 visited[i, j] = True
+                if val < 0:
+                    continue
                 size = 1
                 stack_ptr = 1
                 stack_x[0] = i
@@ -430,10 +432,11 @@ class Board():
                 for row in player_board:
                     if np.all(row == 1):
                         row_totals[p] += 1
-
-            if (self.scores[0, 0] > self.scores[0, 1]):
+            p1score = self.scores[0, 0] + (256 * (self.scores[0, 0] < 0))
+            p2score = self.scores[0, 1] + (256 * (self.scores[0, 1] < 0))
+            if p1score > p2score:
                 out = np.array([1.0, -1.0], dtype=np.float32)
-            elif (self.scores[0, 1] > self.scores[0, 0]):
+            elif p2score > p1score:
                 out = np.array([-1.0, 1.0], dtype=np.float32)
             else:
                 p0_largest_ter = self.largest_connected_component_size(self.player_boards[:13, :13])
