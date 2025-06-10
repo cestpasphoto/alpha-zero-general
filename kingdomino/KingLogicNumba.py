@@ -132,7 +132,7 @@ class Board():
             empty_placement_right = np.zeros_like(tile_board, dtype=np.bool_)
             empty_placement_below[:-1, :] = empty_placement[1:, :]
             empty_placement_right[:, :-1] = empty_placement[:, 1:]
-            tile_index = self.visible_tiles[0, 8:16:2][self.visible_tiles[0, 9:17:2] != -1][0]
+            tile_index = self.visible_tiles[0, 8:16:2][self.visible_tiles[0, 9:17:2] == player][0]
             tile_colours = tile_types[tile_index][:2]
             adjacent_to_c0 = self.adjacent_to_value(tile_board, tile_colours[0])
             if tile_colours[0] == tile_colours[1]:
@@ -462,10 +462,10 @@ class Board():
         self.scores[0, 0], self.scores[0, 1] = self.scores[0, 1], self.scores[0, 0]
         self.player_boards[:13], self.player_boards[13:] = self.player_boards[13:].copy(), self.player_boards[:13].copy()
         self.player_crowns[:13], self.player_crowns[13:] = self.player_crowns[13:].copy(), self.player_crowns[:13].copy()
-        mask_0 = self.visible_tiles[0, ::2] == 0
-        mask_1 = self.visible_tiles[0, ::2] == 1
-        self.visible_tiles[0, ::2][mask_0] = 1
-        self.visible_tiles[0, ::2][mask_1] = 0
+        mask_0 = self.visible_tiles[0, 1::2] == 0
+        mask_1 = self.visible_tiles[0, 1::2] == 1
+        self.visible_tiles[0, 1::2][mask_0] = 1
+        self.visible_tiles[0, 1::2][mask_1] = 0
         return
 
     def get_symmetries(self, policy, valid_actions):
