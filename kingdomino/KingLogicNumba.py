@@ -496,14 +496,14 @@ class Board():
                 new_valid_actions = valid_actions.copy()
                 for _ in range(perm[0]):
                     rotate_players_board(0)
-                    new_policy = rotate_array(policy)
-                    new_valid_actions = rotate_array(valid_actions)
+                    new_policy = rotate_array(new_policy)
+                    new_valid_actions = rotate_array(new_valid_actions)
                 for _ in range(perm[1]):
                     rotate_players_board(1)
                 for _ in range(perm[2]):
                     reflect_players_board(0)
-                    new_policy = reflect_array(policy)
-                    new_valid_actions = reflect_array(valid_actions)
+                    new_policy = reflect_array(new_policy)
+                    new_valid_actions = reflect_array(new_valid_actions)
                 for _ in range(perm[3]):
                     reflect_players_board(1)
                 symmetries.append((self.state.copy(), new_policy, new_valid_actions))
