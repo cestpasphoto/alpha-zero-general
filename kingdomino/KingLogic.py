@@ -241,7 +241,3 @@ def print_board(board):
     _print_visible_tiles(board)
     _print_boards(board)
     return
-
-#def print_board(board):
-#    print(board.state)
-#    return

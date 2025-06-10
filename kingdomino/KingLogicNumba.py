@@ -491,6 +491,7 @@ class Board():
             symmetries = []
             for perm in np_board_symmetries:
                 boards_backup = self.player_boards.copy()
+                crowns_backup = self.player_crowns.copy()
                 new_policy = policy.copy()
                 new_valid_actions = valid_actions.copy()
                 for _ in range(perm[0]):
@@ -507,6 +508,7 @@ class Board():
                     reflect_players_board(1)
                 symmetries.append((self.state.copy(), new_policy, new_valid_actions))
                 self.player_boards[:] = boards_backup
+                self.player_crowns[:] = crowns_backup
             return symmetries
 
     def get_round(self):
