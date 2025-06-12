@@ -345,6 +345,72 @@ class KingNNet(nn.Module):
                 nn.Flatten(1),
                 nn.Linear(n_filters * self.vect_dim, self.num_players),
             )
+
+        elif self.version == 111:
+            exp_factor = 4  # still efficient
+            trunk_blocks = []
+
+            # First layer
+            self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
+
+            # Trunk: 3 residual blocks with increasing complexity
+            trunk_blocks.append(InvertedResidual1d(
+                in_channels=self.nb_vect,
+                exp_channels=self.nb_vect * exp_factor,
+                out_channels=self.nb_vect,
+                kernel=1,
+                use_hs=False,
+                use_se=False,
+            ))
+
+            trunk_blocks.append(InvertedResidual1d(
+                in_channels=self.nb_vect,
+                exp_channels=self.nb_vect * exp_factor,
+                out_channels=self.nb_vect,
+                kernel=3,
+                use_hs=True,
+                use_se=False,
+            ))
+
+            trunk_blocks.append(InvertedResidual1d(
+                in_channels=self.nb_vect,
+                exp_channels=self.nb_vect * exp_factor,
+                out_channels=self.nb_vect,
+                kernel=3,
+                use_hs=True,
+                use_se=True,  # helpful for value accuracy
+            ))
+
+            self.trunk = nn.Sequential(*trunk_blocks)
+            n_filters = self.nb_vect
+
+            # Policy head
+            self.output_layers_PI = nn.Sequential(
+                InvertedResidual1d(
+                    in_channels=n_filters,
+                    exp_channels=n_filters * exp_factor,
+                    out_channels=n_filters,
+                    kernel=1,
+                    use_hs=True,
+                    use_se=False
+                ),
+                nn.Flatten(1),
+                nn.Linear(n_filters * self.vect_dim, self.action_size),
+            )
+
+            # Value head
+            self.output_layers_V = nn.Sequential(
+                InvertedResidual1d(
+                    in_channels=n_filters,
+                    exp_channels=n_filters * exp_factor,
+                    out_channels=n_filters,
+                    kernel=3,
+                    use_hs=True,
+                    use_se=True
+                ),
+                nn.Flatten(1),
+                nn.Linear(n_filters * self.vect_dim, self.num_players),
+            )
         elif self.version == 106:
             exp_factor = 6  # Increased expansion factor (was 3)
 
@@ -417,13 +483,13 @@ class KingNNet(nn.Module):
                 layer.apply(_init)
 
     def forward(self, input_data, valid_actions):
-        if self.version in [100, 101, 102, 103]:
+        if self.version in [100, 101, 102, 103, 104, 110]:
             x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
             x = self.first_layer(x)
             x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
             v = self.output_layers_V(x)
             pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
-        elif self.version in [104, 105, 110, 106]:
+        elif self.version in [105, 106]:
             x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
             x = self.first_layer(x)
             x = self.trunk(x)

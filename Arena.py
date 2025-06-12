@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import logging
 log = logging.getLogger(__name__)
 
@@ -95,8 +96,8 @@ class Arena():
                 print(f"Game over: {self.game.getScore(board, 0)} - {self.game.getScore(board, 1)}")
 
         MCTS.reset_all_search_trees()
-            
-        return self.game.getGameEnded(board, curPlayer)[0]
+        scores = board[0, :2] + 256 * (board[0, :2] < 0)
+        return self.game.getGameEnded(board, curPlayer)[0], scores
 
     def playGames(self, num, initial_state="", verbose=False):
         """
@@ -112,15 +113,20 @@ class Arena():
         colors           = ['#d60000',     '#d66b00',     '#f9f900',   '#a0d600',  '#6b8e00'] #https://icolorpalette.com/ff3b3b_ff9d3b_ffce3b_ffff3b_ceff3b
 
         oneWon, twoWon, draws = 0, 0, 0
-        t = trange(num, desc="Arena.playGames", ncols=120, disable=None)
+        oneScores, twoScores = [], []
+        t = trange(num, desc="Arena.playGames", ncols=200, disable=None)
+        scores = []
         for i in t:
             # Since trees may not be resetted, the first games (1vs2) can't be
-            # considered as fair as the last games (2vs1). Switching between 
+            # considered as fair as the last games (2vs1). Switching between
             # 1vs2 and 2vs1 like below seems more fair:
             # 1 2 2 1   1 2 2 1  ...
-            one_vs_two = (i%4 == 0) or (i%4 == 3) or (initial_state != "")
-            t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'), refresh=False)
-            gameResult = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
+            one_vs_two = (i % 4 == 0) or (i % 4 == 3) or (initial_state != "")
+            mode_str = '(1 vs 2)' if one_vs_two else '(2 vs 1)'
+            t.set_description(f"Arena {mode_str}", refresh=False)
+            gameResult, scores = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
+            if not one_vs_two:
+                scores = scores[::-1]
             if gameResult == (1. if one_vs_two else -1.):
                 oneWon += 1
             elif gameResult == (-1. if one_vs_two else 1.):
@@ -128,7 +134,18 @@ class Arena():
             else:
                 draws += 1
 
-            t.set_postfix(one_wins=oneWon, two_wins=twoWon, refresh=False)
+            oneScores.append(scores[0])
+            twoScores.append(scores[1])
+
+            t.set_postfix(OrderedDict([
+                ('one_wins', oneWon),
+                ('two_wins', twoWon),
+                ('scores', scores),
+                ('one_mean', sum(oneScores)/len(oneScores)),
+                ('two_mean', sum(twoScores)/len(twoScores)),
+                ('one_max', max(oneScores)),
+                ('two_max', max(twoScores)),
+            ]), refresh=False)
             ratio = oneWon / (oneWon+twoWon) if oneWon+twoWon>0 else 0.5
             t.colour = colors[bisect.bisect_right(ratio_boundaries, ratio)]
         t.close()

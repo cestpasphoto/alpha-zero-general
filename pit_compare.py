@@ -24,7 +24,7 @@ game = None
 _lock = multiprocessing.Lock()
 
 
-def create_player(name, args):
+def create_player(name, args, player):
     global game
     global NNet
     global players
@@ -47,15 +47,26 @@ def create_player(name, args):
 
     cpuct = additional_keys.get('cpuct')
     cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
-    mcts_args = dotdict({
-        'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
-        'fpu'             : args.fpu if args.fpu else additional_keys.get('fpu', 0.),
-        'universes'       : additional_keys.get('universes', 1),
-        'cpuct'           : args.cpuct if args.cpuct else cpuct,
-        'prob_fullMCTS'   : 1.,
-        'forced_playouts' : False,
-        'no_mem_optim'    : False,
-    })
+    if player == 0:
+        mcts_args = dotdict({
+            'numMCTSSims'     : 50,
+            'fpu'             : 0.05,
+            'universes'       : 1,
+            'cpuct'           : 0.5,
+            'prob_fullMCTS'   : 1.,
+            'forced_playouts' : False,
+            'no_mem_optim'    : False,
+        })
+    elif player == 1:
+        mcts_args = dotdict({
+            'numMCTSSims'     : 50,
+            'fpu'             : 0.05,
+            'universes'       : 4,
+            'cpuct'           : 0.5,
+            'prob_fullMCTS'   : 1.,
+            'forced_playouts' : False,
+            'no_mem_optim'    : False,
+        })
     mcts = MCTS(game, net, mcts_args)
     player = lambda x, n: np.argmax(mcts.getActionProb(x, temp=(0.5 if n <= 6 else 0.), force_full_search=True)[0])
     return player
@@ -66,7 +77,7 @@ def play(args):
 
     if not args.useray:
         print(players[0], 'vs', players[1])
-    player1, player2 = create_player(players[0], args), create_player(players[1], args)
+    player1, player2 = create_player(players[0], args, 0), create_player(players[1], args, 1)
     human = 'human' in players
     arena = Arena.Arena(player1, player2, game, display=game.printBoard)
     result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
@@ -78,6 +89,8 @@ def play(args):
         print('Writing score to ' + directory + '/score.txt:  ', score)
         with open(directory + '/score.txt', 'w') as f:
             f.write(f'{score}')
+        #####
+
     return result
 
 
