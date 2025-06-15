@@ -208,10 +208,10 @@ class Board():
                 self.scores[0, 3] += 1
                 next_player = self.visible_tiles[0, 9+(tile_num+1)*2]
                 if next_player == -1:
-                    if tile_num < 2:
-                        next_player = 1
+                    if (tile_num % 2) == 0:
+                        next_player = (player + 1) % 2
                     else:
-                        next_player = 0
+                        next_player = player
         else:
             self.visible_tiles[0, 8+tile_num*2:8+(tile_num+1)*2] = [-1, -1]
             self.tiles_to_place[0, tile_num*4:(tile_num + 1)*4] = [-1, -1, -1, -1]

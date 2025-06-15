@@ -131,8 +131,8 @@ def move_to_str(move):
         string = "D"
     if move > 4:
         tile_orientation = (move - 5) % 4
-        x = ((move - 5) // 4) // 13
-        y = ((move - 5) // 4) % 13
+        y = 6 - ((move - 5) // 4) // 13
+        x = ((move - 5) // 4) % 13 - 6
         orientation_dict = {0: "LTD", 1: "LTR", 2: "RTD", 3: "RTR"}
         string = orientation_dict[tile_orientation] + " @ (" + str(x) + ", " + str(y) + ")"
     return string
