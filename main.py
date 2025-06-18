@@ -156,7 +156,7 @@ def main():
 	parser.add_argument('--no-mem-optim'           , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	
 	args = parser.parse_args()
-	args.arenaCompare = 30
+	args.arenaCompare = 100
 	args.maxlenOfQueue = int(2.5e6 / ((
 		                                  2 if args.no_compression else 0.5) * args.numItersHistory))  # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
 	if args.stop_after_N_fail < 0:
