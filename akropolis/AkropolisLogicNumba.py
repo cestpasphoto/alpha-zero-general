@@ -94,63 +94,91 @@ def my_unpackbits(values):
 
 @njit(cache=True, fastmath=True, nogil=True, inline='always')
 def rotate_cell(idx, k):
-    if idx < 0:
-        return -1
-    # coord on odd-r grid → cube coords
-    r = idx // CITY_SIZE
-    q = idx - r * CITY_SIZE
-    x = q - ((r - (r & 1)) // 2)
-    z = r
-    y = -x - z
-    # k× rotation 60° CW
-    for _ in range(k):
-        x, y, z = -z, -x, -y
-    # back to odd-r
-    r2 = z
-    q2 = x + ((r2 - (r2 & 1)) // 2)
-    if 0 <= r2 < CITY_SIZE and 0 <= q2 < CITY_SIZE:
-        return r2 * CITY_SIZE + q2
-    else:
-        return -1
-
-@njit(cache=True, fastmath=True, nogil=True, inline='always')
-def translate_cell(idx, dq, dr):
-    if idx < 0:
-        return -1
-    r = idx // CITY_SIZE
-    q = idx - r * CITY_SIZE
-    r2 = r + dr
-    q2 = q + dq
-    if 0 <= r2 < CITY_SIZE and 0 <= q2 < CITY_SIZE:
-        return r2 * CITY_SIZE + q2
-    else:
-        return -1
+	if idx < 0:
+		return -1
+	# coord on odd-r grid → cube coords
+	r = idx // CITY_SIZE
+	q = idx - r * CITY_SIZE
+	x = q - ((r - (r & 1)) // 2)
+	z = r
+	y = -x - z
+	# k× rotation 60° CW
+	for _ in range(k):
+		x, y, z = -z, -x, -y
+	# back to odd-r
+	r2 = z
+	q2 = x + ((r2 - (r2 & 1)) // 2)
+	if 0 <= r2 < CITY_SIZE and 0 <= q2 < CITY_SIZE:
+		return r2 * CITY_SIZE + q2
+	else:
+		return -1
 
 @njit(cache=True, fastmath=True, nogil=True, inline='always')
 def rotate_pattern(pat, k):
-    # PATTERNS est un np.ndarray (N_PATTERNS×3)
-    c0 = rotate_cell(PATTERNS[pat, 0], k)
-    c1 = rotate_cell(PATTERNS[pat, 1], k)
-    c2 = rotate_cell(PATTERNS[pat, 2], k)
-    # recherche linéaire
-    for j in range(N_PATTERNS):
-        if (PATTERNS[j, 0] == c0 and
-            PATTERNS[j, 1] == c1 and
-            PATTERNS[j, 2] == c2):
-            return j
-    return -1
+	# PATTERNS est un np.ndarray (N_PATTERNS×3)
+	c0 = rotate_cell(PATTERNS[pat, 0], k)
+	c1 = rotate_cell(PATTERNS[pat, 1], k)
+	c2 = rotate_cell(PATTERNS[pat, 2], k)
+	# recherche linéaire
+	for j in range(N_PATTERNS):
+		if (PATTERNS[j, 0] == c0 and
+			PATTERNS[j, 1] == c1 and
+			PATTERNS[j, 2] == c2):
+			return j
+	return -1
 
+
+# --- Réflexion de cellule sur axe hexagonal (odd-r offset) ---
 @njit(cache=True, fastmath=True, nogil=True, inline='always')
-def translate_pattern(pat, dq, dr):
-    c0 = translate_cell(PATTERNS[pat, 0], dq, dr)
-    c1 = translate_cell(PATTERNS[pat, 1], dq, dr)
-    c2 = translate_cell(PATTERNS[pat, 2], dq, dr)
-    for j in range(N_PATTERNS):
-        if (PATTERNS[j, 0] == c0 and
-            PATTERNS[j, 1] == c1 and
-            PATTERNS[j, 2] == c2):
-            return j
-    return -1
+def reflect_cell(idx):
+	if idx < 0:
+		return -1
+	# conversion odd-r → cube coords
+	r = idx // CITY_SIZE
+	q = idx - r * CITY_SIZE
+	x = q - ((r - (r & 1)) // 2)
+	z = r
+	y = -x - z
+	# réflexion de base : inversion y ↔ z
+	y, z = z, y
+	# conversion cube → odd-r
+	r2 = z
+	q2 = x + ((r2 - (r2 & 1)) // 2)
+	if 0 <= r2 < CITY_SIZE and 0 <= q2 < CITY_SIZE:
+		return r2 * CITY_SIZE + q2
+	else:
+		return -1
+
+# --- Réflexion d'un pattern (identification de l'indice équivalent) ---
+@njit(cache=True, fastmath=True, nogil=True, inline='always')
+def reflect_pattern(pat):
+	c0 = reflect_cell(PATTERNS[pat, 0])
+	c1 = reflect_cell(PATTERNS[pat, 1])
+	c2 = reflect_cell(PATTERNS[pat, 2])
+	# recherche linéaire de l'indice de pattern réfléchi
+	for j in range(N_PATTERNS):
+		if (PATTERNS[j, 0] == c0 and
+			PATTERNS[j, 1] == c1 and
+			PATTERNS[j, 2] == c2):
+			return j
+	return -1
+
+# --- Réflexion de l'état complet ---
+@njit(cache=True, fastmath=True, nogil=True, inline='always')
+def reflect_state(state):
+	new_s = np.zeros_like(state)
+	# appliquer réflexion cellule à cellule
+	for r in range(CITY_SIZE):
+		for q in range(CITY_SIZE):
+			old = r * CITY_SIZE + q
+			nb  = reflect_cell(old)
+			if nb >= 0:
+				r2 = nb // CITY_SIZE
+				q2 = nb - r2 * CITY_SIZE
+				new_s[r2, q2, :] = state[r, q, :]
+	# conserver les couches misc (round, tiles_bitpack, etc.)
+	new_s[:, :, 3*N_PLAYERS:] = state[:, :, 3*N_PLAYERS:].copy()
+	return new_s
 
 
 # Pre-compute the list of 6 neighbours of position idx
@@ -412,68 +440,61 @@ class Board():
 		self.stones[:] = tmp_stones
 
 	def get_symmetries(self, policy, valids):
-		symmetries = [(self.state.copy(), policy.copy(), valids.copy())]
-		state_backup, policy_backup, valids_backup = symmetries[0]
+		"""
+		Retourne la liste des (state, policy, valids) pour
+		les 6 rotations et 6 réflexions axiales (dièdre D₆).
+		"""
+		syms = []
+		base_s, base_p, base_v = self.state, policy, valids
 
-		# — ROTATIONS —
-		for k in range(1, N_ORIENTS):
-			# rotation de l’état
-			new_s = np.zeros_like(self.state)
-			for r in range(CITY_SIZE):
-				for q in range(CITY_SIZE):
-					old = r * CITY_SIZE + q
-					nb  = rotate_cell(old, k)
-					if nb >= 0:
-						r2 = nb // CITY_SIZE
-						q2 = nb - r2 * CITY_SIZE
-						new_s[r2, q2, :] = self.state[r, q, :]
-			new_s[:, :, 3*N_PLAYERS:] =self.state[:, :, 3*N_PLAYERS:].copy() 
+		# on parcours d'abord sans réflexion puis avec réflexion
+		for do_reflect in (False, True):
+			# appliquer réflexion sur state et mapper policy/valids
+			if do_reflect:
+				s_in = reflect_state(base_s)
+				p_temp = np.zeros_like(base_p)
+				v_temp = np.zeros_like(base_v)
+				for a in range(base_p.size):
+					cs = a // N_PATTERNS
+					pt = a % N_PATTERNS
+					rp = reflect_pattern(pt)
+					ni = cs * N_PATTERNS + rp
+					p_temp[ni] = base_p[a]
+					v_temp[ni] = base_v[a]
+				p_in, v_in = p_temp, v_temp
+			else:
+				s_in = base_s.copy()
+				p_in = base_p.copy()
+				v_in = base_v.copy()
 
-			# remapping de policy & valids
-			new_p = np.zeros_like(policy)
-			new_v = np.zeros_like(valids)
-			for a in range(policy.size):
-				cs = a // N_PATTERNS
-				pt = a - cs * N_PATTERNS
-				rp = rotate_pattern(pt, k)
-				ni = cs * N_PATTERNS + rp
-				new_p[ni] = policy[a]
-				new_v[ni] = valids[a]
-
-			symmetries.append((new_s, new_p, new_v))
-
-		# — TRANSLATIONS —
-		for dq in range(-2, 3):
-			for dr in range(-2, 3):
-				if dq == 0 and dr == 0:
-					continue
-
-				# translation de l’état
-				new_s = np.zeros_like(self.state)
+			# appliquer les 6 rotations
+			for k in range(N_ORIENTS):
+				# rotation de l'état
+				new_s = np.zeros_like(s_in)
 				for r in range(CITY_SIZE):
 					for q in range(CITY_SIZE):
 						old = r * CITY_SIZE + q
-						nb  = translate_cell(old, dq, dr)
+						nb  = rotate_cell(old, k)
 						if nb >= 0:
-							r0 = nb // CITY_SIZE
-							q0 = nb - r0 * CITY_SIZE
-							new_s[r, q, :] = self.state[r0, q0, :]
-				new_s[:, :, 3*N_PLAYERS:] =self.state[:, :, 3*N_PLAYERS:].copy() 
+							r2 = nb // CITY_SIZE
+							q2 = nb - r2 * CITY_SIZE
+							new_s[r2, q2, :] = s_in[r, q, :]
+				# conserver misc
+				new_s[:, :, 3*N_PLAYERS:] = s_in[:, :, 3*N_PLAYERS:].copy()
 
-				# remapping de policy & valids
-				new_p = np.zeros_like(policy)
-				new_v = np.zeros_like(valids)
-				for a in range(policy.size):
+				# remapper policy & valids
+				new_p = np.zeros_like(p_in)
+				new_v = np.zeros_like(v_in)
+				for a in range(p_in.size):
 					cs = a // N_PATTERNS
-					pt = a - cs * N_PATTERNS
-					tp = translate_pattern(pt, dq, dr)
-					ni = cs * N_PATTERNS + tp
-					new_p[ni] = policy[a]
-					new_v[ni] = valids[a]
+					pt = a % N_PATTERNS
+					rp = rotate_pattern(pt, k)
+					ni = cs * N_PATTERNS + rp
+					new_p[ni] = p_in[a]
+					new_v[ni] = v_in[a]
 
-				symmetries.append((new_s, new_p, new_v))
-
-		return symmetries
+				syms.append((new_s, new_p, new_v))
+		return syms
 
 	def _draw_tiles_constr_site(self, random_seed, initial_draw=False):
 		tiles_availability = my_unpackbits(self.tiles_bitpack)
