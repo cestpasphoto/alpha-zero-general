@@ -200,8 +200,9 @@ class Coach():
 			nmcts = MCTS(self.game, self.nnet, self.args)
 
 			# log.info('PITTING AGAINST PREVIOUS VERSION')
-			arena = Arena(lambda x, n: np.argmax(nmcts.getActionProb(x, temp=(0.5 if n <= 6 else 0.), force_full_search=True)[0]),
-						  lambda x, n: np.argmax(pmcts.getActionProb(x, temp=(0.5 if n <= 6 else 0.), force_full_search=True)[0]), self.game)
+			nb_moves_with_temperature = 6
+			arena = Arena(lambda x, n: np.argmax(nmcts.getActionProb(x, temp=(0.5 if n <= nb_moves_with_temperature else 0.), force_full_search=True)[0]),
+						  lambda x, n: np.argmax(pmcts.getActionProb(x, temp=(0.5 if n <= nb_moves_with_temperature else 0.), force_full_search=True)[0]), self.game)
 			nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
 
 			if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:

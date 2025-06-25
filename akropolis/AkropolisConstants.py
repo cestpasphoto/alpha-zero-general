@@ -66,11 +66,12 @@ PLAZA_STARS = np.array([1, 2, 2, 2, 3], dtype=np.int8)
 # Implementation specific
 
 # City 1D size
-CITY_SIZE = 12
+CITY_SIZE = 20
 # Total number of board positions
 CITY_AREA = CITY_SIZE * CITY_SIZE
 # Position of the initial tile position
-START_TILE_Q, START_TILE_R = (2*CITY_SIZE)//5, (2*CITY_SIZE)//5
+# START_TILE_Q, START_TILE_R = (2*CITY_SIZE)//5, (2*CITY_SIZE)//5
+START_TILE_Q, START_TILE_R = CITY_SIZE//2, CITY_SIZE//2
 
 # Maximum number of orientations per tile
 N_ORIENTS = 6
@@ -89,6 +90,10 @@ N_PATTERNS = CITY_AREA * N_ORIENTS
 # Size in bytes of total tiles stored in a bitfield
 # At most 61 tiles, so fits into 8 bytes
 PACKED_TILES_BYTES = 8
+
+# Apply an offset to use more range of np.int8 interval
+# Using 128 leads to some type errors
+SCORE_OFFSET = 127
 
 # =============================================================================
 

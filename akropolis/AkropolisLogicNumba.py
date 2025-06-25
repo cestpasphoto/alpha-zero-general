@@ -254,6 +254,7 @@ class Board():
 		self.stones[:] = np.arange(1, N_PLAYERS+1, dtype=np.int8)
 		self.tiles_bitpack[:] = my_packbits(TILES_DATA[:,3] <= N_PLAYERS)
 		self.misc[1] = N_STACKS
+		self.total_scores[:] = -SCORE_OFFSET
 		# Set initial tile
 		self.board_descr [START_TILE_R, START_TILE_Q, :] = PLAZA_BLUE
 		self.board_height[START_TILE_R, START_TILE_Q, :] = 1
@@ -315,7 +316,7 @@ class Board():
 		self.stones[player] -= tile_idx_in_cs
 		self._update_districts(player)
 		total = (self.districts[player, :] * self.plazas[player, :] * PLAZA_STARS[:]).sum() + self.stones[player]
-		self.total_scores[player] = min(127, total)
+		self.total_scores[player] = min(127, total-SCORE_OFFSET)
 
 		# Round number
 		self.misc[0] += 1
@@ -395,7 +396,7 @@ class Board():
 		return self.misc[0]
 
 	def get_score(self, player):
-		return self.total_scores[player]
+		return self.total_scores[player] + SCORE_OFFSET
 
 	def check_end_game(self, next_player):
 		if (self.misc[1] <= 0 and self.construction_site[1, 0] == EMPTY):

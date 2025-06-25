@@ -99,7 +99,7 @@ def print_board(game):
             else:
                 terms = [f"{game.plazas[i, c]}×{game.districts[i, c]*PLAZA_STARS[c]}" for c in range(N_COLORS)]
                 stones = game.stones[i]
-                total = game.total_scores[i]
+                total = game.total_scores[i] + SCORE_OFFSET
                 colored = ' + '.join(f"{COLORS[c]}{terms[c]}{Style.RESET_ALL}" for c in range(N_COLORS)) + f" + {stones} = {total}"
                 color_scores.append(colored)
         print(center_cols(color_scores, [w0, w1]))
