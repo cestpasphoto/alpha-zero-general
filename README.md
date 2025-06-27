@@ -71,6 +71,13 @@ against [BoardSpace AI](https://www.boardspace.net/english/index.shtml). See [mo
 ![Sample game with 2 players](smallworld/sample_game.gif) (Scores are on the 2 last rows after _sc=_, and number after
 _#_ is number of next round).
 
+### Akropolis
+
+* [x] Support of 2-3-4 players (just change NUMBER_PLAYERS constant)
+* [ ] Added pretrained models for 2-3-4 players
+* [ ] Benchmark versus "undefeated strategy" proposed on youtube
+
+The AI engine doesn't know which tiles will be drawn.
 
 ---
 
