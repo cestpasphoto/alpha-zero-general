@@ -24,6 +24,10 @@ I learnt a lot from his existing code.
 2 player Azul has been added to the framework and a reasonably strong ai has been trained for the 2 player version. I would
 love for it to get stronger though!
 
+### Kingdomino
+
+2 player Kingdomino has also been added but the AI isn't very strong, maybe the number of moves is too much for it.
+
 ### Splendor
 
 ![Sample game of Splendor](splendor/sample_game.gif)
