@@ -43,12 +43,12 @@ class AkropolisNNet(nn.Module):
 			self.final_layers_PI = nn.Sequential(
 				nn.Linear(num_filters, self.action_size),
 			)
-		elif self.version in [50, 51, 52]: # Less simple version using Embedding
+		elif self.version in [30, 31, 32]: # Less simple version using Embedding
 			constants = {
 			 	#    D   T   S   G  B  r
-				50: (3,  8,  8,  8, 8, 16), # was 39 before
-				51: (3,  8,  8,  8, 8, 16), # was 40 before
-				52: (5, 16, 16, 16, 8, 16),
+                30: (3, 32, 16, 8 , 8 , 16),
+                31: (3, 32, 16, 8 , 8 , 16),
+                32: (3, 32, 16, 8 , 16, 16),
 			}
 			D, T, S, G, B, r = constants[self.version]
 			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
@@ -61,7 +61,10 @@ class AkropolisNNet(nn.Module):
 				nn.Linear(N_COLORS*3*self.num_players, S),
 			)
 			self.conv2d_boards = nn.Sequential(
-				nn.Conv2d(D+2, B, kernel_size=1),
+				nn.Conv2d(D+2, B, kernel_size=3, padding=1),
+				nn.BatchNorm2d(B),
+				nn.Hardswish(),
+				nn.Conv2d(B, B, kernel_size=3, padding=1),
 				nn.BatchNorm2d(B),
 				nn.Hardswish(),
 			)
@@ -74,19 +77,24 @@ class AkropolisNNet(nn.Module):
 			# V head
 			self.final_layers_V = nn.Sequential(
 				nn.Flatten(1),
-				nn.Linear(CONSTR_SITE_SIZE*(T+S+G), 1),
+				nn.Linear(CONSTR_SITE_SIZE*(T+S+G), r),
+				nn.BatchNorm1d(r),
+				nn.Hardswish(),
+				nn.Linear(r, r),
+				nn.Hardswish(),
+				nn.Linear(r, self.num_players),
 			)
 
 			# PI head
 			self.proj_i = nn.Linear(T+S+G, r)
 			self.proj_p = nn.Sequential(
-				inverted_residual(self.num_players*B+G+S, 2*r, r, False, "RE", kernel=1),
+				inverted_residual(self.num_players*B+G+S, 2*r, r, True, "HS", kernel=1),
 			)
-			if self.version == 51:
-				self.proj_o = nn.Linear(T+G+S, 6 * r)
-			else:
+			if self.version == 30:
 				self.U_o = nn.Parameter(torch.randn(6, r))
-				nn.init.xavier_uniform_(self.U_o)
+				nn.init.xavier_uniform_(self.U_o)			
+			else:
+				self.proj_o = nn.Linear(T+G+S, 6 * r)
 			self.b1n = nn.Sequential(
 				nn.BatchNorm1d(r),
 				nn.Hardswish(),
@@ -125,7 +133,7 @@ class AkropolisNNet(nn.Module):
 			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training) # x_1d.shape = Nx100
 			v = self.final_layers_V(x_1d)
 			pi = torch.where(valid_actions, self.final_layers_PI(x_1d), self.lowvalue)
-		elif self.version in [50, 51, 52]:
+		elif self.version in [30, 31, 32]:
 			# Work on scores and glob data first
 			s1 = F.dropout(self.dense_scores(scores_data.flatten(1)), p=self.args['dropout'], training=self.training) # N,3*NUM_PLAYERS,N_COLORS -> N,S
 			g1 = F.dropout(self.dense_globs(globals_data), p=self.args['dropout'], training=self.training) # 2 -> N,G
@@ -160,13 +168,13 @@ class AkropolisNNet(nn.Module):
 			fused_3d_proj = fused_3d_proj.unsqueeze(2).unsqueeze(2) # N, CS, 1, 1, r
 			fused_4d_proj = self.proj_p(fused_4d) # N, r, 12, 12
 			fused_4d_proj = fused_4d_proj.permute(0, 2, 3, 1).unsqueeze(1) # N, 1, 12, 12, r	
-			if self.version == 51:
+			if self.version == 30:
+				logits = torch.einsum('nchwt,ot->nchwo', fused_3d_proj*fused_4d_proj, self.U_o) # N, CS, 12, 12, r
+			else:
 				h_o = self.proj_o(fused_3d)                   # → (N, CS, 6*r)
 				h_o = h_o.view(h_o.shape[0], h_o.shape[1], 6, -1).unsqueeze(3).unsqueeze(4) # → (N, CS, 6, 1, 1, r)
 				prod = (fused_3d_proj.unsqueeze(2))*(fused_4d_proj.unsqueeze(1))*h_o        # prod : (N, CS, 6, H, W, r)
 				logits = prod.sum(dim=-1).permute(0,1,3,4,2)  # (N,CS,H,W,6)
-			else:
-				logits = torch.einsum('nchwt,ot->nchwo', fused_3d_proj*fused_4d_proj, self.U_o) # N, CS, 12, 12, r
 			pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
 
 			# Compute value

@@ -66,11 +66,10 @@ PLAZA_STARS = np.array([1, 2, 2, 2, 3], dtype=np.int8)
 # Implementation specific
 
 # City 1D size
-CITY_SIZE = 20
+CITY_SIZE = 13
 # Total number of board positions
 CITY_AREA = CITY_SIZE * CITY_SIZE
 # Position of the initial tile position
-# START_TILE_Q, START_TILE_R = (2*CITY_SIZE)//5, (2*CITY_SIZE)//5
 START_TILE_Q, START_TILE_R = CITY_SIZE//2, CITY_SIZE//2
 
 # Maximum number of orientations per tile
