@@ -4,7 +4,6 @@ from Game import Game
 from .KamisadoLogic import print_board, move_to_str
 from .KamisadoLogicNumba import Board, observation_size, action_size
 import numpy as np
-from numba import jit, njit
 
 NUMBER_PLAYERS = 2
 
@@ -35,14 +34,6 @@ class KamisadoGame(Game):
     def getGameEnded(self, board, next_player):
         self.board.copy_state(board, False)
         return self.board.check_end_game()
-
-    def getScore(self, board, player):
-        self.board.copy_state(board, False)
-        return self.board.get_score(player)
-
-    def getRound(self, board):
-        self.board.copy_state(board, False)
-        return self.board.get_round()
 
     def getCanonicalForm(self, board, player):
         if player == 0:
