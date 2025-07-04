@@ -225,14 +225,17 @@ class Coach():
 
             if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
                 self.consecutive_failures += 1
-                log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED ({self.consecutive_failures})')
+                log.info('Iter #%d - new vs previous: %d-%d  (%d draws) --> REJECTED (%d)',
+                         i, nwins, pwins, draws, self.consecutive_failures)
                 if self.consecutive_failures >= self.args.stop_after_N_fail and i < self.args.numIters:
                     log.error('Exceeded threshold number of consecutive fails, stopping process')
                     sys.exit()
                 self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
             else:
-                log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
-                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
+                log.info('Iter #%d - new vs previous: %d-%d  (%d draws) --> ACCEPTED', i, nwins, pwins, draws)
+                self.nnet.save_checkpoint(folder=self.args.checkpoint,
+                                          filename=self.getCheckpointFile(i),
+                                          additional_keys=vars(self.args))
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
                 self.consecutive_failures = 0
 
@@ -251,24 +254,24 @@ class Coach():
         modelFile = self.args.load_folder_file
         examplesFile = os.path.dirname(modelFile) + "/checkpoint.examples"
         if not os.path.isfile(examplesFile):
-            log.warning(f'File "{examplesFile}" with trainExamples not found!')
+            log.warning('File "%s" with trainExamples not found!', examplesFile)
             if not self.args.useray:
                 r = input("Continue? [y|n]")
                 if r != "y":
                     sys.exit()
             return
-    
+
         log.info("File with trainExamples found. Loading it...")
         with open(examplesFile, "rb") as f:
             self.trainExamplesHistory = pickle.load(f)
-        
+
         # Harmonize compression use in loaded examples
         if type(self.trainExamplesHistory[0][0]) is tuple and not self.args.no_compression:
             for i in range(len(self.trainExamplesHistory)):
-                for j in range(len(self.trainExamplesHistory[i])):                    
+                for j in range(len(self.trainExamplesHistory[i])):
                     self.trainExamplesHistory[i][j] = zlib.compress(pickle.dumps(self.trainExamplesHistory[i][j]), level=1)
         elif type(self.trainExamplesHistory[0][0]) is not tuple and self.args.no_compression:
-            for i in range(len(self.trainExamplesHistory)): 
+            for i in range(len(self.trainExamplesHistory)):
                 for j in range(len(self.trainExamplesHistory[i])):
                     self.trainExamplesHistory[i][j] = pickle.loads(zlib.decompress(self.trainExamplesHistory[i][j]))
         log.info('Loading done!')
@@ -295,18 +298,20 @@ def applyTemperatureAndNormalize(probs, temperature):
         result = [x / result_sum for x in result]
     return result
 
+
 def random_pick(probs, temperature=1.):
     probs_with_temp = applyTemperatureAndNormalize(probs, temperature)
     pick = np.random.choice(len(probs_with_temp), p=probs_with_temp)
     return pick
 
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description='Examples loader')
-    parser.add_argument('input', metavar='example filename', nargs='*'                 , help='list of examples to load (.examples files)')
-    parser.add_argument('--output'    , '-o', action='store', default='../results/new' , help='Prefix for output files')
-    parser.add_argument('--binarize'  , '-b', action='store_true', help='Transform policy into binary one')
+    parser.add_argument('input', metavar='example filename', nargs='*', help='list of examples to load (.examples files)')
+    parser.add_argument('--output', '-o', action='store', default='../results/new', help='Prefix for output files')
+    parser.add_argument('--binarize', '-b', action='store_true', help='Transform policy into binary one')
     args = parser.parse_args()
 
     training, testing = [], []
@@ -316,17 +321,8 @@ if __name__ == "__main__":
             new_input = pickle.load(f)
             print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')
             training += new_input[:-1]
-            testing += [list(x)[::8] for x in new_input[-1:]] # Remove symmetries
+            testing += [list(x)[::8] for x in new_input[-1:]]  # Remove symmetries
 
-    # for filename in args.input:
-    #     print(f'Loading {filename}...')
-    #     with open(filename, "rb") as f:
-    #         new_input = pickle.load(f)
-    #         print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')
-    #         training += new_input[-3:]
-    # testing = [list(training[-1])[::8]]
-    # training = training[:-1]
-    
     if args.binarize:
         print('Binarizing policy...')
         for t in [training, testing]:
@@ -342,14 +338,8 @@ if __name__ == "__main__":
                     t[i][j] = zlib.compress(pickle.dumps(data), level=1)
             print()
 
-    # breakpoint()
-
     for t, name in [(training, 'training'), (testing, 'testing')]:
         filename = args.output + '_' + name + '.examples'
         print(f'total size {name} = {sum([len(x) for x in t])} --> writing to {filename}')
         with open(filename, "wb") as f:
             pickle.dump(t, f)
-        # print(f'Testing...')
-        # with open(filename, "rb") as f:
-        #     new_input = pickle.load(f)
-        #     print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import importlib
 import itertools
 import json
 import multiprocessing
@@ -12,7 +11,7 @@ import numpy as np
 
 import Arena
 from MCTS import MCTS
-from utils import *
+from utils import dotdict
 from GameSwitcher import import_game
 
 """
@@ -48,13 +47,13 @@ def create_player(name, args):
     cpuct = additional_keys.get('cpuct')
     cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
     mcts_args = dotdict({
-        'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
-        'fpu'             : args.fpu if args.fpu else additional_keys.get('fpu', 0.),
-        'universes'       : additional_keys.get('universes', 1),
-        'cpuct'           : args.cpuct if args.cpuct else cpuct,
-        'prob_fullMCTS'   : 1.,
-        'forced_playouts' : False,
-        'no_mem_optim'    : False,
+        'numMCTSSims': args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
+        'fpu': args.fpu if args.fpu else additional_keys.get('fpu', 0.),
+        'universes': additional_keys.get('universes', 1),
+        'cpuct': args.cpuct if args.cpuct else cpuct,
+        'prob_fullMCTS': 1.,
+        'forced_playouts': False,
+        'no_mem_optim': False,
     })
     print(mcts_args)
     mcts = MCTS(game, net, mcts_args)

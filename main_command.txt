@@ -1,5 +1,0 @@
-py main.py kingdomino -m 30 -q 0.5 -l 0.003 -e 100 -i 4 -f 0.05 -c 1.5 -V 110 -C ../kingdominoresults/V110.1 -L ../kingdominoresults/V13/best.pt -b 5000
-py main.py kingdomino -m 30 -q 0.5 -l 0.003 -e 100 -i 4 -f 0.15 -c 0.5 -V 110 -C ../kingdominoresults/V110.2 -L ../kingdominoresults/V13/best.pt -b 5000
-py main.py kingdomino -m 100 -q 0.5 -l 0.001 -e 100 -i 4 -f 0. -c 2.5 -V 110 -C ../kingdominoresults/V110.3 -L ../kingdominoresults/V110.1/best.pt -b 5000
-py main.py kingdomino -m 100 -q 0.5 -l 0.001 -e 100 -i 4 -f 0.05 -c 1.5 -V 110 -C ../kingdominoresults/V110.4 -L ../kingdominoresults/V110.1/best.pt -b 5000
-py main.py kingdomino -m 100 -q 0.5 -l 0.001 -e 100 -i 4 -f 0.05 -c 2.5 -V 110 -C ../kingdominoresults/V110.5 -L ../kingdominoresults/V110.1/best.pt -b 5000

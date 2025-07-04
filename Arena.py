@@ -1,6 +1,5 @@
 from collections import OrderedDict
 import logging
-log = logging.getLogger(__name__)
 
 import bisect
 from tqdm import trange
@@ -8,6 +7,9 @@ import zlib
 import base64
 
 from MCTS import MCTS
+
+log = logging.getLogger(__name__)
+
 
 class Arena():
     """
@@ -41,14 +43,6 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
-        # if NUMBER_PLAYERS == 2:
-        #     players = [self.player2, self.player1]                             if other_way else [self.player1, self.player2]
-        # elif NUMBER_PLAYERS == 3:
-        #     players = [self.player2, self.player1, self.player1]               if other_way else [self.player1, self.player2, self.player2]
-        # elif NUMBER_PLAYERS == 4:
-        #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
-        # elif NUMBER_PLAYERS == 5:
-        #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
         if not other_way:
             players = [self.player1]+[self.player2]*(self.game.getNumberOfPlayers()-1)
         else:
@@ -69,8 +63,8 @@ class Arena():
                 if self.display:
                     self.display(board)
                 print()
-                print(f'Turn {it} Player {curPlayer}: ', end='')        
-                
+                print(f'Turn {it} Player {curPlayer}: ', end='')
+
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
             action = players[curPlayer](canonical_board, it)
             valids = self.game.getValidMoves(canonical_board, 0)
@@ -109,8 +103,9 @@ class Arena():
             twoWon: games won by player2
             draws:  games won by nobody
         """
-        ratio_boundaries = [        1-0.60,        1-0.55,        0.55,        0.60         ]
-        colors           = ['#d60000',     '#d66b00',     '#f9f900',   '#a0d600',  '#6b8e00'] #https://icolorpalette.com/ff3b3b_ff9d3b_ffce3b_ffff3b_ceff3b
+        ratio_boundaries = [1-0.60, 1-0.55, 0.55, 0.60]
+        colors = ['#d60000', '#d66b00', '#f9f900', '#a0d600', '#6b8e00']
+        # https://icolorpalette.com/ff3b3b_ff9d3b_ffce3b_ffff3b_ceff3b
 
         oneWon, twoWon, draws = 0, 0, 0
         oneScores, twoScores = [], []
@@ -146,7 +141,7 @@ class Arena():
                 ('one_max', max(oneScores)),
                 ('two_max', max(twoScores)),
             ]), refresh=False)
-            ratio = oneWon / (oneWon+twoWon) if oneWon+twoWon>0 else 0.5
+            ratio = oneWon / (oneWon+twoWon) if oneWon+twoWon > 0 else 0.5
             t.colour = colors[bisect.bisect_right(ratio_boundaries, ratio)]
         t.close()
 
