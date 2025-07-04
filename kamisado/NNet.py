@@ -1,7 +1,7 @@
 import sys
 sys.path.append('../../')
 from GenericNNetWrapper import GenericNNetWrapper
-from .KingNNet import KingNNet as nn_model
+from .KamisadoNNet import KamisadoNNet as nn_model
 
 class NNetWrapper(GenericNNetWrapper):
 	def init_nnet(self, game, nn_args):

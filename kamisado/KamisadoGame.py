@@ -33,7 +33,15 @@ class KamisadoGame(Game):
 
     def getGameEnded(self, board, next_player):
         self.board.copy_state(board, False)
-        return self.board.check_end_game()
+        return self.board.check_end_game(next_player)
+
+    def getRound(self, board):
+        self.board.copy_state(board, False)
+        return self.board.get_round()
+
+    def getScore(self, board, player):
+        self.board.copy_state(board, False)
+        return self.board.check_end_game(player)[player]
 
     def getCanonicalForm(self, board, player):
         if player == 0:
