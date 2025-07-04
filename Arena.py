@@ -96,7 +96,7 @@ class Arena():
                 print(f"Game over: {self.game.getScore(board, 0)} - {self.game.getScore(board, 1)}")
 
         MCTS.reset_all_search_trees()
-        scores = board[0, :2] + 256 * (board[0, :2] < 0)
+        scores = [self.game.getScore(board, 0), self.game.getScore(board, 1)]
         return self.game.getGameEnded(board, curPlayer)[0], scores
 
     def playGames(self, num, initial_state="", verbose=False):
