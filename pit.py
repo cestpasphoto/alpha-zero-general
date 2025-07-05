@@ -57,8 +57,9 @@ def create_player(name, args):
     })
     print(mcts_args)
     mcts = MCTS(game, net, mcts_args)
-    player = lambda x, n: (lambda probs: np.random.choice(len(probs), p=probs))(mcts.getActionProb(x, temp=2., force_full_search=True)[0])
-    return player
+    player_ran = lambda x, n: (lambda probs: np.random.choice(len(probs), p=probs))(mcts.getActionProb(x, temp=2., force_full_search=True)[0])
+    player_det = lambda x, n: (lambda probs: np.argmax(probs))(mcts.getActionProb(x, temp=(0.5 if n <= 6 else 0.), force_full_search=True)[0])
+    return player_det
 
 
 def play(args):
