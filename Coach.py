@@ -212,15 +212,23 @@ class Coach():
             nmcts = MCTS(self.game, self.nnet, self.args)
 
             # log.info('PITTING AGAINST PREVIOUS VERSION')
-            def p0(x, _n):
+            def p0_ran(x, _n):
                 probs = nmcts.getActionProb(x, temp=2., force_full_search=True)[0]
                 return np.random.choice(len(probs), p=probs)
 
-            def p1(x, _n):
+            def p0_det(x, n):
+                probs = nmcts.getActionProb(x, temp=(0.5 if n <= 6 else 0.), force_full_search=True)[0]
+                return np.argmax(probs)
+
+            def p1_ran(x, _n):
                 probs = pmcts.getActionProb(x, temp=2., force_full_search=True)[0]
                 return np.random.choice(len(probs), p=probs)
 
-            arena = Arena(p0, p1, self.game)
+            def p1_det(x, n):
+                probs = pmcts.getActionProb(x, temp=(0.5 if n <= 6 else 0.), force_full_search=True)[0]
+                return np.argmax(probs)
+
+            arena = Arena(p0_det, p1_det, self.game)
             nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
 
             if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
