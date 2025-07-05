@@ -472,8 +472,8 @@ class Board():
             def rotate_players_board(player):
                 board_copy = self.player_boards[13*player:13*(player+1), :13].copy()
                 crowns_copy = self.player_crowns[13*player:13*(player+1), :13].copy()
-                self.player_boards[13*player:13*(player+1), :13] = np.rot90(board_copy)
-                self.player_crowns[13*player:13*(player+1), :13] = np.rot90(crowns_copy)
+                self.player_boards[13*player:13*(player+1), :13] = np.rot90(board_copy, k=-1)
+                self.player_crowns[13*player:13*(player+1), :13] = np.rot90(crowns_copy, k=-1)
                 return
             def rotate_array(array):
                 new_array = array[rotation_perm]
