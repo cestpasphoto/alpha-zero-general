@@ -468,48 +468,53 @@ class Board():
         self.visible_tiles[0, 1::2][mask_1] = 0
         return
 
-    def get_symmetries(self, policy, valid_actions):
-            def rotate_players_board(player):
-                board_copy = self.player_boards[13*player:13*(player+1), :13].copy()
-                crowns_copy = self.player_crowns[13*player:13*(player+1), :13].copy()
-                self.player_boards[13*player:13*(player+1), :13] = np.rot90(board_copy, k=-1)
-                self.player_crowns[13*player:13*(player+1), :13] = np.rot90(crowns_copy, k=-1)
-                return
-            def rotate_array(array):
-                new_array = array[rotation_perm]
-                return new_array
-            def reflect_players_board(player):
-                board_copy = self.player_boards[13*player:13*(player+1), :13].copy()
-                crowns_copy = self.player_crowns[13*player:13*(player+1), :13].copy()
-                self.player_boards[13*player:13*(player+1), :13] = np.fliplr(board_copy)
-                self.player_crowns[13*player:13*(player+1), :13] = np.fliplr(crowns_copy)
-                return
-            def reflect_array(array):
-                new_array = array[reflection_perm]
-                return new_array
+    def rotate_players_board(self, player):
+        board_copy = self.player_boards[13*player:13*(player+1), :13].copy()
+        crowns_copy = self.player_crowns[13*player:13*(player+1), :13].copy()
+        self.player_boards[13*player:13*(player+1), :13] = np.rot90(board_copy, k=-1)
+        self.player_crowns[13*player:13*(player+1), :13] = np.rot90(crowns_copy, k=-1)
+        return
 
-            symmetries = []
-            for perm in np_board_symmetries:
-                boards_backup = self.player_boards.copy()
-                crowns_backup = self.player_crowns.copy()
-                new_policy = policy.copy()
-                new_valid_actions = valid_actions.copy()
-                for _ in range(perm[0]):
-                    rotate_players_board(0)
-                    new_policy = rotate_array(new_policy)
-                    new_valid_actions = rotate_array(new_valid_actions)
-                for _ in range(perm[1]):
-                    rotate_players_board(1)
-                for _ in range(perm[2]):
-                    reflect_players_board(0)
-                    new_policy = reflect_array(new_policy)
-                    new_valid_actions = reflect_array(new_valid_actions)
-                for _ in range(perm[3]):
-                    reflect_players_board(1)
-                symmetries.append((self.state.copy(), new_policy, new_valid_actions))
-                self.player_boards[:] = boards_backup
-                self.player_crowns[:] = crowns_backup
-            return symmetries
+    def reflect_players_board(self, player):
+        board_copy = self.player_boards[13*player:13*(player+1), :13].copy()
+        crowns_copy = self.player_crowns[13*player:13*(player+1), :13].copy()
+        self.player_boards[13*player:13*(player+1), :13] = np.fliplr(board_copy)
+        self.player_crowns[13*player:13*(player+1), :13] = np.fliplr(crowns_copy)
+        return
+
+    @staticmethod
+    def rotate_array(array):
+        new_array = array[rotation_perm]
+        return new_array
+
+    @staticmethod
+    def reflect_array(array):
+        new_array = array[reflection_perm]
+        return new_array
+
+    def get_symmetries(self, policy, valid_actions):
+        symmetries = []
+        for perm in np_board_symmetries:
+            boards_backup = self.player_boards.copy()
+            crowns_backup = self.player_crowns.copy()
+            new_policy = policy.copy()
+            new_valid_actions = valid_actions.copy()
+            for _ in range(perm[0]):
+                self.rotate_players_board(0)
+                new_policy = self.rotate_array(new_policy)
+                new_valid_actions = self.rotate_array(new_valid_actions)
+            for _ in range(perm[1]):
+                self.rotate_players_board(1)
+            for _ in range(perm[2]):
+                self.reflect_players_board(0)
+                new_policy = self.reflect_array(new_policy)
+                new_valid_actions = self.reflect_array(new_valid_actions)
+            for _ in range(perm[3]):
+                self.reflect_players_board(1)
+            symmetries.append((self.state.copy(), new_policy, new_valid_actions))
+            self.player_boards[:] = boards_backup
+            self.player_crowns[:] = crowns_backup
+        return symmetries
 
     def get_round(self):
         return self.scores[0, 2]
