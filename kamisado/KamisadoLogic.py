@@ -2,6 +2,20 @@ from rich.console import Console
 from rich.style import Style
 import numpy as np
 
+start_positions = np.array([[6, 4, 2, 7, 0, 5, 3, 1],
+                            [6, 4, 2, 0, 7, 5, 3, 1],
+                            [6, 2, 4, 7, 0, 3, 5, 1],
+                            [3, 7, 1, 5, 2, 6, 0, 4],
+                            [6, 7, 2, 4, 3, 5, 0, 1],
+                            [3, 6, 2, 7, 0, 5, 1, 4],
+                            [6, 2, 4, 0, 7, 3, 5, 1],
+                            [3, 1, 7, 5, 2, 0, 6, 4],
+                            [4, 7, 1, 5, 2, 6, 0, 3],
+                            [3, 6, 2, 0, 7, 5, 1, 4],
+                            [4, 6, 2, 7, 0, 5, 1, 3],
+                            [6, 4, 7, 2, 5, 0, 3, 1]], dtype=np.int8)
+
+
 def move_to_str(move):
     if move == 168:
         string = "Pass, no moves possible"
@@ -13,6 +27,7 @@ def move_to_str(move):
         direction_dict = {0: "Left", 1: "Up", 2: "Right"}
         string = colour_dict[colour] + " " + direction_dict[direction] + " " + str(distance)
     return string
+
 
 board_colours = np.array([[7, 6, 5, 4, 3, 2, 1, 0],
                           [2, 7, 4, 1, 6, 3, 0, 5],
@@ -35,9 +50,10 @@ colours_rgb = [
 ]
 
 circle_black = "●"  # Black Large Circle
-circle_fisheye = "◉" # Fisheye Circle
+circle_fisheye = "◉"  # Fisheye Circle
 
 symbols = [circle_black, circle_fisheye]
+
 
 def _print_board(board):
     console = Console()

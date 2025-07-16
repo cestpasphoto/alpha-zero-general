@@ -3,12 +3,14 @@ import random
 
 from .KamisadoLogic import print_board, move_to_str
 
+
 class RandomPlayer():
     def __init__(self, game):
         self.game = game
 
     def play(self, board, _nb_moves):
         valids = self.game.getValidMoves(board, player=0)
+        print(np.arange(len(valids))[valids])
         action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int8), k=1)[0]
         return action
 
@@ -20,7 +22,7 @@ class HumanPlayer():
     def play(self, board, nb_moves):
         valids = self.game.getValidMoves(board, 0)
         move = -1
-        while not move in np.where(valids)[0]:
+        while move not in np.where(valids)[0]:
             moveinput = input("Full describe move? (y/n): ")
             if moveinput == "y":
                 xcoord = int(input("x coord relative to center?: "))
