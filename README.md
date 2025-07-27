@@ -74,10 +74,12 @@ _#_ is number of next round).
 ### Akropolis
 
 * [x] Support of 2-3-4 players (just change NUMBER_PLAYERS constant)
-* [ ] Added pretrained models for 2-3-4 players
+* [x] Added pretrained models for 2-3-4 players
 * [ ] Benchmark versus "undefeated strategy" proposed on youtube
 
 The AI engine doesn't know which tiles will be drawn.
+
+![Sample game](akropolis/sample_game.gif)
 
 ---
 
