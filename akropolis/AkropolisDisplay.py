@@ -39,6 +39,31 @@ def _print_glyph(code, height, center=True):
     tile = glyph.center(4) if center else glyph
     return f"{col}{tile}{Style.RESET_ALL}"
 
+def _print_cs(game):
+    hex_to_str = [
+        '     ',
+        'Quarr',
+        'BluDi',
+        'YelDi',
+        'RedDi',
+        'PurDi',
+        'GreDi',
+        'BluPl',
+        'YelPl',
+        'RedPl',
+        'PurPl',
+        'GrePl',
+    ]
+    result = ''
+    for idx in range(CONSTR_SITE_SIZE):
+        tile = game.construction_site[idx, :3]
+        if tile[0] == EMPTY:
+            continue
+        if result != '':
+            result += '  '
+        result += '-'.join([hex_to_str[x] for x in tile])
+    return result
+
 def _print_lines(board_descr: np.ndarray, board_height: np.ndarray) -> list[str]:
     lines = []
     for r in range(board_descr.shape[1]):
@@ -54,6 +79,163 @@ def _print_lines(board_descr: np.ndarray, board_height: np.ndarray) -> list[str]
                 row += _print_glyph(code, height)
         lines.append(row)
     return lines
+
+def gen_png(game, filename):
+    from .AkroPlot3 import hex_prism_traces
+    import plotly.graph_objects as go
+    import plotly.io as pio
+    from PIL import Image, ImageChops, ImageDraw, ImageFont
+    import os
+    from io import BytesIO
+
+    color_list = ['white', '#6E6E6E',
+        '#4257B2', '#B79526', '#AF4435', '#6B4CA1', '#3C8658',
+        '#4257B2', '#B79526', '#AF4435', '#6B4CA1', '#3C8658',
+    ]
+    n_stars = [0, 0, 
+        0, 0, 0, 0, 0,
+        1, 2, 2, 2, 3,
+    ]
+
+    tmp_files = []
+    for p in range(N_PLAYERS):
+        fig = go.Figure()
+        for r in range(CITY_SIZE):
+            for q in range(CITY_SIZE):
+                d, h = game.board_descr[r, q, p], game.board_height[r, q, p]
+                if d == EMPTY:
+                    continue
+                h_ = (h)*5
+                for t in hex_prism_traces(r=r, q=q, fill_color=color_list[d], H=h_, n_stars=n_stars[d]):
+                    fig.add_trace(t)
+
+        # fig.update_layout(
+        #     title=dict(
+        #         text=f'P{p} - {game.total_scores[p]+SCORE_OFFSET} {game.stones[p]}s {_print_cs(game)}',
+        #         x=0.5,
+        #         y=0.75,
+        #         xanchor="center",
+        #         yanchor="top",
+        #         font=dict(size=12, color="black")   # style
+        #     ),
+        #     # margin=dict(t=80)     # marge haute pour que le titre ne chevauche rien
+        # )
+
+        fig.update_layout(
+            scene=dict(
+                aspectmode="data",          # échelle identique X, Y, Z (facultatif)
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                zaxis=dict(visible=False)
+            ),
+            scene_camera=dict(
+                eye=dict(x=-2, y=-3, z=5),   # x,y petits → presque au-dessus
+                up=dict(x=0.1, y=0.8, z=0.5),          # garde le nord en haut
+                center=dict(x=0, y=0, z=0)       # point visé (souvent l’origine)
+            ),
+            margin=dict(l=0, r=0, t=0, b=0, pad=0),
+            autosize=False,
+            width=600,
+            height=600,
+        )
+        # if int(game.total_scores[0]) + 127 > 10:
+        #     fig.show()
+        #     breakpoint()
+        # pio.write_image(fig, f'tmp_p{p}.png', scale=2)
+        png_bytes = fig.to_image(format="png", scale=2)      # besoin de kaleido
+        img = Image.open(BytesIO(png_bytes))
+
+        # -- détection bande blanche : tout pixel dont la luminance > 250/255
+        arr   = np.array(img)
+        lum   = arr.mean(axis=2)                  # luminance naïve
+        mask  = lum < 250                         # zones « dessin »
+        coords = np.argwhere(mask)
+
+        y0, x0 = coords.min(axis=0)
+        y1, x1 = coords.max(axis=0) + 1           # +1 car slicing ouvert
+        img_cropped = img.crop((x0, y0, x1, y1))  # (left, upper, right, lower)
+        img_cropped.save(f'tmpcrop2_p{p}.png')
+
+        tmp_files.append(f'tmpcrop2_p{p}.png')
+
+        # breakpoint()
+
+    from math import floor
+
+    CANVAS_W, CANVAS_H  = 1200, 600        # taille finale fixe
+    HEADER_H            = 40               # zone réservée au texte dans le canvas
+    BG_COLOR            = "white"
+    TEXT_COLOR          = "black"
+    imgs = [Image.open(f) for f in tmp_files]        # vos PNG intermédiaires
+
+    text = (
+        f'P0 {game.stones[0]}st {game.total_scores[0]+SCORE_OFFSET}pts'
+        f'    -    {_print_cs(game)}    -    '
+        f'P1 {game.stones[1]}st {game.total_scores[1]+SCORE_OFFSET}pts'
+    )
+ 
+    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), color=BG_COLOR)
+    draw   = ImageDraw.Draw(canvas)
+
+    font = ImageFont.load_default(32)
+    bbox      = draw.textbbox((0, 0), text, font=font)
+    text_w    = bbox[2] - bbox[0]
+    text_h    = bbox[3] - bbox[1]
+    text_x    = (CANVAS_W - text_w) // 2
+    text_y    = (HEADER_H - text_h) // 2
+    draw.text((text_x, text_y), text, font=font, fill=TEXT_COLOR)
+
+    # Largeur totale des images
+    tot_imgs_w = sum(im.width for im in imgs)
+    n          = len(imgs)
+    # Espace horizontal = (largeur libre) / (n + 1)
+    gap = max(0, floor((CANVAS_W - tot_imgs_w) / (n + 1)))
+    x = gap
+    for im in imgs:
+        # centrage vertical dans la partie « images » (CANVAS_H - HEADER_H)
+        y = HEADER_H + (CANVAS_H - HEADER_H - im.height) // 2
+        canvas.paste(im, (x, y))
+        x += im.width + gap
+
+    canvas.save(filename)
+
+    # breakpoint()
+    for f in tmp_files:
+        os.remove(f)
+
+    if game.misc[1] <= 0 and game.construction_site[1, 0] == EMPTY:
+        # THE END
+        make_video(game, crf=18)
+
+import subprocess
+import pathlib
+from datetime import datetime
+import glob
+import os
+
+def make_video(game, crf=18):
+    stamp = datetime.now().strftime("%m%d%H%M")
+    outfile = f"game_{stamp}_{game.total_scores[0]+SCORE_OFFSET}-{game.total_scores[1]+SCORE_OFFSET}.mp4"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-framerate", "1",
+        "-i", "./board_%02d.png",
+        # "-vf", '"pad=ceil(iw/2)*2:ceil(ih/2)*2"',
+        "-c:v", "libx264",
+        "-preset", "slow",
+        "-pix_fmt", "yuv420p",
+        "-crf", str(crf),
+        outfile
+    ]
+    subprocess.run(cmd, check=True)
+
+    for f in glob.glob("./board_*.png"):
+        try:
+            os.remove(f)
+        except OSError:
+            print(f"⚠ impossible de supprimer {f}")
+
 
 def print_board(game):
     """
@@ -121,6 +303,7 @@ def print_board(game):
     # remaining = [str(tile) for tile in game.construction_site if tile[0] != EMPTY]
     print("Construction site:", ' '.join(remaining))
 
+    gen_png(game, f'./board_{game.misc[0]:02}.png')
 
 def move_to_str(move: int, player: int) -> str:
     tile_idx_in_cs, rem  = divmod(move, N_PATTERNS)

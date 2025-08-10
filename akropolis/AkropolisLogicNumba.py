@@ -255,6 +255,7 @@ class Board():
 		self.tiles_bitpack[:] = my_packbits(TILES_DATA[:,3] <= N_PLAYERS)
 		self.misc[1] = N_STACKS
 		self.total_scores[:] = -SCORE_OFFSET
+		self.total_scores[:] += self.stones[:]
 		# Set initial tile
 		self.board_descr [START_TILE_R, START_TILE_Q, :] = PLAZA_BLUE
 		self.board_height[START_TILE_R, START_TILE_Q, :] = 1
