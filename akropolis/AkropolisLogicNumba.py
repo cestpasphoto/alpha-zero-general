@@ -500,8 +500,8 @@ class Board():
 
 	def _draw_tiles_constr_site(self, random_seed, initial_draw=False):
 		tiles_availability = my_unpackbits(self.tiles_bitpack)
-		available_tiles = np.flatnonzero(tiles_availability)
 		for i in range(0 if initial_draw else 1, CONSTR_SITE_SIZE):
+			available_tiles = np.flatnonzero(tiles_availability)
 			if initial_draw or random_seed == 0:
 				tile_id = np.random.choice(available_tiles)
 			else:
@@ -509,6 +509,7 @@ class Board():
 				# m=61, c=42, a=2013+1
 				rnd_value = (2014 * (random_seed+np.int64(self.misc[0])) + 42) % 61
 				tile_id = available_tiles[rnd_value%len(available_tiles)]
+
 			self.construction_site[i, :3] = TILES_DATA[tile_id, :3]
 			self.construction_site[i, 3] = tile_id
 			tiles_availability[tile_id] = False

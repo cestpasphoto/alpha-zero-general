@@ -3,7 +3,7 @@ import numpy as np
 N_PLAYERS = 2
 
 # Size of construction size (visible deck)
-CONSTR_SITE_SIZE = N_PLAYERS + 1
+CONSTR_SITE_SIZE = N_PLAYERS + 2
 
 # Deck size (note that construction size is not included)
 N_STACKS = 11

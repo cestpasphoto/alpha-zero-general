@@ -177,7 +177,7 @@ def gen_png(game, filename):
     canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), color=BG_COLOR)
     draw   = ImageDraw.Draw(canvas)
 
-    font = ImageFont.load_default(32)
+    font = ImageFont.load_default(24)
     bbox      = draw.textbbox((0, 0), text, font=font)
     text_w    = bbox[2] - bbox[0]
     text_h    = bbox[3] - bbox[1]
@@ -301,9 +301,9 @@ def print_board(game):
         for tile in game.construction_site if tile[0] != EMPTY
     ]
     # remaining = [str(tile) for tile in game.construction_site if tile[0] != EMPTY]
-    print("Construction site:", ' '.join(remaining))
+    print("Construction site:", ' '.join(remaining), '  ', int(game.misc[1]), ' stack(s) remaining')
 
-    gen_png(game, f'./board_{game.misc[0]:02}.png')
+    # gen_png(game, f'./board_{game.misc[0]:02}.png')
 
 def move_to_str(move: int, player: int) -> str:
     tile_idx_in_cs, rem  = divmod(move, N_PATTERNS)
