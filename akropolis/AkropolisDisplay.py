@@ -2,6 +2,7 @@ import re
 import numpy as np
 from colorama import init, Fore, Style
 from .AkropolisConstants import *
+from .AkropolisLogicNumba import decode_value_from_int8
 
 init(autoreset=True)
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -169,9 +170,9 @@ def gen_png(game, filename):
     imgs = [Image.open(f) for f in tmp_files]        # vos PNG intermédiaires
 
     text = (
-        f'P0 {game.stones[0]}st {game.total_scores[0]+SCORE_OFFSET}pts'
+        f'P0 {game.stones[0]}st {decode_value_from_int8(game.total_scores[0])}pts'
         f'    -    {_print_cs(game)}    -    '
-        f'P1 {game.stones[1]}st {game.total_scores[1]+SCORE_OFFSET}pts'
+        f'P1 {game.stones[1]}st {decode_value_from_int8(game.total_scores[1])}pts'
     )
  
     canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), color=BG_COLOR)
@@ -215,7 +216,7 @@ import os
 
 def make_video(game, crf=18):
     stamp = datetime.now().strftime("%m%d%H%M")
-    outfile = f"game_{stamp}_{game.total_scores[0]+SCORE_OFFSET}-{game.total_scores[1]+SCORE_OFFSET}.mp4"
+    outfile = f"game_{stamp}_{decode_value_from_int8(game.total_scores[0])}-{decode_value_from_int8(game.total_scores[1])}.mp4"
 
     cmd = [
         "ffmpeg", "-y",
@@ -281,7 +282,7 @@ def print_board(game):
             else:
                 terms = [f"{game.plazas[i, c]}×{game.districts[i, c]*PLAZA_STARS[c]}" for c in range(N_COLORS)]
                 stones = game.stones[i]
-                total = np.int16(game.total_scores[i]) + SCORE_OFFSET
+                total = decode_value_from_int8(game.total_scores[i])
                 colored = ' + '.join(f"{COLORS[c]}{terms[c]}{Style.RESET_ALL}" for c in range(N_COLORS)) + f" + {stones} = {total}"
                 color_scores.append(colored)
         print(center_cols(color_scores, [w0, w1]))

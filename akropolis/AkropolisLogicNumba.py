@@ -230,6 +230,32 @@ for p in range(N_PATTERNS):
 				neighbors_set.add(neighbor)
 	PATTERN_NEI[p, :len(neighbors_set)] = sorted(neighbors_set)
 
+@njit(cache=True, fastmath=True, nogil=True)
+def encode_score_to_int8(score: np.int16) -> np.int8:
+    """Encode score(s) into an np.int8.
+    - 0..200 -> v = s - 128
+    - 201..310 -> v = 73 + ((s - 201) // 2)
+    """
+    score_ = np.int16(score)
+    if score_ < 0 or score_ > 310:
+        raise ValueError("score_ must be in [0,300]")
+    v = score_ - 128 if score_ <= 200 else 73 + ((score_ - 201) // 2)
+    return np.int8(v)
+
+@njit(cache=True, fastmath=True, nogil=True)
+def decode_value_from_int8(stored: np.int8) -> np.int16:
+    """Decode stored np.int8 value(s) back to score
+    - stored <= 72  -> s = v + 128  (exact for 0..200)
+    - stored >= 74  -> s = 202 + 2*(v - 74)  (upper representative of 2-value bin)
+    """
+    v = np.int16(stored)
+    score = (v + 128) if v <= 72 else (202 + 2 * (v - 73))
+    if score < 0:
+    	score = np.int16(0)
+    elif score > 310:
+    	score = np.int16(310)
+    return score
+
 spec = [
 	('state'            , numba.int8[:,:,:]),
 	('board_descr'      , numba.int8[:,:,:]),
@@ -254,8 +280,7 @@ class Board():
 		self.stones[:] = np.arange(1, N_PLAYERS+1, dtype=np.int8)
 		self.tiles_bitpack[:] = my_packbits(TILES_DATA[:,3] <= N_PLAYERS)
 		self.misc[1] = N_STACKS
-		self.total_scores[:] = -SCORE_OFFSET
-		self.total_scores[:] += self.stones[:]
+		self.total_scores[:] = [encode_score_to_int8(self.stones[i]) for i in range(N_PLAYERS)]
 		# Set initial tile
 		self.board_descr [START_TILE_R, START_TILE_Q, :] = PLAZA_BLUE
 		self.board_height[START_TILE_R, START_TILE_Q, :] = 1
@@ -317,7 +342,7 @@ class Board():
 		self.stones[player] -= tile_idx_in_cs
 		self._update_districts(player)
 		total = (self.districts[player, :] * self.plazas[player, :] * PLAZA_STARS[:]).sum() + self.stones[player]
-		self.total_scores[player] = min(127, total-SCORE_OFFSET)
+		self.total_scores[player] = encode_score_to_int8(total)
 
 		# Round number
 		self.misc[0] += 1
@@ -397,11 +422,15 @@ class Board():
 		return self.misc[0]
 
 	def get_score(self, player):
-		return self.total_scores[player] + SCORE_OFFSET
+		return decode_value_from_int8(self.total_scores[player])
 
 	def check_end_game(self, next_player):
 		if (self.misc[1] <= 0 and self.construction_site[1, 0] == EMPTY):
+			# total_scores may not be precise enough
+			# need to recompute
 			m = self.total_scores.max()
+			if m > 73:
+				print(f'WARNING, max score is too high {self.total_scores[:]+127}')
 			single_winner = int((self.total_scores == m).sum()) == 1
 			return np.where(self.total_scores == m, np.float32(1.0 if single_winner else 0.001), np.float32(-1.0))
 		return np.zeros((N_PLAYERS,), dtype=np.float32)

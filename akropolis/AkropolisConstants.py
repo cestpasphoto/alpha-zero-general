@@ -90,10 +90,6 @@ N_PATTERNS = CITY_AREA * N_ORIENTS
 # At most 61 tiles, so fits into 8 bytes
 PACKED_TILES_BYTES = 8
 
-# Apply an offset to use more range of np.int8 interval
-# Using 128 leads to some type errors
-SCORE_OFFSET = 127
-
 # =============================================================================
 
 # Tiles description, and for which nb of players they are meant to 
