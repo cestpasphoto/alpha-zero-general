@@ -235,43 +235,21 @@ SWITCH_SCORE = 182        # scores <= 182 -> step 1; >= 183 -> step 3
 OFFSET = 128              # lower mapping: v = s - OFFSET
 V_COMP_START = SWITCH_SCORE - OFFSET + 1  # first compressed code (55)
 
+# Encode scalar score (0..511) into np.int8.
 @njit(cache=True, fastmath=True, nogil=True)
 def encode_score_to_int8(s: np.int16) -> np.int8:
-    """Encode scalar score (0..400) into np.int8.
-    - 0..SWITCH_SCORE -> v = s - OFFSET
-    - SWITCH_SCORE+1..400 -> v = V_COMP_START + ((s - (SWITCH_SCORE+1)) // 3)
-    """
     si = int(s)
-    if si < 0 or si > 400:
-        raise ValueError("score must be in [0,400]")
-    if si <= SWITCH_SCORE:
-        v = si - OFFSET
-    else:
-        v = V_COMP_START + ((si - (SWITCH_SCORE + 1)) // 3)
+    if si < 0 or si > 511:
+        raise ValueError("score must be in [0,511]")
+    v = si // 2 - 128
     return np.int8(v)
 
+# Decode stored np.int8 value back to score (np.int16).
 @njit(cache=True, fastmath=True, nogil=True)
 def decode_value_from_int8(v: np.int8) -> np.int16:
-    """Decode stored np.int8 value back to score (np.int16).
-    - stored <= V_COMP_START-1 -> s = v + OFFSET  (exact inverse)
-    - stored >= V_COMP_START     -> s = upper representative:
-        s = (SWITCH_SCORE+1) + 2 + 3*(v - V_COMP_START)
-      which simplifies to s = (SWITCH_SCORE+3) + 3*(v - V_COMP_START)
-    The result is clamped to [0,400].
-    """
     vi = int(v)  # promote to Python int to avoid int8 overflow
-    if vi <= V_COMP_START - 1:
-        s = vi + OFFSET
-    else:
-        # upper representative of the 3-value bin starting at (SWITCH_SCORE+1)
-        s = (SWITCH_SCORE + 3) + 3 * (vi - V_COMP_START)
-    # clamp to allowed maximum
-    if s < 0:
-        s = 0
-    elif s > 400:
-        s = 400
+    s = (vi + 128) * 2
     return np.int16(s)
-
 
 spec = [
 	('state'            , numba.int8[:,:,:]),
@@ -359,9 +337,9 @@ class Board():
 		self.stones[player] -= tile_idx_in_cs
 		self._update_districts(player)
 		total = (self.districts[player, :].astype(np.int16) * self.plazas[player, :] * PLAZA_STARS[:]).sum() + self.stones[player]
-		if total > 399:
+		if total > 510:
 			print(self.districts[player, :], self.plazas[player, :], PLAZA_STARS[:], self.stones[player], total)
-			total = 399
+			total = 510
 		self.total_scores[player] = encode_score_to_int8(total)
 
 		# Round number
@@ -446,14 +424,11 @@ class Board():
 
 	def check_end_game(self, next_player):
 		if (self.misc[1] <= 0 and self.construction_site[1, 0] == EMPTY):
-			# total_scores may not be precise enough
-			# need to recompute
-			m = self.total_scores.max()
-			# TODO
-			# if m > 74:
-			# 	print(f'WARNING, max score is too high {m}')
-			single_winner = int((self.total_scores == m).sum()) == 1
-			return np.where(self.total_scores == m, np.float32(1.0 if single_winner else 0.001), np.float32(-1.0))
+			# total_scores is not precise, need to recompute
+			scores_np16 = (self.districts.astype(np.int16) * self.plazas * PLAZA_STARS).sum(axis=1) + self.stones
+			m = scores_np16.max()
+			single_winner = int((scores_np16 == m).sum()) == 1
+			return np.where(scores_np16 == m, np.float32(1.0 if single_winner else 0.001), np.float32(-1.0))
 		return np.zeros((N_PLAYERS,), dtype=np.float32)
 
 	# if n=1, transform P0 to Pn, P1 to P0, ... and Pn to Pn-1
