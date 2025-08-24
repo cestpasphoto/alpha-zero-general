@@ -238,18 +238,20 @@ V_COMP_START = SWITCH_SCORE - OFFSET + 1  # first compressed code (55)
 # Encode scalar score (0..511) into np.int8.
 @njit(cache=True, fastmath=True, nogil=True)
 def encode_score_to_int8(s: np.int16) -> np.int8:
-    si = int(s)
-    if si < 0 or si > 511:
-        raise ValueError("score must be in [0,511]")
-    v = si // 2 - 128
-    return np.int8(v)
+	si = int(s)
+	if si < 0 or si > 511:
+		raise ValueError("score must be in [0,511]")
+	if si > 300:
+		print("score =", si)
+	v = si // 2 - 128
+	return np.int8(v)
 
 # Decode stored np.int8 value back to score (np.int16).
 @njit(cache=True, fastmath=True, nogil=True)
 def decode_value_from_int8(v: np.int8) -> np.int16:
-    vi = int(v)  # promote to Python int to avoid int8 overflow
-    s = (vi + 128) * 2
-    return np.int16(s)
+	vi = int(v)  # promote to Python int to avoid int8 overflow
+	s = (vi + 128) * 2
+	return np.int16(s)
 
 spec = [
 	('state'            , numba.int8[:,:,:]),
@@ -323,7 +325,7 @@ class Board():
 			# update internals if building upon a quarry or plaza (district will be managed later)
 			under_type, under_color = DESCR_TO_TYPE_COLOR[self.board_descr[rr, qq, player]]
 			if under_type == PLAZA:
-				self.plazas[player, under_color] += 1
+				self.plazas[player, under_color] -= 1
 			if under_type == QUARRY:
 				self.stones[player] += 1
 			self.board_descr [rr, qq, player] = desc
