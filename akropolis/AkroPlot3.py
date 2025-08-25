@@ -69,7 +69,7 @@ def hex_prism_traces(r, q, *,
     # faces sup/inf
     verts_top = np.vstack([[cx, cy, H], top])
     traces.append(_mesh(verts_top, _tri_fan(0, range(1,7)), fill_color))
-    for interm_h in range(0, H+1, 5):
+    for interm_h in range(0, H+1, 7):
         interm_top = top.copy() ; interm_top[:,2] = interm_h
         traces.append(_border_trace(interm_top, color="#000000", width=1))
     verts_bot = np.vstack([[cx, cy, 0], base])

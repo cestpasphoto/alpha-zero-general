@@ -27,7 +27,7 @@ SYMBOLS = {
     DISTRICT_GREEN : ('⌂', Fore.GREEN),
 }
 COLORS = [Fore.BLUE, Fore.YELLOW, Fore.RED, Fore.MAGENTA, Fore.GREEN, Fore.BLACK]
-SUPERSCRIPTS = {0: '', 1: '', 2: '²', 3: '³', 4: '⁴'}
+SUPERSCRIPTS = {0: '', 1: '', 2: '²', 3: '³', 4: '⁴', 5: '⁵'}
 sub_digits = str.maketrans({
     '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
     '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
@@ -106,7 +106,7 @@ def gen_png(game, filename):
                 d, h = game.board_descr[r, q, p], game.board_height[r, q, p]
                 if d == EMPTY:
                     continue
-                h_ = (h)*5
+                h_ = (h)*7
                 for t in hex_prism_traces(r=r, q=q, fill_color=color_list[d], H=h_, n_stars=n_stars[d]):
                     fig.add_trace(t)
 
@@ -280,7 +280,7 @@ def print_board(game):
             if i >= N_PLAYERS:
                 color_scores.append('')
             else:
-                terms = [f"{game.plazas[i, c]}×{game.districts[i, c]*PLAZA_STARS[c]}" for c in range(N_COLORS)]
+                terms = [f"{game.plazas[i, c]*PLAZA_STARS[c]}×{game.districts[i, c]}" for c in range(N_COLORS)]
                 stones = game.stones[i]
                 total = decode_value_from_int8(game.total_scores[i])
                 colored = ' + '.join(f"{COLORS[c]}{terms[c]}{Style.RESET_ALL}" for c in range(N_COLORS)) + f" + {stones} = {total}"
@@ -304,7 +304,7 @@ def print_board(game):
     # remaining = [str(tile) for tile in game.construction_site if tile[0] != EMPTY]
     print("Construction site:", ' '.join(remaining), '  ', int(game.misc[1]), ' stack(s) remaining')
 
-    # gen_png(game, f'./board_{game.misc[0]:02}.png')
+    gen_png(game, f'./board_{game.misc[0]:02}.png')
 
 def move_to_str(move: int, player: int) -> str:
     tile_idx_in_cs, rem  = divmod(move, N_PATTERNS)
