@@ -241,7 +241,7 @@ def encode_score_to_int8(s: np.int16) -> np.int8:
 	si = int(s)
 	if si < 0 or si > 511:
 		raise ValueError("score must be in [0,511]")
-	if si > 300:
+	if si > 275:
 		print("score =", si)
 	v = si // 2 - 128
 	return np.int8(v)
@@ -339,9 +339,6 @@ class Board():
 		self.stones[player] -= tile_idx_in_cs
 		self._update_districts(player)
 		total = (self.districts[player, :].astype(np.int16) * self.plazas[player, :] * PLAZA_STARS[:]).sum() + self.stones[player]
-		if total > 510:
-			print(self.districts[player, :], self.plazas[player, :], PLAZA_STARS[:], self.stones[player], total)
-			total = 510
 		self.total_scores[player] = encode_score_to_int8(total)
 
 		# Round number
@@ -422,7 +419,9 @@ class Board():
 		return self.misc[0]
 
 	def get_score(self, player):
-		return decode_value_from_int8(self.total_scores[player])
+		# total_scores is not precise, need to recompute
+		score_player = (self.districts[player, :].astype(np.int16) * self.plazas[player, :] * PLAZA_STARS[:]).sum() + self.stones[player]
+		return score_player
 
 	def check_end_game(self, next_player):
 		if (self.misc[1] <= 0 and self.construction_site[1, 0] == EMPTY):
