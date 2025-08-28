@@ -65,7 +65,7 @@ class HumanPlayer():
 
 
 from .AkropolisConstants import *
-from .AkropolisLogicNumba import PATTERNS, PATTERN_NEI  # noqa: E402
+from .AkropolisLogicNumba import PATTERNS, PATTERN_NEI, NEIGHBORS
 
 # ===========================================================================
 # Dynamic pyramid coordinates
@@ -333,23 +333,17 @@ def score_out_of_pyramid(game, board_state, action: int, verbose=False):
     tile_idx, pattern_idx = divmod(action, CITY_SIZE * CITY_SIZE * N_ORIENTS)
     tile_coords = [divmod(int(idx), CITY_SIZE) for idx in PATTERNS[pattern_idx]]
     tile_coords_set = set(tile_coords)
-    # nei_coords = {divmod(int(idx), CITY_SIZE) for idx in PATTERN_NEI[pattern_idx, :]} - set(tile_coords)
+    nei_coords = {divmod(int(idx), CITY_SIZE) for idx in PATTERN_NEI[pattern_idx, :]} - set(tile_coords)
     # if verbose:
     #     print(tile_coords, nei_coords)
 
-    best_pattern_score = (0, 0)
+    best_pattern_score = [0, 0, 0]
     # Check if setting this tile at this location would unlock a new tileslot at the upper level
     # Checking by brute force
     for candidate_idx in range(PATTERNS.shape[0]):
         candidate_coords_set = set([divmod(int(idx), CITY_SIZE) for idx in PATTERNS[candidate_idx]])
         common_coords = candidate_coords_set & tile_coords_set
         candidate_only_coords = candidate_coords_set - tile_coords_set
-
-        # Si action (tile_coords) contient (8,5) et (8,6)
-        # et si le pattern en cours contient (8,5) et (8,6) et (7,5)
-        # if (7,5) in candidate_coords_set and (8,5) in candidate_coords_set and (8,6) in candidate_coords_set:
-        #     if (8,5) in tile_coords_set and (8,6) in tile_coords_set:
-        #         breakpoint()
 
         # Si 1 ou 2 hex en commun avec la tuile posée
         if len(common_coords) == 0 or len(candidate_only_coords) == 0:
@@ -379,9 +373,16 @@ def score_out_of_pyramid(game, board_state, action: int, verbose=False):
                 n_quarry +=1
             elif descr == DISTRICT_BLUE:
                 n_bd += 1
-        pattern_score = (n_quarry, n_bd)
+        pattern_score = [0, n_quarry, n_bd]
         if pattern_score > best_pattern_score:
             best_pattern_score = pattern_score
+
+    # Check if surrounding any PD
+    for (nei_r, nei_q) in nei_coords:
+        if game.board.board_descr[nei_r, nei_q, 0] == DISTRICT_PURPLE:
+            count = sum(1 for nn in NEIGHBORS[nei_r*CITY_SIZE+nei_q, :] if nn in PATTERNS[pattern_idx])
+            best_pattern_score[0] += count
+            # best_pattern_score[0] += [1 for neinei_idx in PATTERN_NEI[nei_r*CITY_SIZE+nei_q, :] if game.board.board_descr[neinei_idx//CITY_SIZE, neinei_idx%CITY_SIZE] != EMPTY ]
 
     return best_pattern_score
 
@@ -389,6 +390,7 @@ PRINT_DETAILS = True
 class GreedyPlayer():
     def __init__(self, game):
         self.game = game
+        self.nb_apply_rule_1b = 0
 
     def _categorize(self, board, debug=False):
         valids = self.game.getValidMoves(board, player=0)
@@ -411,7 +413,7 @@ class GreedyPlayer():
             # Plaza position
             if features['PYR'] >= 1 and features['nbp_on_I'] >= 1 and features['NIV'] <= 1:
                 # -NIV, nb_IMP_on_I, nb_HEX_on_I, PYR_ORDER
-                category = 50000 - 10000*np.int32(features['NIV']) + features['plaza_position_score']
+                category = 50000 + 10000*(1-np.int32(features['NIV'])) + features['plaza_position_score']
             # Plaza out of pyramid
             elif features['PYR'] == 0 and features['nb_NBP'] >= 1:
                 if features['NIV'] >= 1:
@@ -420,16 +422,26 @@ class GreedyPlayer():
                     coords = [divmod(int(idx), CITY_SIZE) for idx in PATTERNS[pattern_idx]]
                     type_of_hexes_below = [self.game.board.board_descr[r, q, 0] for (r, q) in coords]
                     if set(type_of_hexes_below) <= {QUARRY, DISTRICT_BLUE}:
-                        category = 31000
-                else:
+                        category = 41000
+                elif self.nb_apply_rule_1b < 3:
                     score = score_out_of_pyramid(self.game, board, i)
-                    category = 20000 + 10*score[0] + score[1]
-            # Scoring position
-            elif features['PYR'] >= 1 and features['nb_NBD'] >= 1 and features['imp_on_I'] >= 1:
-                category = 10000 + 1000*np.int32(features['NIV']) + (features['scoring_position_score'] if features['NIV'] >= 1 else features['plaza_position_score'])
-            # Cheapest
-            elif features['PYR'] >= 1 and is_cheapest_move and features['imp_on_I'] == 0:
-                category = 0 + 1000*(3-features['hex_on_I']) - 100*np.int32(features['NIV'])
+                    category = 40000 + 100*score[0] + 10*score[1] + score[2]
+            elif features['PYR'] >= 1 and features['nbp_on_I'] >= 1 and features['NIV'] == 3 and self.nb_apply_rule_1b >= 3:
+                # -NIV, nb_IMP_on_I, nb_HEX_on_I, PYR_ORDER
+                category = 30000 + features['plaza_position_score']
+            # 2 NBD and 2 scoring position
+            elif features['PYR'] >= 1 and features['nb_NBD'] >= 2 and features['imp_on_I'] >= 2:
+                category = 20000 + 1000*(5-np.int32(features['NIV'])) + (features['scoring_position_score'] if features['NIV'] >= 1 else features['plaza_position_score'])
+            # cheapest
+            elif features['PYR'] >= 1 and is_cheapest_move:
+                if features['nb_NBD'] >= 1:
+                    category = 10000 + 1000*np.int32(features['NIV']) + 100*features['imp_on_I'] + (features['scoring_position_score'] if features['NIV'] >= 1 else features['plaza_position_score'])
+                elif features['hex_on_I'] == 0:
+                    category = 7000 + 100*np.int32(features['NIV'])
+            elif features['PYR'] >= 1 and features['nb_NBD'] >= 1:
+                category = 3000 + 100*np.int32(features['NIV'])       
+            elif features['PYR'] >= 1 and is_cheapest_move:
+                category = 100*np.int32(features['NIV']) 
 
             _tid, _p = divmod(i, CITY_SIZE * CITY_SIZE * N_ORIENTS)
             _coords = [divmod(int(idx), CITY_SIZE) for idx in PATTERNS[_p]]
@@ -443,6 +455,9 @@ class GreedyPlayer():
 
         if PRINT_DETAILS:
             print(f'actions avec meilleur cat: {best_actions}, {best_category}')
+
+        if 40000 <= best_category < 41000:
+            self.nb_apply_rule_1b += 1
 
         return best_actions, best_category
 
