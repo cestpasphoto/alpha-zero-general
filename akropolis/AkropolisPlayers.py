@@ -138,11 +138,14 @@ all_sp = _compute_scoring_positions(all_universes)
 
 # ===========================================================================
 
-def _is_non_blue_plaza(t: int) -> bool:
-    return t in {PLAZA_RED, PLAZA_YELLOW, PLAZA_PURPLE, PLAZA_GREEN}
+def _is_non_blue_plaza(h: int) -> bool:
+    return h in {PLAZA_RED, PLAZA_YELLOW, PLAZA_PURPLE, PLAZA_GREEN}
 
-def _is_non_blue_district(t: int) -> bool:
-    return t in {DISTRICT_RED, DISTRICT_YELLOW, DISTRICT_PURPLE, DISTRICT_GREEN}
+def _is_non_blue_district(h: int) -> bool:
+    return h in {DISTRICT_RED, DISTRICT_YELLOW, DISTRICT_PURPLE, DISTRICT_GREEN}
+
+def _is_important_hex(h: int) -> bool:
+    return _is_non_blue_district(h) or _is_non_blue_plaza(h)
 
 def _is_bd_or_q(t: int) -> bool:
     return t in {DISTRICT_BLUE, QUARRY}
@@ -276,51 +279,40 @@ def _fts_to_str(fts):
 
     return result
 
-def _check_universe(game, action: int, universe_idx: int, debug=False):
-    pyramid_coords = all_universes[universe_idx]
-    # highest_level = -1
-    for level, tiles in enumerate(pyramid_coords):
-        for tile in tiles:
-            h_of_tile   = [game.board.board_height[r, q, 0] for (r, q) in tile]
-            tID_of_tile = [game.board.board_tileID[r, q, 0] for (r, q) in tile]
-            if any([h == level for h in h_of_tile]):
-                # Check that the 3 hexes have either:
-                #   the same height and same tileID
-                #   a greater height
-                tID_of_same_level = [tID for (h,tID) in zip(h_of_tile, tID_of_tile) if h == level]
-                lower_level = [1 for h in h_of_tile if h < level]
-                # highest_level = max(highest_level, level)
-                if len(set(tID_of_same_level)) > 1 or len(lower_level) > 0:
-                    if debug:
-                        print(f'Fail general {level=} {tile=} {[game.board.board_height[r, q, 0] for (r, q) in tile]} {ids=}')
-                        breakpoint()
-                    return False
-
-    # Check new tile
-    _, pattern_idx = divmod(action, CITY_SIZE * CITY_SIZE * N_ORIENTS)
-    coords = [divmod(int(idx), CITY_SIZE) for idx in PATTERNS[pattern_idx]]
-    coord_set = frozenset(coords)
-    level = game.board.board_height[coords[0][0], coords[0][1], 0] + 1
-    if coord_set in pyramid_coords[level]:
-        result = True
-    else:
-        result = all(coord_set.isdisjoint(t) for t in pyramid_coords[level])
-
-    # if highest_level >= 3 and level >= 3 and result:
-    #     print(f'{level=} {pyramid_coords[level]=} {coords=}')
-    #     breakpoint()
-
-    # if debug and not result and level > 2:
-    #     print(f'Fail pour la tuile {level=} {pyramid_coords[level]=} {coords=}')
-    #     breakpoint()
-
-    return result
-
 PRINT_DETAILS = True
 class GreedyPlayer():
     def __init__(self, game):
         self.game = game
-        self.nb_apply_rule_1b = 0
+        self.possible_universes = list(range(8))
+
+    def _update_possible_universes(self, action, category):
+        pu_backup = self.possible_universes[:]
+        # Check if tile matches pyramid (fully in or fully out)
+        tile_idx, pattern_idx = divmod(action, CITY_SIZE * CITY_SIZE * N_ORIENTS)
+        coords = [divmod(int(idx), CITY_SIZE) for idx in PATTERNS[pattern_idx]]
+        coord_set = frozenset(coords)
+        level = self.game.board.board_height[coords[0][0], coords[0][1], 0] + 1
+        for universe_idx in self.possible_universes[:]:
+            pyramid_coords_level = all_universes[universe_idx][level]
+            if coord_set not in pyramid_coords_level:
+                if any(not coord_set.isdisjoint(t) for t in pyramid_coords_level):
+                    self.possible_universes.remove(universe_idx)
+
+        # Check that new tile wouldn't cover an important hex (or make a future tile do so)
+        # and if such situation could be avoided
+        # Keep the universes with the important hex on maximum sp
+        tile_id = int(self.game.board.construction_site[tile_idx, 3])
+        tile_descr = TILES_DATA[tile_id, :3]
+        coords_of_important_hexes = [(r,q) for h, (r, q) in zip(tile_descr, coords) if _is_important_hex(h) ]
+        n_important_on_sp = [sum(1 for (r,q) in coords_of_important_hexes if (r,q) in all_sp[universe_idx][level]) for universe_idx in self.possible_universes]
+        self.possible_universes = [u_idx for u_idx, v in zip(self.possible_universes, n_important_on_sp) if v == max(n_important_on_sp)]
+
+        diff = set(pu_backup) - set(self.possible_universes)
+        if len(diff) > 0:
+            print(f'Removed universes: {diff}')
+        print(f'Remaining universes are {self.possible_universes}')
+
+        breakpoint()
 
     def _categorize(self, board, debug=False):
         valids = self.game.getValidMoves(board, player=0)
@@ -334,10 +326,7 @@ class GreedyPlayer():
                 continue
 
             best_univ_idx, best_category_for_i, best_fts_for_i = [], -100, {}
-            for universe_idx in range(8):
-                if not _check_universe(self.game, i, universe_idx, debug=False):
-                    continue
-
+            for universe_idx in self.possible_universes:
                 fts = action_features_per_universe(self.game, i, universe_idx)
                 category = 0
 
@@ -347,7 +336,7 @@ class GreedyPlayer():
                     if fts['is_in_pyramid'] and fts['has_nbp_on_sp'] and fts['level'] <= 1:
                         # Rule 1a
                         category = 50000 + 1000*(1-np.int32(fts['level'])) + 100*fts['n_nbd_on_sp'] + 10*fts['rule1a_priority'] + max(3-fts['index_in_pyramid_level'], 0)
-                    elif fts['is_out_pyramid'] and fts['glob_hexes_out_of_pyramid'] < 3*3:
+                    elif fts['is_out_pyramid'] and fts['glob_hexes_out_of_pyramid'] <= 2*3:
                         if fts['level'] >= 1 and fts['cover_BD_and_Q_only']:
                             # Rule 1b - level 2
                             category = 41000
@@ -395,9 +384,6 @@ class GreedyPlayer():
         if PRINT_DETAILS:
             print(f'actions avec meilleur cat: {best_actions}, {best_category}')
 
-        if 40000 <= best_category < 50000:
-            self.nb_apply_rule_1b += 1
-
         return best_actions, best_category
 
 
@@ -422,6 +408,9 @@ class GreedyPlayer():
 
         # if PRINT_DETAILS and 40000 <= best_category < 50000:
         #     breakpoint()
+
+
+        self._update_possible_universes(action, best_category)
 
         return action
 

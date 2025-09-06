@@ -171,14 +171,14 @@ def gen_png(game, filename):
 
     text = (
         f'P0 {game.stones[0]}st {decode_value_from_int8(game.total_scores[0])}pts'
-        f'    -    {_print_cs(game)}    -    '
+        f'    -    {_print_cs(game)}    -    round {game.misc[0]}    -    '
         f'P1 {game.stones[1]}st {decode_value_from_int8(game.total_scores[1])}pts'
     )
  
     canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), color=BG_COLOR)
     draw   = ImageDraw.Draw(canvas)
 
-    font = ImageFont.load_default(24)
+    font = ImageFont.load_default(16)
     bbox      = draw.textbbox((0, 0), text, font=font)
     text_w    = bbox[2] - bbox[0]
     text_h    = bbox[3] - bbox[1]
