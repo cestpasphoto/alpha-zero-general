@@ -156,7 +156,7 @@ def neigh_it(r: int, q: int):
     using the odd-r offset convention.
     """
     dirs = DIRECTIONS_EVEN if (r & 1) == 0 else DIRECTIONS_ODD
-    for dr, dq in dirs:
+    for dq, dr in dirs:
         nr, nq = r + dr, q + dq
         if 0 <= nr < CITY_SIZE and 0 <= nq < CITY_SIZE:
             yield nr, nq
@@ -199,11 +199,12 @@ def _would_create_new_tileslot(game, tile_coords, tile_coords_set, tile_descr):
 
     return best_pattern_score
 
-def action_features_per_universe(game, action: int, universe_idx: int):
+def action_features_per_universe(game, action: int, universe_idx: int, debug=False):
     tile_idx, pattern_idx = divmod(action, CITY_SIZE * CITY_SIZE * N_ORIENTS)
     tile_id = int(game.board.construction_site[tile_idx, 3])
     tile_descr = TILES_DATA[tile_id, :3]
     board_descr = game.board.board_descr[:, :, 0]
+    board_height = game.board.board_height[:, :, 0]
 
     # ==== Tile-specific features ====
     has_nbp = any(_is_non_blue_plaza(h) for h in tile_descr)
@@ -214,7 +215,7 @@ def action_features_per_universe(game, action: int, universe_idx: int):
 
     coords = [divmod(int(idx), CITY_SIZE) for idx in PATTERNS[pattern_idx]]
     coord_set = frozenset(coords)
-    level = game.board.board_height[coords[0][0], coords[0][1], 0]
+    level = board_height[coords[0][0], coords[0][1]]
     pyramid_coords_level = all_universes[universe_idx][level+1] # array of set of coords
     scoring_positions_level = all_sp[universe_idx][level+1] # set of coords
     scoring_positions = set(sp for level in range(5) for sp in all_sp[universe_idx][level])
@@ -222,26 +223,32 @@ def action_features_per_universe(game, action: int, universe_idx: int):
     # ==== Position-specific features ====
     is_in_pyramid = (coord_set in pyramid_coords_level)
     is_out_pyramid = all(coord_set.isdisjoint(tile) for tile in pyramid_coords_level)
-    index_in_pyramid_level = pyramid_coords_level.index(coord_set) if is_in_pyramid else None
     n_hex_on_sp = sum(1 for (r, q) in coords if (r, q) in scoring_positions_level)
     rightmost_priority_for_0sp = max([c[1] for c in coords]) if n_hex_on_sp == 0 else 0
+    index_in_pyramid = min(pyramid_coords_level.index(coord_set), 3) if is_in_pyramid else 3
+    reverse_index_in_pyramid_lvl0 = 3-index_in_pyramid if level == 0 else 0
     # ====================================
 
     coords_of_yd_on_sp = [(r, q) for h, (r, q) in zip(tile_descr, coords) if (r, q) in scoring_positions_level and h == DISTRICT_YELLOW]
     hex_type_on_sp = [h for h, (r, q) in zip(tile_descr, coords) if (r, q) in scoring_positions_level]
-    n_pd_surrounded = sum(1 for (r, q) in coords for (rn, qn) in neigh_it(r, q) if board_descr[rn, qn] == DISTRICT_PURPLE) # Count twice if same PD surrounded by 2 hexes
-    # n_rd_surrounded = sum(1 for (r, q) in coords for (rn, qn) in neigh_it(r, q) if board_descr[rn, qn] == DISTRICT_RED)
+    n_pd_surrounded = sum(1 for (r, q) in coords if board_descr[r, q] == EMPTY for (rn, qn) in neigh_it(r, q) if board_descr[rn, qn] == DISTRICT_PURPLE) # Count twice if same PD surrounded by 2 hexes
+    n_rd_fully_surrounded = 0
+    for (r,q) in [(r,q) for r in range(CITY_SIZE) for q in range(CITY_SIZE) if board_descr[r, q] == DISTRICT_RED]:
+        if all( board_descr[rn, qn] != EMPTY or (rn, qn) in coords for (rn, qn) in neigh_it(r, q) ):
+            n_rd_fully_surrounded += 1
     n_q_under, n_bd_under = _would_create_new_tileslot(game, coords, coord_set, tile_descr) if is_out_pyramid and has_nbp else (0, 0)
     nbd_rotation_priority = sum([{DISTRICT_GREEN: 30, DISTRICT_RED: 10, DISTRICT_YELLOW: 3, DISTRICT_PURPLE: 1}.get(h, 0) for h in tile_descr])
-    n_sp_priority = ([2, 3, 1, 0] if n_nbd == 1 else [0, 1, 3, 2])[n_hex_on_sp] # 1>0>2>3sp if 1 NBD, else 2>3>1>0sp
+    n_sp_priority = ([3, 4, 2, 0] if n_nbd == 1 else [0, 2, 4, 3])[n_hex_on_sp] # 1>0>2>3sp if 1 NBD, else 2>3>1>0sp
 
     # ==== Complex features ====
-    cover_BD_and_Q_only = all(_is_bd_or_q(board_descr[r, q]) for (r, q) in coords)
-    rule1b_priority = 30*n_pd_surrounded + 5*n_q_under + n_bd_under
-    rule3a_priority = 100*n_sp_priority + nbd_rotation_priority
-    has_adjacent_yd_on_sp = any((rn, qn) in scoring_positions and board_descr[rn, qn] == DISTRICT_YELLOW for (r, q) in coords_of_yd_on_sp for (rn, qn) in neigh_it(r, q))
-    has_nbp_on_sp = any(_is_non_blue_plaza(h) for h in hex_type_on_sp)
+    rule1b_priority = 300*n_pd_surrounded + 50*max(0,2-n_rd_fully_surrounded) + 10*n_q_under + n_bd_under    
     n_nbd_on_sp = sum(1 for h in hex_type_on_sp if _is_non_blue_district(h))
+    if n_nbd == 2 and n_hex_on_sp == 2 and n_nbd_on_sp == 1:
+        n_sp_priority = 1 # special case when 2 nbd and available 2 sp, but can't match both because of adjacent YD
+    rule3a_priority = 100*n_sp_priority + nbd_rotation_priority
+    has_nbp_on_sp = any(_is_non_blue_plaza(h) for h in hex_type_on_sp)    
+    cover_BD_and_Q_only = all(_is_bd_or_q(board_descr[r, q]) for (r, q) in coords)
+    has_adjacent_yd_on_sp = any(board_descr[rn, qn] == DISTRICT_YELLOW and (rn, qn) in all_sp[universe_idx][board_height[rn, qn]] for (r, q) in coords_of_yd_on_sp for (rn, qn) in neigh_it(r, q))
     # ==========================
 
     buyable_tiles_id = [int(game.board.construction_site[tile_idx, 3]) for tile_idx in range(min(CONSTR_SITE_SIZE, game.board.stones[0]+1))]
@@ -250,12 +257,12 @@ def action_features_per_universe(game, action: int, universe_idx: int):
 
     # ==== Global features ====
     max_nbd_in_buyable_tiles = max([sum(1 for h in TILES_DATA[tid, :3] if _is_non_blue_district(h)) for tid in buyable_tiles_id])
-    glob_hexes_out_of_pyramid = sum(game.board.board_height[r, q, 0] for r in range(CITY_SIZE) for q in range(CITY_SIZE) if (r, q) not in hex_coords_of_whole_pyramid)
+    glob_hexes_out_of_pyramid = sum(board_height[r, q] for r in range(CITY_SIZE) for q in range(CITY_SIZE) if (r, q) not in hex_coords_of_whole_pyramid)
     # =========================
 
     return {name: locals()[name] for name in (
         "has_nbp", "n_nbd", "is_free_tile", "rule1a_priority",
-        "level", "rightmost_priority_for_0sp", "is_in_pyramid", "is_out_pyramid", "index_in_pyramid_level", "n_hex_on_sp",
+        "level", "rightmost_priority_for_0sp", "is_in_pyramid", "is_out_pyramid", "reverse_index_in_pyramid_lvl0", "n_hex_on_sp",
         "cover_BD_and_Q_only", "rule1b_priority", "rule3a_priority", "has_adjacent_yd_on_sp", "has_nbp_on_sp", "n_nbd_on_sp",
         "max_nbd_in_buyable_tiles", "glob_hexes_out_of_pyramid",
     )}
@@ -266,12 +273,12 @@ def _fts_to_str(fts):
     # result += "free " if fts['is_free_tile'] else "     "
 
     result += f"lvl{fts['level']}q{fts['rightmost_priority_for_0sp']} "
-    result += f"in{fts['index_in_pyramid_level']} " if fts['is_in_pyramid'] else ("OUT " if fts['is_out_pyramid'] else "mix ")
+    result += f"in{fts['reverse_index_in_pyramid_lvl0']} " if fts['is_in_pyramid'] else ("OUT " if fts['is_out_pyramid'] else "mix ")
     result += f"{fts['n_hex_on_sp']}sp=" + ("NBP" if fts['has_nbp_on_sp'] else "   ") + (f"+{fts['n_nbd_on_sp']}nbd " if fts['n_nbd_on_sp'] > 0 else "      ")
 
     result += "BDQ " if fts['cover_BD_and_Q_only'] else "    "
     result += f"1a={fts['rule1a_priority']} "
-    result += f"1b={fts['rule1b_priority']:2} "
+    result += f"1b={fts['rule1b_priority']:3} "
     result += f"3a={fts['rule3a_priority']:3} "
     result += "AYD " if fts['has_adjacent_yd_on_sp'] else "    "
     
@@ -279,7 +286,7 @@ def _fts_to_str(fts):
 
     return result
 
-PRINT_DETAILS = True
+PRINT_DETAILS = False
 class GreedyPlayer():
     def __init__(self, game):
         self.game = game
@@ -298,21 +305,62 @@ class GreedyPlayer():
                 if any(not coord_set.isdisjoint(t) for t in pyramid_coords_level):
                     self.possible_universes.remove(universe_idx)
 
-        # Check that new tile wouldn't cover an important hex (or make a future tile do so)
-        # and if such situation could be avoided
-        # Keep the universes with the important hex on maximum sp
+        # Keep the universes with the important hex on as much sp as possible
         tile_id = int(self.game.board.construction_site[tile_idx, 3])
         tile_descr = TILES_DATA[tile_id, :3]
         coords_of_important_hexes = [(r,q) for h, (r, q) in zip(tile_descr, coords) if _is_important_hex(h) ]
         n_important_on_sp = [sum(1 for (r,q) in coords_of_important_hexes if (r,q) in all_sp[universe_idx][level]) for universe_idx in self.possible_universes]
-        self.possible_universes = [u_idx for u_idx, v in zip(self.possible_universes, n_important_on_sp) if v == max(n_important_on_sp)]
+        n_hex_on_sp = [sum(1 for (r, q) in coords if (r, q) in all_sp[universe_idx][level]) for universe_idx in self.possible_universes]
+        n_metric = [10*nios-nhos for nios, nhos in zip(n_important_on_sp, n_hex_on_sp)]
+        # print('   ', list(zip(self.possible_universes, n_metric)))
+        self.possible_universes = [u_idx for u_idx, v in zip(self.possible_universes, n_metric) if v == max(n_metric)]
 
-        diff = set(pu_backup) - set(self.possible_universes)
-        if len(diff) > 0:
-            print(f'Removed universes: {diff}')
-        print(f'Remaining universes are {self.possible_universes}')
+        # diff = set(pu_backup) - set(self.possible_universes)
+        # if len(diff) > 0:
+        #     print(f'    Removed universes: {diff}')
+        # print(f'    Remaining universes are {self.possible_universes}')
 
-        breakpoint()
+    def _categorize_core(self, fts):
+        if fts['has_adjacent_yd_on_sp']:
+            return -10
+        
+        if fts['has_nbp']:
+            if fts['is_in_pyramid'] and fts['has_nbp_on_sp'] and fts['level'] <= 1:
+                # Rule 1a
+                return 50000 + 1000*(1-np.int32(fts['level'])) + 100*fts['n_nbd_on_sp'] + 10*fts['rule1a_priority'] + fts['reverse_index_in_pyramid_lvl0']
+            if fts['is_out_pyramid'] and fts['glob_hexes_out_of_pyramid'] <= 2*3:
+                if fts['level'] >= 1 and fts['cover_BD_and_Q_only']:
+                    # Rule 1b - level 2
+                    return 41000
+                if fts['level'] == 0:
+                    # Rule 1b - level 1
+                    return 40000 + fts['rule1b_priority']
+            if fts['is_in_pyramid'] and fts['has_nbp_on_sp']:
+                if fts['n_nbd'] >= fts['max_nbd_in_buyable_tiles'] and fts['level'] >= 3:
+                    # Rule 1c-1
+                    return 35000 + 1000*fts['n_nbd_on_sp'] + fts['rule1a_priority']
+                if fts['level'] == 3:
+                    # Rule 1c-2
+                    return 30000 + 1000*fts['n_nbd_on_sp'] + fts['rule1a_priority']
+        
+        if fts['is_in_pyramid']:
+            if fts['n_nbd_on_sp'] >= 2 and fts['level'] >= 1:
+                # Rule 2
+                return 29000
+            if fts['is_free_tile'] and fts['level'] >= 1 and fts['n_nbd'] >= 1:
+                # Rule 3a
+                return 10000 + 5000*fts['n_nbd_on_sp'] + 10*fts['rule3a_priority'] + fts['rightmost_priority_for_0sp']
+            if fts['is_free_tile'] and fts['level'] >= 1 and fts['n_hex_on_sp'] == 0:
+                # Rule 3b-1
+                return 7000 + fts['rightmost_priority_for_0sp']
+            if fts['n_nbd'] >= 1:
+                # Rule 3b-2
+                return 3000 + 1000*fts['n_nbd_on_sp'] + 100*(1 if fts['level'] >= 1 else 0) + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
+            if fts['is_free_tile']:
+                # Rule 3b-3
+                return 1000 + 100*(1 if fts['level'] >= 1 else 0) + 10*(3-fts['n_hex_on_sp']) + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
+
+        return 0
 
     def _categorize(self, board, debug=False):
         valids = self.game.getValidMoves(board, player=0)
@@ -328,45 +376,7 @@ class GreedyPlayer():
             best_univ_idx, best_category_for_i, best_fts_for_i = [], -100, {}
             for universe_idx in self.possible_universes:
                 fts = action_features_per_universe(self.game, i, universe_idx)
-                category = 0
-
-                if fts['has_adjacent_yd_on_sp']:
-                    category = -10
-                elif fts['has_nbp']:
-                    if fts['is_in_pyramid'] and fts['has_nbp_on_sp'] and fts['level'] <= 1:
-                        # Rule 1a
-                        category = 50000 + 1000*(1-np.int32(fts['level'])) + 100*fts['n_nbd_on_sp'] + 10*fts['rule1a_priority'] + max(3-fts['index_in_pyramid_level'], 0)
-                    elif fts['is_out_pyramid'] and fts['glob_hexes_out_of_pyramid'] <= 2*3:
-                        if fts['level'] >= 1 and fts['cover_BD_and_Q_only']:
-                            # Rule 1b - level 2
-                            category = 41000
-                        elif fts['level'] == 0:
-                            # Rule 1b - level 1
-                            category = 40000 + fts['rule1b_priority']
-                    elif fts['is_in_pyramid'] and fts['has_nbp_on_sp']:
-                        if fts['n_nbd'] >= fts['max_nbd_in_buyable_tiles'] and fts['level'] >= 3:
-                            # Rule 1c-1
-                            category = 35000 + 1000*fts['n_nbd_on_sp'] + fts['rule1a_priority']
-                        elif fts['level'] == 3:
-                            # Rule 1c-2
-                            category = 30000 + 1000*fts['n_nbd_on_sp'] + fts['rule1a_priority']
-                elif fts['is_in_pyramid']:
-                    if fts['n_nbd_on_sp'] >= 2 and fts['level'] >= 1:
-                        # Rule 2
-                        category = 29000
-                    elif fts['is_free_tile'] and fts['level'] >= 1 and fts['n_nbd'] >= 1:
-                        # Rule 3a
-                        category = 10000 + 5000*fts['n_nbd_on_sp'] + 10*fts['rule3a_priority'] + fts['rightmost_priority_for_0sp']
-                    elif fts['is_free_tile'] and fts['level'] >= 1 and fts['n_hex_on_sp'] == 0:
-                        # Rule 3b-1
-                        category = 7000 + fts['rightmost_priority_for_0sp']
-                    elif fts['n_nbd'] >= 1 and fts['level'] >= 1:
-                        # Rule 3b-2
-                        category = 3000 + fts['rightmost_priority_for_0sp']
-                    elif fts['is_free_tile']:
-                        # Rule 3b-3
-                        category = 1000 + fts['rightmost_priority_for_0sp']
-
+                category = self._categorize_core(fts)
                 if category > best_category_for_i:
                     best_univ_idx, best_category_for_i, best_fts_for_i = universe_idx, category, fts
 
@@ -406,11 +416,10 @@ class GreedyPlayer():
         if PRINT_DETAILS:
            print(f'action choisie: {action}')
 
-        # if PRINT_DETAILS and 40000 <= best_category < 50000:
-        #     breakpoint()
-
-
         self._update_possible_universes(action, best_category)
+
+        # if PRINT_DETAILS and 0 <= best_category < 41000:
+        #     breakpoint()
 
         return action
 
