@@ -79,7 +79,13 @@ lvl1_tiles =  [
     {(4, 2), (4, 3), (5, 2)},
 ]
 
-surrounded_hexes = { (5,3), (6,5), (5,6) }
+lvl1_tiles_alt =  [
+    {(4, 7), (5, 6), (5, 7)},
+    {(7, 4), (6, 5), (6, 4)},
+    {(4, 4), (5, 3), (5, 4)},
+    {(6, 8), (7, 8), (6, 9)},
+    {(4, 8), (5, 8), (4, 9)},
+]
  
 def _compute_level_pyramid(leftest_hex, n_tiles):
     r0, q0 = leftest_hex
@@ -133,7 +139,8 @@ def _compute_scoring_positions(all_universes):
         result[i] = scoring_positions_by_level
     return result
 
-all_universes, _ = _compute_all({}, [[], lvl1_tiles], 0, (6,2), 4)
+all_universes, n_universes = _compute_all({}, [[], lvl1_tiles], 0, (6,2), 4)
+all_universes, n_universes = _compute_all(all_universes, [[], lvl1_tiles_alt], n_universes, (5,3), 4)
 all_sp = _compute_scoring_positions(all_universes)
 
 # ===========================================================================
@@ -237,15 +244,14 @@ def action_features_per_universe(game, action: int, universe_idx: int, debug=Fal
         if all( board_descr[rn, qn] != EMPTY or (rn, qn) in coords for (rn, qn) in neigh_it(r, q) ):
             n_rd_fully_surrounded += 1
     n_q_under, n_bd_under = _would_create_new_tileslot(game, coords, coord_set, tile_descr) if is_out_pyramid and has_nbp else (0, 0)
-    nbd_rotation_priority = sum([{DISTRICT_GREEN: 30, DISTRICT_RED: 10, DISTRICT_YELLOW: 3, DISTRICT_PURPLE: 1}.get(h, 0) for h in tile_descr])
-    n_sp_priority = ([3, 4, 2, 0] if n_nbd == 1 else [0, 2, 4, 3])[n_hex_on_sp] # 1>0>2>3sp if 1 NBD, else 2>3>1>0sp
-
+    
     # ==== Complex features ====
     rule1b_priority = 300*n_pd_surrounded + 50*max(0,2-n_rd_fully_surrounded) + 10*n_q_under + n_bd_under    
     n_nbd_on_sp = sum(1 for h in hex_type_on_sp if _is_non_blue_district(h))
+    nbd_rotation_priority = sum([{DISTRICT_GREEN: 30, DISTRICT_RED: 10, DISTRICT_YELLOW: 3, DISTRICT_PURPLE: 1}.get(h, 0) for h in hex_type_on_sp])
+    n_sp_priority = ([3, 4, 2, 0] if n_nbd == 1 else [0, 2, 3, 4])[n_hex_on_sp] # 1>0>2>3sp if 1 NBD, else 3>2>1>0sp
     if n_nbd == 2 and n_hex_on_sp == 2 and n_nbd_on_sp == 1:
         n_sp_priority = 1 # special case when 2 nbd and available 2 sp, but can't match both because of adjacent YD
-    rule3a_priority = 100*n_sp_priority + nbd_rotation_priority
     has_nbp_on_sp = any(_is_non_blue_plaza(h) for h in hex_type_on_sp)    
     cover_BD_and_Q_only = all(_is_bd_or_q(board_descr[r, q]) for (r, q) in coords)
     has_adjacent_yd_on_sp = any(board_descr[rn, qn] == DISTRICT_YELLOW and (rn, qn) in all_sp[universe_idx][board_height[rn, qn]] for (r, q) in coords_of_yd_on_sp for (rn, qn) in neigh_it(r, q))
@@ -263,7 +269,7 @@ def action_features_per_universe(game, action: int, universe_idx: int, debug=Fal
     return {name: locals()[name] for name in (
         "has_nbp", "n_nbd", "is_free_tile", "rule1a_priority",
         "level", "rightmost_priority_for_0sp", "is_in_pyramid", "is_out_pyramid", "reverse_index_in_pyramid_lvl0", "n_hex_on_sp",
-        "cover_BD_and_Q_only", "rule1b_priority", "rule3a_priority", "has_adjacent_yd_on_sp", "has_nbp_on_sp", "n_nbd_on_sp",
+        "cover_BD_and_Q_only", "rule1b_priority", "nbd_rotation_priority", "n_sp_priority", "has_adjacent_yd_on_sp", "has_nbp_on_sp", "n_nbd_on_sp",
         "max_nbd_in_buyable_tiles", "glob_hexes_out_of_pyramid",
     )}
 
@@ -279,18 +285,18 @@ def _fts_to_str(fts):
     result += "BDQ " if fts['cover_BD_and_Q_only'] else "    "
     result += f"1a={fts['rule1a_priority']} "
     result += f"1b={fts['rule1b_priority']:3} "
-    result += f"3a={fts['rule3a_priority']:3} "
+    result += f"3a={fts['nbd_rotation_priority']:3}-{fts['n_sp_priority']} "
     result += "AYD " if fts['has_adjacent_yd_on_sp'] else "    "
     
     result += f"{fts['max_nbd_in_buyable_tiles']}, {fts['glob_hexes_out_of_pyramid']}"
 
     return result
 
-PRINT_DETAILS = False
+PRINT_DETAILS = True
 class GreedyPlayer():
     def __init__(self, game):
         self.game = game
-        self.possible_universes = list(range(8))
+        self.possible_universes = list(range(n_universes))
 
     def _update_possible_universes(self, action, category):
         pu_backup = self.possible_universes[:]
@@ -319,6 +325,8 @@ class GreedyPlayer():
         # if len(diff) > 0:
         #     print(f'    Removed universes: {diff}')
         # print(f'    Remaining universes are {self.possible_universes}')
+        # if all(u>=8 for u in self.possible_universes):
+        #     breakpoint()
 
     def _categorize_core(self, fts):
         if fts['has_adjacent_yd_on_sp']:
@@ -349,16 +357,22 @@ class GreedyPlayer():
                 return 29000
             if fts['is_free_tile'] and fts['level'] >= 1 and fts['n_nbd'] >= 1:
                 # Rule 3a
-                return 10000 + 5000*fts['n_nbd_on_sp'] + 10*fts['rule3a_priority'] + fts['rightmost_priority_for_0sp']
+                if fts['n_hex_on_sp'] > 0 and fts['n_nbd_on_sp'] > 0:
+                    return 20000 + 1000*fts['n_sp_priority'] + 10*fts['nbd_rotation_priority'] + fts['rightmost_priority_for_0sp']
+                if fts['n_hex_on_sp'] == 0:
+                    return 20000 + 1000*fts['n_sp_priority'] + 10*fts['nbd_rotation_priority'] + fts['rightmost_priority_for_0sp']
             if fts['is_free_tile'] and fts['level'] >= 1 and fts['n_hex_on_sp'] == 0:
                 # Rule 3b-1
-                return 7000 + fts['rightmost_priority_for_0sp']
+                return 19000 + fts['rightmost_priority_for_0sp']
             if fts['n_nbd'] >= 1:
                 # Rule 3b-2
-                return 3000 + 1000*fts['n_nbd_on_sp'] + 100*(1 if fts['level'] >= 1 else 0) + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
+                if fts['n_hex_on_sp'] > 0 and fts['n_nbd_on_sp'] > 0:
+                    return 1000 + 5000*(1 if fts['level'] >= 1 else 0) + 1000*fts['n_sp_priority'] + 10*fts['nbd_rotation_priority'] + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
+                if fts['n_hex_on_sp'] == 0:
+                    return 1000 + 5000*(1 if fts['level'] >= 1 else 0) + 1000*fts['n_sp_priority'] + 10*fts['nbd_rotation_priority'] + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
             if fts['is_free_tile']:
                 # Rule 3b-3
-                return 1000 + 100*(1 if fts['level'] >= 1 else 0) + 10*(3-fts['n_hex_on_sp']) + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
+                return 0 + 100*(1 if fts['level'] >= 1 else 0) + 10*(3-fts['n_hex_on_sp']) + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
 
         return 0
 
@@ -418,7 +432,7 @@ class GreedyPlayer():
 
         self._update_possible_universes(action, best_category)
 
-        # if PRINT_DETAILS and 0 <= best_category < 41000:
+        # if PRINT_DETAILS and 0 <= best_category < 29000:
         #     breakpoint()
 
         return action
