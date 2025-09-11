@@ -145,17 +145,19 @@ all_sp = _compute_scoring_positions(all_universes)
 
 # ===========================================================================
 
+PURPLE_IS_BLANK = False
+
 def _is_non_blue_plaza(h: int) -> bool:
-    return h in {PLAZA_RED, PLAZA_YELLOW, PLAZA_PURPLE, PLAZA_GREEN}
+    return h in {PLAZA_RED, PLAZA_YELLOW, -1 if PURPLE_IS_BLANK else PLAZA_PURPLE, PLAZA_GREEN}
 
 def _is_non_blue_district(h: int) -> bool:
-    return h in {DISTRICT_RED, DISTRICT_YELLOW, DISTRICT_PURPLE, DISTRICT_GREEN}
+    return h in {DISTRICT_RED, DISTRICT_YELLOW, -1 if PURPLE_IS_BLANK else DISTRICT_PURPLE, DISTRICT_GREEN}
 
 def _is_important_hex(h: int) -> bool:
     return _is_non_blue_district(h) or _is_non_blue_plaza(h)
 
 def _is_bd_or_q(t: int) -> bool:
-    return t in {DISTRICT_BLUE, QUARRY}
+    return t in {DISTRICT_BLUE, QUARRY, DISTRICT_PURPLE if PURPLE_IS_BLANK else -1}
 
 def neigh_it(r: int, q: int):
     """
@@ -198,7 +200,10 @@ def _would_create_new_tileslot(game, tile_coords, tile_coords_set, tile_descr):
         n_bd     = sum(game.board.board_descr[r, q, 0] == DISTRICT_BLUE for (r,q) in candidate_only_coords)
         # add the ones from the new tile
         n_quarry += sum(1 for (r, q) in common_coords if tile_descr[tile_coords.index((r, q))] == QUARRY)
-        n_bd     += sum(1 for (r, q) in common_coords if tile_descr[tile_coords.index((r, q))] == DISTRICT_BLUE)
+        if PURPLE_IS_BLANK:
+            n_bd     += sum(1 for (r, q) in common_coords if tile_descr[tile_coords.index((r, q))] in [DISTRICT_BLUE, DISTRICT_PURPLE])
+        else:
+            n_bd     += sum(1 for (r, q) in common_coords if tile_descr[tile_coords.index((r, q))] == DISTRICT_BLUE)
 
         pattern_score = (n_quarry, n_bd)
         if pattern_score > best_pattern_score:
@@ -217,7 +222,10 @@ def action_features_per_universe(game, action: int, universe_idx: int, debug=Fal
     has_nbp = any(_is_non_blue_plaza(h) for h in tile_descr)
     n_nbd = sum(_is_non_blue_district(h) for h in tile_descr)
     is_free_tile = (tile_idx == 0)
-    rule1a_priority = sum([{PLAZA_GREEN: 4, PLAZA_RED: 3, PLAZA_PURPLE: 2, PLAZA_YELLOW: 1}.get(h, 0) for h in tile_descr])
+    if PURPLE_IS_BLANK:
+        rule1a_priority = sum([{PLAZA_GREEN: 4, PLAZA_RED: 3                 , PLAZA_YELLOW: 1}.get(h, 0) for h in tile_descr])
+    else:
+        rule1a_priority = sum([{PLAZA_GREEN: 4, PLAZA_RED: 3, PLAZA_PURPLE: 2, PLAZA_YELLOW: 1}.get(h, 0) for h in tile_descr])
     # ================================
 
     coords = [divmod(int(idx), CITY_SIZE) for idx in PATTERNS[pattern_idx]]
@@ -238,20 +246,47 @@ def action_features_per_universe(game, action: int, universe_idx: int, debug=Fal
 
     coords_of_yd_on_sp = [(r, q) for h, (r, q) in zip(tile_descr, coords) if (r, q) in scoring_positions_level and h == DISTRICT_YELLOW]
     hex_type_on_sp = [h for h, (r, q) in zip(tile_descr, coords) if (r, q) in scoring_positions_level]
-    n_pd_surrounded = sum(1 for (r, q) in coords if board_descr[r, q] == EMPTY for (rn, qn) in neigh_it(r, q) if board_descr[rn, qn] == DISTRICT_PURPLE) # Count twice if same PD surrounded by 2 hexes
+    if PURPLE_IS_BLANK:
+        n_pd_surrounded = 0
+    else:
+        n_pd_surrounded = sum(1 for (r, q) in coords if board_descr[r, q] == EMPTY for (rn, qn) in neigh_it(r, q) if board_descr[rn, qn] == DISTRICT_PURPLE) # Count twice if same PD surrounded by 2 hexes
     n_rd_fully_surrounded = 0
     for (r,q) in [(r,q) for r in range(CITY_SIZE) for q in range(CITY_SIZE) if board_descr[r, q] == DISTRICT_RED]:
         if all( board_descr[rn, qn] != EMPTY or (rn, qn) in coords for (rn, qn) in neigh_it(r, q) ):
             n_rd_fully_surrounded += 1
     n_q_under, n_bd_under = _would_create_new_tileslot(game, coords, coord_set, tile_descr) if is_out_pyramid and has_nbp else (0, 0)
-    
+    # nbd_on_sp, hex_on_sp, nbd 
+    n_sp_priority_table = [
+        (0, 3, 0), #  0
+        (0, 2, 0), #  1
+        (0, 2, 1), #  2
+        (0, 1, 2), #  3
+        (0, 1, 1), #  4
+        (0, 1, 0), #  5
+        (0, 0, 2), #  6
+        (0, 0, 1), #  7
+        (0, 0, 0), #  8
+        (1, 3, 1), #  9
+        (1, 2, 1), # 10
+        (1, 2, 2), # 11
+        (1, 2, 1), # 12
+        (1, 1, 2), # 13
+        (1, 1, 1), # 14
+        (2, 2, 2), # 15
+        (2, 3, 2), # 16
+    ]
+
     # ==== Complex features ====
     rule1b_priority = 300*n_pd_surrounded + 50*max(0,2-n_rd_fully_surrounded) + 10*n_q_under + n_bd_under    
     n_nbd_on_sp = sum(1 for h in hex_type_on_sp if _is_non_blue_district(h))
-    nbd_rotation_priority = sum([{DISTRICT_GREEN: 30, DISTRICT_RED: 10, DISTRICT_YELLOW: 3, DISTRICT_PURPLE: 1}.get(h, 0) for h in hex_type_on_sp])
+    if PURPLE_IS_BLANK:
+        nbd_rotation_priority = sum([{DISTRICT_GREEN: 30, DISTRICT_RED: 10, DISTRICT_YELLOW: 3                    }.get(h, 0) for h in hex_type_on_sp])
+    else:
+        nbd_rotation_priority = sum([{DISTRICT_GREEN: 30, DISTRICT_RED: 10, DISTRICT_YELLOW: 3, DISTRICT_PURPLE: 1}.get(h, 0) for h in hex_type_on_sp])
     n_sp_priority = ([3, 4, 2, 0] if n_nbd == 1 else [0, 2, 3, 4])[n_hex_on_sp] # 1>0>2>3sp if 1 NBD, else 3>2>1>0sp
     if n_nbd == 2 and n_hex_on_sp == 2 and n_nbd_on_sp == 1:
         n_sp_priority = 1 # special case when 2 nbd and available 2 sp, but can't match both because of adjacent YD
+    n_sp_priority_bis = n_sp_priority_table.index((n_nbd_on_sp, n_hex_on_sp, n_nbd))
     has_nbp_on_sp = any(_is_non_blue_plaza(h) for h in hex_type_on_sp)    
     cover_BD_and_Q_only = all(_is_bd_or_q(board_descr[r, q]) for (r, q) in coords)
     has_adjacent_yd_on_sp = any(board_descr[rn, qn] == DISTRICT_YELLOW and (rn, qn) in all_sp[universe_idx][board_height[rn, qn]] for (r, q) in coords_of_yd_on_sp for (rn, qn) in neigh_it(r, q))
@@ -269,7 +304,7 @@ def action_features_per_universe(game, action: int, universe_idx: int, debug=Fal
     return {name: locals()[name] for name in (
         "has_nbp", "n_nbd", "is_free_tile", "rule1a_priority",
         "level", "rightmost_priority_for_0sp", "is_in_pyramid", "is_out_pyramid", "reverse_index_in_pyramid_lvl0", "n_hex_on_sp",
-        "cover_BD_and_Q_only", "rule1b_priority", "nbd_rotation_priority", "n_sp_priority", "has_adjacent_yd_on_sp", "has_nbp_on_sp", "n_nbd_on_sp",
+        "cover_BD_and_Q_only", "rule1b_priority", "nbd_rotation_priority", "n_sp_priority", "n_sp_priority_bis", "has_adjacent_yd_on_sp", "has_nbp_on_sp", "n_nbd_on_sp",
         "max_nbd_in_buyable_tiles", "glob_hexes_out_of_pyramid",
     )}
 
@@ -283,6 +318,7 @@ def _fts_to_str(fts):
     result += f"{fts['n_hex_on_sp']}sp=" + ("NBP" if fts['has_nbp_on_sp'] else "   ") + (f"+{fts['n_nbd_on_sp']}nbd " if fts['n_nbd_on_sp'] > 0 else "      ")
 
     result += "BDQ " if fts['cover_BD_and_Q_only'] else "    "
+    result += f"prio={fts['n_sp_priority_bis']:2} "
     result += f"1a={fts['rule1a_priority']} "
     result += f"1b={fts['rule1b_priority']:3} "
     result += f"3a={fts['nbd_rotation_priority']:3}-{fts['n_sp_priority']} "
@@ -318,15 +354,13 @@ class GreedyPlayer():
         n_important_on_sp = [sum(1 for (r,q) in coords_of_important_hexes if (r,q) in all_sp[universe_idx][level]) for universe_idx in self.possible_universes]
         n_hex_on_sp = [sum(1 for (r, q) in coords if (r, q) in all_sp[universe_idx][level]) for universe_idx in self.possible_universes]
         n_metric = [10*nios-nhos for nios, nhos in zip(n_important_on_sp, n_hex_on_sp)]
-        # print('   ', list(zip(self.possible_universes, n_metric)))
+        print('   ', list(zip(self.possible_universes, n_metric)))
         self.possible_universes = [u_idx for u_idx, v in zip(self.possible_universes, n_metric) if v == max(n_metric)]
 
-        # diff = set(pu_backup) - set(self.possible_universes)
-        # if len(diff) > 0:
-        #     print(f'    Removed universes: {diff}')
-        # print(f'    Remaining universes are {self.possible_universes}')
-        # if all(u>=8 for u in self.possible_universes):
-        #     breakpoint()
+        diff = set(pu_backup) - set(self.possible_universes)
+        if len(diff) > 0:
+            print(f'    Removed universes: {diff}')
+        print(f'    Remaining universes are {self.possible_universes}')
 
     def _categorize_core(self, fts):
         if fts['has_adjacent_yd_on_sp']:
@@ -335,41 +369,41 @@ class GreedyPlayer():
         if fts['has_nbp']:
             if fts['is_in_pyramid'] and fts['has_nbp_on_sp'] and fts['level'] <= 1:
                 # Rule 1a
-                return 50000 + 1000*(1-np.int32(fts['level'])) + 100*fts['n_nbd_on_sp'] + 10*fts['rule1a_priority'] + fts['reverse_index_in_pyramid_lvl0']
+                return 500000 + 10000*(1-np.int32(fts['level'])) + 100*fts['n_sp_priority_bis'] + 10*fts['rule1a_priority'] + fts['reverse_index_in_pyramid_lvl0']
             if fts['is_out_pyramid'] and fts['glob_hexes_out_of_pyramid'] <= 2*3:
                 if fts['level'] >= 1 and fts['cover_BD_and_Q_only']:
                     # Rule 1b - level 2
-                    return 41000
+                    return 410000
                 if fts['level'] == 0:
                     # Rule 1b - level 1
-                    return 40000 + fts['rule1b_priority']
+                    return 400000 + fts['rule1b_priority']
             if fts['is_in_pyramid'] and fts['has_nbp_on_sp']:
                 if fts['n_nbd'] >= fts['max_nbd_in_buyable_tiles'] and fts['level'] >= 3:
                     # Rule 1c-1
-                    return 35000 + 1000*fts['n_nbd_on_sp'] + fts['rule1a_priority']
+                    return 350000 + 1000*fts['n_sp_priority_bis'] + fts['rule1a_priority']
                 if fts['level'] == 3:
                     # Rule 1c-2
-                    return 30000 + 1000*fts['n_nbd_on_sp'] + fts['rule1a_priority']
+                    return 300000 + 1000*fts['n_sp_priority_bis'] + fts['rule1a_priority']
         
         if fts['is_in_pyramid']:
             if fts['n_nbd_on_sp'] >= 2 and fts['level'] >= 1:
                 # Rule 2
-                return 29000
+                return 290000
             if fts['is_free_tile'] and fts['level'] >= 1 and fts['n_nbd'] >= 1:
                 # Rule 3a
                 if fts['n_hex_on_sp'] > 0 and fts['n_nbd_on_sp'] > 0:
-                    return 20000 + 1000*fts['n_sp_priority'] + 10*fts['nbd_rotation_priority'] + fts['rightmost_priority_for_0sp']
+                    return 200000 + 1000*fts['n_sp_priority_bis'] + 10*fts['nbd_rotation_priority'] + fts['rightmost_priority_for_0sp']
                 if fts['n_hex_on_sp'] == 0:
-                    return 20000 + 1000*fts['n_sp_priority'] + 10*fts['nbd_rotation_priority'] + fts['rightmost_priority_for_0sp']
+                    return 200000 + 1000*fts['n_sp_priority_bis'] + 10*fts['nbd_rotation_priority'] + fts['rightmost_priority_for_0sp']
             if fts['is_free_tile'] and fts['level'] >= 1 and fts['n_hex_on_sp'] == 0:
                 # Rule 3b-1
-                return 19000 + fts['rightmost_priority_for_0sp']
+                return 190000 + fts['rightmost_priority_for_0sp']
             if fts['n_nbd'] >= 1:
                 # Rule 3b-2
                 if fts['n_hex_on_sp'] > 0 and fts['n_nbd_on_sp'] > 0:
-                    return 1000 + 5000*(1 if fts['level'] >= 1 else 0) + 1000*fts['n_sp_priority'] + 10*fts['nbd_rotation_priority'] + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
+                    return 100000 + 50000*(1 if fts['level'] >= 1 else 0) + 1000*fts['n_sp_priority_bis'] + 10*fts['nbd_rotation_priority'] + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
                 if fts['n_hex_on_sp'] == 0:
-                    return 1000 + 5000*(1 if fts['level'] >= 1 else 0) + 1000*fts['n_sp_priority'] + 10*fts['nbd_rotation_priority'] + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
+                    return 100000 + 50000*(1 if fts['level'] >= 1 else 0) + 1000*fts['n_sp_priority_bis'] + 10*fts['nbd_rotation_priority'] + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
             if fts['is_free_tile']:
                 # Rule 3b-3
                 return 0 + 100*(1 if fts['level'] >= 1 else 0) + 10*(3-fts['n_hex_on_sp']) + fts['reverse_index_in_pyramid_lvl0'] + fts['rightmost_priority_for_0sp']
@@ -398,7 +432,7 @@ class GreedyPlayer():
             _tid, _p = divmod(i, CITY_SIZE * CITY_SIZE * N_ORIENTS)
             _coords = [divmod(int(idx), CITY_SIZE) for idx in PATTERNS[_p]]
             if debug or (PRINT_DETAILS and best_category_for_i > best_category - 10000 and best_category_for_i > 0):
-                print(f'{i:4} u{best_univ_idx}: {best_category_for_i:5} - {_tid} {_coords} {_fts_to_str(best_fts_for_i)}')
+                print(f'{i:4} u{best_univ_idx:<2}: {best_category_for_i:6} - {_tid} {_coords} {_fts_to_str(best_fts_for_i)}')
          
             if best_category_for_i > best_category:
                 best_actions, best_category = [i], best_category_for_i
@@ -412,6 +446,10 @@ class GreedyPlayer():
 
 
     def play(self, board, nb_moves):
+        # Reset possible_universes when starting a new game
+        if self.game.board.misc[0] < self.game.num_players:
+            self.possible_universes = list(range(n_universes))
+
         best_actions, best_category = self._categorize(board, debug=False)
         
         # Discriminate best actions
