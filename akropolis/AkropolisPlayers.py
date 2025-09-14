@@ -140,7 +140,7 @@ def _compute_scoring_positions(all_universes):
     return result
 
 all_universes, n_universes = _compute_all({}, [[], lvl1_tiles], 0, (6,2), 4)
-all_universes, n_universes = _compute_all(all_universes, [[], lvl1_tiles_alt], n_universes, (5,3), 4)
+# all_universes, n_universes = _compute_all(all_universes, [[], lvl1_tiles_alt], n_universes, (5,3), 4)
 all_sp = _compute_scoring_positions(all_universes)
 
 # ===========================================================================
@@ -276,6 +276,27 @@ def action_features_per_universe(game, action: int, universe_idx: int, debug=Fal
         (2, 3, 2), # 16
     ]
 
+    # n_sp_priority_table = [
+    #     (0, 2, 2),
+    #     (0, 1, 2), # 3
+    #     (0, 0, 2), # 6
+    #     (0, 2, 1), # 2
+    #     (0, 1, 1), # 4
+    #     (0, 0, 1), # 7
+    #     (1, 2, 2), # 11
+    #     (1, 1, 2), # 13
+    #     (0, 3, 0), # 0
+    #     (0, 2, 0), # 1
+    #     (0, 1, 0), # 5
+    #     (0, 0, 0), # 8
+    #     (1, 3, 1), # 9
+    #     (1, 2, 1), # 12
+    #     (1, 1, 1), # 14
+    #     (2, 2, 2), # 15
+    #     (2, 3, 2), # 16
+    # ] 
+
+
     # ==== Complex features ====
     rule1b_priority = 300*n_pd_surrounded + 50*max(0,2-n_rd_fully_surrounded) + 10*n_q_under + n_bd_under    
     n_nbd_on_sp = sum(1 for h in hex_type_on_sp if _is_non_blue_district(h))
@@ -325,7 +346,7 @@ def _fts_to_str(fts):
 
     return result
 
-PRINT_DETAILS = True
+PRINT_DETAILS = False
 class GreedyPlayer():
     def __init__(self, game):
         self.game = game

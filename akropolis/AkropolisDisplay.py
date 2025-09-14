@@ -304,7 +304,7 @@ def print_board(game):
     # remaining = [str(tile) for tile in game.construction_site if tile[0] != EMPTY]
     print("Construction site:", ' '.join(remaining), '  ', int(game.misc[1]), ' stack(s) remaining')
 
-    gen_png(game, f'./board_{game.misc[0]:02}.png')
+    # gen_png(game, f'./board_{game.misc[0]:02}.png')
 
 def move_to_str(move: int, player: int) -> str:
     tile_idx_in_cs, rem  = divmod(move, N_PATTERNS)
