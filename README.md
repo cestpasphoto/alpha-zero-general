@@ -75,11 +75,13 @@ _#_ is number of next round).
 
 * [x] Support of 2-3-4 players (just change NUMBER_PLAYERS constant)
 * [x] Added pretrained models for 2-3-4 players
-* [ ] Benchmark versus "undefeated strategy" proposed on youtube
+* [x] Benchmark versus "undefeated strategy" proposed on youtube
 
 The AI engine doesn't know which tiles will be drawn.
 
 ![Sample game](akropolis/sample_game.gif)
+
+About 75+% winrate against [Undefeated Strategy](https://www.youtube.com/watch?v=1YKqBVuS65I). See [more details here](https://www.reddit.com/r/boardgames/comments/133f72n/comment/ne1dg79/)
 
 ---
 
