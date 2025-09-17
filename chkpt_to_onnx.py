@@ -10,14 +10,18 @@ def load_checkpoint(filepath):
 	try:
 		checkpoint = torch.load(filepath, map_location='cpu')
 		nnet = checkpoint['full_model']
-		print(f'NN version: {checkpoint["nn_version"]}, network i/o shape: {nnet.nb_vect}x{nnet.vect_dim} -> {nnet.action_size}, total nb of nnet params: {sum(p.numel() for p in nnet.parameters())}')
+		nn_shape = f'{nnet.nb_vect}x{nnet.vect_dim}' if 'vect_dim' in nnet.__dict__ else f'{nnet.board_size}'
+		print(f'NN version: {checkpoint["nn_version"]}, network i/o shape: {nn_shape} -> {nnet.action_size}, total nb of nnet params: {sum(p.numel() for p in nnet.parameters())}')
 		return nnet
 	except:
 		print("MODEL {} CAN'T BE READ".format(filepath))
 		return None
 
 def export_onnx(nnet, output_filepath):
-	dummy_board         = torch.randn(1, nnet.nb_vect, nnet.vect_dim, dtype=torch.float32)
+	if 'vect_dim' in nnet.__dict__:
+		dummy_board         = torch.randn(1, nnet.nb_vect, nnet.vect_dim, dtype=torch.float32)
+	else:
+		dummy_board         = torch.randn(nnet.board_size, dtype=torch.float32).unsqueeze(0)
 	dummy_valid_actions = torch.BoolTensor(torch.randn(1, nnet.action_size)>0.5)
 	nnet.to('cpu')
 	nnet.eval()

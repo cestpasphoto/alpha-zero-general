@@ -1,15 +1,13 @@
-from collections import OrderedDict
 import logging
+log = logging.getLogger(__name__)
 
 import bisect
 from tqdm import trange
 import zlib
 import base64
+from os import environ
 
 from MCTS import MCTS
-
-log = logging.getLogger(__name__)
-
 
 class Arena():
     """
@@ -32,6 +30,7 @@ class Arena():
         self.player2 = player2
         self.game = game
         self.display = display
+        self.macos_terminal = (environ.get("TERM_PROGRAM", "") == "Apple_Terminal" and "ITERM_SESSION_ID" not in environ)
 
     def playGame(self, initial_state="", verbose=False, other_way=False):
         """
@@ -43,6 +42,14 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
+        # if NUMBER_PLAYERS == 2:
+        #     players = [self.player2, self.player1]                             if other_way else [self.player1, self.player2]
+        # elif NUMBER_PLAYERS == 3:
+        #     players = [self.player2, self.player1, self.player1]               if other_way else [self.player1, self.player2, self.player2]
+        # elif NUMBER_PLAYERS == 4:
+        #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
+        # elif NUMBER_PLAYERS == 5:
+        #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
         if not other_way:
             players = [self.player1]+[self.player2]*(self.game.getNumberOfPlayers()-1)
         else:
@@ -63,8 +70,8 @@ class Arena():
                 if self.display:
                     self.display(board)
                 print()
-                print(f'Turn {it} Player {curPlayer}: ', end='')
-
+                print(f'Turn {it} Player {curPlayer}: ', end='')        
+                
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
             action = players[curPlayer](canonical_board, it)
             valids = self.game.getValidMoves(canonical_board, 0)
@@ -74,13 +81,13 @@ class Arena():
 
             if valids[action] == 0:
                 assert valids[action] > 0
-            board, curPlayer = self.game.getNextState(board, curPlayer, action)
+            board, curPlayer = self.game.getNextState(board, curPlayer, action, random_seed=0)
             curPlayer = int(curPlayer)
 
-            if verbose:
-                data = board.tobytes() + curPlayer.to_bytes(1, byteorder="big") + it.to_bytes(2, byteorder="big")
-                compressed_board = base64.b64encode(zlib.compress(data, level=9))
-                print(f'state = "{str(compressed_board, "UTF-8")}"')
+            # if verbose:
+            #     data = board.tobytes() + curPlayer.to_bytes(1) + it.to_bytes(2)
+            #     compressed_board = base64.b64encode(zlib.compress(data, level=9, wbits=-15))
+            #     print(f'state = "{str(compressed_board, "UTF-8")}"')
         if verbose:
             if self.display:
                 self.display(board)
@@ -90,8 +97,8 @@ class Arena():
                 print(f"Game over: {self.game.getScore(board, 0)} - {self.game.getScore(board, 1)}")
 
         MCTS.reset_all_search_trees()
-        scores = [self.game.getScore(board, 0), self.game.getScore(board, 1)]
-        return self.game.getGameEnded(board, curPlayer)[0], scores
+            
+        return self.game.getGameEnded(board, curPlayer)[0]
 
     def playGames(self, num, initial_state="", verbose=False):
         """
@@ -103,25 +110,21 @@ class Arena():
             twoWon: games won by player2
             draws:  games won by nobody
         """
-        ratio_boundaries = [1-0.60, 1-0.55, 0.55, 0.60]
-        colors = ['#d60000', '#d66b00', '#f9f900', '#a0d600', '#6b8e00']
-        # https://icolorpalette.com/ff3b3b_ff9d3b_ffce3b_ffff3b_ceff3b
+        ratio_boundaries = [        1-0.60,        1-0.55,        0.55,        0.60         ]
+        colors           = ['#d60000',     '#d66b00',     '#f9f900',   '#a0d600',  '#6b8e00'] #https://icolorpalette.com/ff3b3b_ff9d3b_ffce3b_ffff3b_ceff3b
+        if self.macos_terminal:
+            colors = ['RED', 'MAGENTA', 'YELLOW', 'CYAN', 'GREEN']
 
         oneWon, twoWon, draws = 0, 0, 0
-        oneScores, twoScores = [], []
-        t = trange(num, desc="Arena.playGames", ncols=200, disable=None)
-        scores = []
+        t = trange(num, desc="Arena.playGames", ncols=120, disable=None)
         for i in t:
             # Since trees may not be resetted, the first games (1vs2) can't be
-            # considered as fair as the last games (2vs1). Switching between
+            # considered as fair as the last games (2vs1). Switching between 
             # 1vs2 and 2vs1 like below seems more fair:
             # 1 2 2 1   1 2 2 1  ...
-            one_vs_two = (i % 4 == 0) or (i % 4 == 3) or (initial_state != "")
-            mode_str = '(1 vs 2)' if one_vs_two else '(2 vs 1)'
-            t.set_description(f"Arena {mode_str}", refresh=False)
-            gameResult, scores = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
-            if not one_vs_two:
-                scores = scores[::-1]
+            one_vs_two = (i%4 == 0) or (i%4 == 3) or (initial_state != "")
+            t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'), refresh=False)
+            gameResult = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
             if gameResult == (1. if one_vs_two else -1.):
                 oneWon += 1
             elif gameResult == (-1. if one_vs_two else 1.):
@@ -129,19 +132,8 @@ class Arena():
             else:
                 draws += 1
 
-            oneScores.append(scores[0])
-            twoScores.append(scores[1])
-
-            t.set_postfix(OrderedDict([
-                ('one_wins', oneWon),
-                ('two_wins', twoWon),
-                ('scores', scores),
-                ('one_mean', sum(oneScores)/len(oneScores)),
-                ('two_mean', sum(twoScores)/len(twoScores)),
-                ('one_max', max(oneScores)),
-                ('two_max', max(twoScores)),
-            ]), refresh=False)
-            ratio = oneWon / (oneWon+twoWon) if oneWon+twoWon > 0 else 0.5
+            t.set_postfix(one_wins=oneWon, two_wins=twoWon, refresh=False)
+            ratio = oneWon / (oneWon+twoWon) if oneWon+twoWon>0 else 0.5
             t.colour = colors[bisect.bisect_right(ratio_boundaries, ratio)]
         t.close()
 

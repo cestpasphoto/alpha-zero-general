@@ -61,6 +61,16 @@ def my_unpackbits(value):
 	return (np.bitwise_and(value, mask) != 0).astype(np.uint8)
 
 @njit(cache=True, fastmath=True, nogil=True)
+def uint_to_int8(x):
+	x_ = np.int16(x)
+	return np.int8(x_-256 if x_ > 127 else x_)
+
+@njit(cache=True, fastmath=True, nogil=True)
+def int8_to_uint(x):
+	x_ = np.uint64(x)
+	return x_+256 if x_ < 0 else x_
+
+@njit(cache=True, fastmath=True, nogil=True)
 def slots_in_planet(card_type):
 	if   card_type == EMPTY:
 		raise Exception('you cannot take an empty card')
@@ -99,9 +109,9 @@ class Board():
 		self.copy_state(np.zeros(observation_size(self.num_players), dtype=np.int8), copy_or_not=False)
 
 		# Initialize list of players who can play this turn
-		self.round_and_state[2] = my_packbits(np.ones(self.num_players, dtype=np.bool_))
+		self.round_and_state[2] = uint_to_int8(uint_to_int8(my_packbits(np.ones(self.num_players, dtype=np.bool_))))
 		# Initialize available cards
-		self.round_and_state[3:13] = my_packbits(np.ones(8, dtype=np.bool_))
+		self.round_and_state[3:13] = uint_to_int8(uint_to_int8(my_packbits(np.ones(8, dtype=np.bool_))))
 		# Initialise market
 		self._fill_market_if_needed()
 		
@@ -110,7 +120,7 @@ class Board():
 
 	def valid_moves(self, player):
 		result = np.zeros(self.num_players*self.num_players, dtype=np.bool_)
-		who_can_play = my_unpackbits(self.round_and_state[2])[:self.num_players]
+		who_can_play = my_unpackbits(int8_to_uint(self.round_and_state[2]))[:self.num_players]
 		who_can_play[player] = False
 		if not np.any(who_can_play): # means end of turn, so current play will play again
 			who_can_play[player] = True
@@ -168,8 +178,8 @@ class Board():
 		# Update current player
 		self.round_and_state[1] = (self.round_and_state[1] - nb_swaps + self.num_players) % self.num_players
 		# Update list of players who can play
-		who_can_play = my_unpackbits(self.round_and_state[2])[:self.num_players]
-		self.round_and_state[2] = my_packbits(np.roll(who_can_play, -nb_swaps))
+		who_can_play = my_unpackbits(int8_to_uint(self.round_and_state[2]))[:self.num_players]
+		self.round_and_state[2] = uint_to_int8(my_packbits(np.roll(who_can_play, -nb_swaps)))
 
 	def get_symmetries(self, policy, valid_actions):
 		n = self.num_players
@@ -182,7 +192,7 @@ class Board():
 			return_state = input_state.copy()
 			input_round_and_state , input_score , input_cards  = input_state [0,:], input_state [n+1:2*n+1,:], input_state [2*n+1:18*n+1,:]
 			return_round_and_state, return_score, return_cards = return_state[0,:], return_state[n+1:2*n+1,:], return_state[2*n+1:18*n+1,:]
-			who_can_play = my_unpackbits(input_round_and_state[2])[:n]
+			who_can_play = my_unpackbits(int8_to_uint(input_round_and_state[2]))[:n]
 			return_who_can_play = who_can_play.copy()
 			# Permute input_state (score, cards and round_and_state)
 			for i in range(np_players.size):
@@ -190,7 +200,7 @@ class Board():
 				return_score[new_player] = input_score[old_player]
 				return_cards[new_player*16:(new_player+1)*16, :] = input_cards[old_player*16:(old_player+1)*16, :]
 				return_who_can_play[new_player] = who_can_play[old_player]
-			return_round_and_state[2] = my_packbits(return_who_can_play)
+			return_round_and_state[2] = uint_to_int8(my_packbits(return_who_can_play))
 			
 			# Permute policy and valid actions
 			return_pi, return_v = input_pi.copy(), input_v.copy()
@@ -244,7 +254,7 @@ class Board():
 
 		# Permute players (those who played this turn on one hand, those who hasn't played yet on another hand)
 		current_player = self.round_and_state[1]
-		who_can_play = my_unpackbits(self.round_and_state[2])[:self.num_players]
+		who_can_play = my_unpackbits(int8_to_uint(self.round_and_state[2]))[:self.num_players]
 		players_who_played        = [ i for i in range(self.num_players) if not who_can_play[i] and i != current_player ]
 		players_who_havent_played = [ i for i in range(self.num_players) if     who_can_play[i] and i != current_player ]
 		for i in range(self.num_players): # arbitary number of symmetries
@@ -371,24 +381,24 @@ class Board():
 			available_cards[20*card_type + card_index] = False
 		self._set_available_cards(available_cards)
 		# Reset list of players who played during this turn
-		self.round_and_state[2] = my_packbits(np.ones(self.num_players, dtype=np.bool_))
+		self.round_and_state[2] = uint_to_int8(my_packbits(np.ones(self.num_players, dtype=np.bool_)))
 
 	def _available_cards(self):
 		available_or_not = np.zeros(80, dtype=np.bool_)
 		# Available cards are stored in rows 3-12
 		for i in range(10):
-			available_or_not[8*i:8*(i+1)] = my_unpackbits(self.round_and_state[i+3])
+			available_or_not[8*i:8*(i+1)] = my_unpackbits(int8_to_uint(self.round_and_state[i+3]))
 		return available_or_not
 
 	def _set_available_cards(self, available_cards):
 		# Available cards are stored in rows 3-12
 		for i in range(10):
-			self.round_and_state[i+3] = my_packbits(available_cards[8*i:8*(i+1)])
+			self.round_and_state[i+3] = uint_to_int8(my_packbits(available_cards[8*i:8*(i+1)]))
 
 	def _player_cant_play_again_this_turn(self, player):
-		who_can_play = my_unpackbits(self.round_and_state[2])[:self.num_players]
+		who_can_play = my_unpackbits(int8_to_uint(self.round_and_state[2]))[:self.num_players]
 		who_can_play[player] = False
-		self.round_and_state[2] = my_packbits(who_can_play)
+		self.round_and_state[2] = uint_to_int8(my_packbits(who_can_play))
 
 
 # List of attributes

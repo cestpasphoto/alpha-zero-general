@@ -5,28 +5,14 @@ CPU-only 25-100x speed improvement, and supporting 2+ players games. You can pla
 browser https://github.com/cestpasphoto/cestpasphoto.github.io. Technical details about the improvements are listed in
 this [page](README_features.md).
 
-October 2024: I (PJF98) have added Azul to this framework (for 2 players only currently). I have also trained a reasonably
-strong ai for the 2 player game. I want to say thanks to all those who worked on the previous repo's, particulary cestpasphoto,
-I learnt a lot from his existing code.
-
 ## Supported games
 
-* [Azul](#azul)
 * [Botanik](#botanik)
 * [Machi Koro (a.k.a. Minivilles)](#machi-koro--minivilles)
 * [Santorini (with basic gods)](#santorini)
 * [Small World](#small-world)
 * [Splendor](#splendor)
 * [The Little Prince - Make me a planet](#the-little-prince---make-me-a-planet)
-
-### Azul
-
-2 player Azul has been added to the framework and a reasonably strong ai has been trained for the 2 player version. I would
-love for it to get stronger though!
-
-### Kingdomino
-
-2 player Kingdomino has also been added but the AI isn't very strong, maybe the number of moves is too much for it.
 
 ### Splendor
 
@@ -85,6 +71,17 @@ against [BoardSpace AI](https://www.boardspace.net/english/index.shtml). See [mo
 ![Sample game with 2 players](smallworld/sample_game.gif) (Scores are on the 2 last rows after _sc=_, and number after
 _#_ is number of next round).
 
+### Akropolis
+
+* [x] Support of 2-3-4 players (just change NUMBER_PLAYERS constant)
+* [x] Added pretrained models for 2-3-4 players
+* [x] Benchmark versus "undefeated strategy" proposed on youtube
+
+The AI engine doesn't know which tiles will be drawn.
+
+![Sample game](akropolis/sample_game.gif)
+
+About 75+% winrate against [Undefeated Strategy](https://www.youtube.com/watch?v=1YKqBVuS65I). See [more details here](https://www.reddit.com/r/boardgames/comments/133f72n/comment/ne1dg79/)
 
 ---
 
@@ -129,7 +126,7 @@ them!
 Compared to initial version, I target a smaller network but more MCTS simulations allowing to see further: this approach
 is less efficient on GPU, but similar on CPU and allow stronger AI.
 
-`main.py -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest -V 74`: 
+`python main.py splendor -m 800 -e 1000 -i 5 -F -c 2.5 -f 0.1 -T 10 -b 32 -l 0.0003 -p 1 -D 0.3 -C ../results/mytest -V 74`: 
 
 * Start by defining proper number of players in SplendorGame.py and disabling card reserve actions in first lines of
   splendor/SplendorLogicNumba.py

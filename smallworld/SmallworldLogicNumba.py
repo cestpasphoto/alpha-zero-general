@@ -181,6 +181,14 @@ class Board():
 		self.territories    = self.state[0                                  :NB_AREAS                             ,:]
 		self_peoples_2d     = self.state[NB_AREAS                           :NB_AREAS+3*NUMBER_PLAYERS            ,:]
 		self.peoples = np.ascontiguousarray(self_peoples_2d).reshape((NUMBER_PLAYERS, 3, 8))
+		# Warning: np.ascontiguousarray may return a copy in general case. but
+		# in this particular case it returns a view. And Numba needs it to
+		# ensure that reshape is done on a contiguous array.
+		# See this test code:
+		#   base_ptr = self.state.ctypes.data
+		#   total_bytes_big = self.state.size # itemsize = 1 for np.int8
+		#   view_ptr = self.peoples.ctypes.data
+		#   print((view_ptr >= base_ptr) and (view_ptr < base_ptr + total_bytes_big))
 		self.visible_deck   = self.state[NB_AREAS+3*NUMBER_PLAYERS          :NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE  ,:]
 		self.round_status   = self.state[NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE:NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE  ,:]
 		self.game_status    = self.state[NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE:NB_AREAS+5*NUMBER_PLAYERS+DECK_SIZE  ,:]
@@ -278,12 +286,12 @@ class Board():
 		# Whatever the score difference is
 		scores = self.game_status[:, 6]
 		for _ in range(2):
-			mini, maxi = -127-scores.min(), 127-scores.max()
+			mini, maxi = -np.int16(127)-scores.min(), np.int16(127)-scores.max()
 			if mini >= maxi:
 				print('symmetrie scores:', mini, maxi)
 			else:
 				random_offset = np.random.randint(mini, maxi)
-				self.game_status[:, 6] += random_offset
+				self.game_status[:, 6] += np.int16(random_offset)
 				symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
 				self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
@@ -418,7 +426,7 @@ class Board():
 			else:
 				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 				# m=6, c=5, a=1980+1
-				rnd_value = (1981 * (random_seed+self.invisible_deck[5]) + 5) % 6
+				rnd_value = (1981 * (random_seed+np.int64(self.invisible_deck[5])) + 5) % 6
 				dice = DICE_VALUES[rnd_value]
 			self.invisible_deck[5] += 1
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
@@ -1186,7 +1194,7 @@ class Board():
 			else:
 				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 				# m=6, c=5, a=1980+1
-				rnd_value = (1981 * (random_seed+self.invisible_deck[5]) + 5) % 6
+				rnd_value = (1981 * (random_seed+np.int64(self.invisible_deck[5])) + 5) % 6
 				dice = DICE_VALUES[rnd_value]
 			self.invisible_deck[5] += 1
 			current_ppl[4] = dice + 2**6
@@ -1365,9 +1373,9 @@ class Board():
 			else:
 				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 				# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
-				rnd_value = (4594591 * (random_seed+self.invisible_deck[6])) % avail_people_id.size
+				rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_people_id.size
 				chosen_ppl = avail_people_id[rnd_value]
-				rnd_value = (4594591 * (random_seed+self.invisible_deck[6])) % avail_power_id.size
+				rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_power_id.size
 				chosen_power = avail_power_id[rnd_value]
 			self.invisible_deck[6] += 1
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
@@ -1408,9 +1416,9 @@ class Board():
 					else:
 						# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
 						# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
-						rnd_value = (4594591 * (random_seed+self.invisible_deck[6])) % avail_people_id.size
+						rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_people_id.size
 						chosen_ppl = avail_people_id[rnd_value]
-						rnd_value = (4594591 * (random_seed+self.invisible_deck[6])) % avail_power_id.size
+						rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_power_id.size
 						chosen_power = avail_power_id[rnd_value]
 					self.invisible_deck[6] += 1
 					nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]						

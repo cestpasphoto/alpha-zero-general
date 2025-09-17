@@ -12,7 +12,7 @@ INIT_METHOD = 1
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (25, 3) # True size is 5,5,3 but other functions expects 2-dim answer
+	return (5, 5, 3) # True size is 5,5,3 but other functions expects 2-dim answer
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -77,7 +77,7 @@ spec = [
 @numba.experimental.jitclass(spec)
 class Board():
 	def __init__(self, num_players):
-		self.state = np.zeros((5,5,3), dtype=np.int8)
+		self.state = np.zeros(observation_size(), dtype=np.int8)
 		self.init_game()
 
 	def get_score(self, player):
@@ -96,7 +96,7 @@ class Board():
 		return highest_level
 
 	def init_game(self):
-		self.copy_state(np.zeros((5,5,3), dtype=np.int8), copy_or_not=False)
+		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
 
 		# Place workers
 		if INIT_METHOD == 0:

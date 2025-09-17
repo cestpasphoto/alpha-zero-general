@@ -18,7 +18,7 @@ class CatInTheMiddle(nn.Module):
 class SantoriniNNet(nn.Module):
 	def __init__(self, game, args):
 		# game params
-		self.nb_vect, self.vect_dim = game.getBoardSize()
+		self.board_size = game.getBoardSize()
 		self.action_size = game.getActionSize()
 		self.num_players = 2
 		self.args = args
@@ -113,8 +113,7 @@ class SantoriniNNet(nn.Module):
 
 	def forward(self, input_data, valid_actions):
 		if self.version == 1:
-			x = input_data.transpose(-1, -2).view(-1, self.vect_dim, self.nb_vect)
-		
+			x = input_data.transpose(-1, -2)
 			x = torch.flatten(x, start_dim=1).unsqueeze(1)
 			x = F.dropout(self.dense1d_1(x)     , p=self.args['dropout'], training=self.training)
 			x = F.dropout(self.partialgpool_1(x), p=self.args['dropout'], training=self.training)
@@ -126,7 +125,7 @@ class SantoriniNNet(nn.Module):
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		elif self.version in [66]:
-			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x = input_data.transpose(-1, -2).reshape(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 			x = self.first_layer(x)
 			x = self.trunk(x)
@@ -134,7 +133,7 @@ class SantoriniNNet(nn.Module):
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
 		elif self.version in [67]:
-			x = input_data.transpose(-1, -2).view(-1, 3, 5, 5)
+			x = input_data.transpose(-1, -2).reshape(-1, 3, 5, 5)
 			x, data = x.split([2,1], dim=1)
 			x = self.first_layer(x)
 			x = self.trunk(x)

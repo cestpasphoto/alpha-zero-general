@@ -90,7 +90,8 @@ class InvertedResidual1d(nn.Module):
 class BotanikNNet(nn.Module):
 	def __init__(self, game, args):
 		# game params
-		self.nb_vect, self.vect_dim = game.getBoardSize()
+		self.board_size = game.getBoardSize()
+		self.vect_dim = self.board_size[-1]
 		self.nb_vect_1d = 6*5
 		self.action_size = game.getActionSize()
 		self.num_players = game.num_players
@@ -248,14 +249,15 @@ class BotanikNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		x = input_data[:,:(6+2*NB_ROWS_FOR_MACH)*5, :] # Remove access to some channels
-		x_1d, x_mach0, x_mach1 = x.split([6*5, NB_ROWS_FOR_MACH*5, NB_ROWS_FOR_MACH*5], dim=1)
+		x = input_data[:,:(6+2*NB_ROWS_FOR_MACH), :, :] # Remove access to some channels
 
-		# Switch to NCHW
-		x_1d = x_1d.permute(0, 2, 1)
-		x_mach0 = x_mach0.reshape(-1, NB_ROWS_FOR_MACH*5*7)[:, :mm*7].reshape(-1, MACHINE_SIZE, MACHINE_SIZE, 7).permute(0, 3, 1, 2)
-		x_mach1 = x_mach1.reshape(-1, NB_ROWS_FOR_MACH*5*7)[:, :mm*7].reshape(-1, MACHINE_SIZE, MACHINE_SIZE, 7).permute(0, 3, 1, 2)
 
+		# Split and switch to NCHW (must be in this order)
+		x_1d, x_mach0, x_mach1 = x.split([6, NB_ROWS_FOR_MACH, NB_ROWS_FOR_MACH], dim=1)
+		x_1d = x_1d.permute(0, 3, 1, 2).flatten(start_dim=2)
+		x_mach0 = x_mach0.flatten(start_dim=1)[:, :mm*7].reshape(-1, MACHINE_SIZE, MACHINE_SIZE, 7).permute(0, 3, 1, 2)
+		x_mach1 = x_mach1.flatten(start_dim=1)[:, :mm*7].reshape(-1, MACHINE_SIZE, MACHINE_SIZE, 7).permute(0, 3, 1, 2)
+		
 		if self.version in [10]: # No use of x_mach1
 			x_1d = self.first_layer_1d(x_1d)
 			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training)

@@ -17,18 +17,21 @@ class Game():
             startBoard: a representation of the board (ideally this is the form
                         that will be the input to your neural network)
         """
+        pass
 
     def getBoardSize(self):
         """
         Returns:
             (x,y): a tuple of board dimensions
         """
+        pass
 
     def getActionSize(self):
         """
         Returns:
             actionSize: number of all possible actions
         """
+        pass
 
     def getNextState(self, board, player, action, random_seed=0):
         """
@@ -36,13 +39,14 @@ class Game():
             board: current board
             player: current player (1 or -1)
             action: action taken by current player
-            random_seed: define seed for any random choice (MCTS exploration),
+            random_seed: define seed for any random choice (MCTS exploration), 
                          or 0 for true random (real move)
 
         Returns:
             nextBoard: board after applying action
             nextPlayer: player who plays in the next turn (should be -player)
         """
+        pass
 
     def getValidMoves(self, board, player):
         """
@@ -55,6 +59,7 @@ class Game():
                         moves that are valid from the current board and player,
                         0 for invalid moves
         """
+        pass
 
     def getGameEnded(self, board, next_player):
         """
@@ -64,7 +69,9 @@ class Game():
         Returns:
             r: 0 if game has not ended. 1 if player won, -1 if player lost,
                small non-zero value for draw.
+               
         """
+        pass
 
     def getScore(self, board, player):
         """
@@ -75,6 +82,7 @@ class Game():
         Returns:
             score of such player
         """
+        pass
 
     def getRound(self, board):
         """
@@ -84,6 +92,7 @@ class Game():
         Returns:
             number of played rounds so far
         """
+        pass
 
     def getCanonicalForm(self, board, player):
         """
@@ -99,6 +108,7 @@ class Game():
                             board as is. When the player is black, we can invert
                             the colors and return the board.
         """
+        pass
 
     def getSymmetries(self, board, pi, valid_actions):
         """
@@ -111,6 +121,7 @@ class Game():
                        form of the board and the corresponding pi vector. This
                        is used when training the neural network from examples.
         """
+        pass
 
     def stringRepresentation(self, board):
         """
@@ -121,12 +132,14 @@ class Game():
             boardString: a quick conversion of board to a string format.
                          Required by MCTS for hashing.
         """
+        pass
 
     def getNumberOfPlayers(self):
         """
         Returns:
             number_players: Number of players that current game supports
         """
+        pass
 
     def moveToString(self, move, current_player):
         """
@@ -137,6 +150,7 @@ class Game():
         Returns:
             string: a human representation of such move, as a printable string
         """
+        pass 
 
     def printBoard(self, numpy_board):
         """
@@ -145,3 +159,4 @@ class Game():
 
         Print: a human representation of such board on stdout, used during pit involving a human
         """
+        pass
