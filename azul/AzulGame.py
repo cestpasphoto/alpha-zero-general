@@ -1,15 +1,17 @@
 import sys
-sys.path.append('..')
 from Game import Game
 from .AzulLogic import print_board, move_to_str
 from .AzulLogicNumba import Board, observation_size, action_size
 import numpy as np
-from numba import jit, njit
+
+sys.path.append('..')
 
 NUMBER_PLAYERS = 2
 
+
 class AzulGame(Game):
     def __init__(self):
+        super().__init__()
         self.num_players = NUMBER_PLAYERS
         self.board = Board()
 

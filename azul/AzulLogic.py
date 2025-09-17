@@ -150,6 +150,7 @@ def _print_round_and_scores(board):
         print(f'{Style.BRIGHT}P{p}{Style.RESET_ALL}: {board.get_score(p)} points  ', end='')
     print('='*20, Style.RESET_ALL)
 
+
 def _print_factories(board):
     print(f'{Style.BRIGHT}Factories:  {Style.RESET_ALL}', end='')
     for i, factory in enumerate(board.factories):
@@ -158,8 +159,9 @@ def _print_factories(board):
             for j, color in enumerate(azul_colours):
                 if factory[j] != 0:
                     print(f'{color} {factory[j]} {Style.RESET_ALL} ', end='')
-            print(f'> ', end='')
+            print('> ', end='')
     print(f'{Style.RESET_ALL}')
+
 
 def _print_centre(board):
     print(f'{Style.BRIGHT}Centre:  {Style.RESET_ALL}', end='')
@@ -170,6 +172,7 @@ def _print_centre(board):
     if centre[0, 5] > 0:
         print(f'{azul_first_player_colour} {1} {Style.RESET_ALL} ', end='')
     print(f'{Style.RESET_ALL}')
+
 
 def _print_coloured_grid(grid):
     empty_square = Back.LIGHTBLACK_EX
@@ -183,6 +186,7 @@ def _print_coloured_grid(grid):
         print()
     return
 
+
 def _print_coloured_rows(colored_counts, color_indices):
     for row_size in range(1, 6):
         colored_count = colored_counts[row_size - 1]
@@ -192,6 +196,7 @@ def _print_coloured_rows(colored_counts, color_indices):
         for _ in range(row_size - colored_count):
             print(f'{Back.LIGHTBLACK_EX}   {Style.RESET_ALL}', end='')
         print()
+
 
 def _print_players(board):
     for i in range(2):

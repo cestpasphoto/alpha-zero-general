@@ -1,7 +1,6 @@
 import numpy as np
 import random
 
-from .AzulLogic import print_board, move_to_str
 
 class RandomPlayer():
     def __init__(self, game):
@@ -21,8 +20,8 @@ class HumanPlayer():
         valid = self.game.getValidMoves(board, 0)
         while True:
             factory = input("Factory?: (0 for centre): ")
-            colour = input("Colour? : (0: Blue, 1: Yellow, 2: Red, 3: Black, 4: White: ")
-            line = input("Line? : (6 for floor) ")
+            colour = input("Colour? : (0: Blue, 1: Yellow, 2: Red, 3: Black, 4: White): ")
+            line = input("Line? : (6 for floor): ")
             input_move = int(factory) * 30 + int(colour) * 6 + int(line) - 1
             try:
                 a = int(input_move)

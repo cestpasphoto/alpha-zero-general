@@ -3,27 +3,27 @@ import numpy as np
 from numba import njit
 import numba
 
-############################## BOARD DESCRIPTION ##############################
+# ############################ BOARD DESCRIPTION ##############################
 # Board is described by a 23x6 array
 # Colours are always in this order: 0: Blue, 1: Yellow, 2: Red, 3: Black, 4: White
 # Here is the description of each line of the board. For readibility, we defined
 # "shortcuts" that actually are views (numpy name) of overal board.
-##### Index  Shortcut                Meaning
-#####   0    self.scores             P0 score, P1 score, Round num, 0, 0, 0
-#####  1-2   self.bag                Tiles in bag for each colour, 0
-#####  2-3   self.discards           Tiles in discard pile for each colour, 0
-#####  3-4   self.centre             Tiles of each colour in centre, (6th element is first player token)
-#####  4-9   self.factories          Tiles of each colour in each factory, 0
-#####  9     self.player_colours     Row colours of P0, -1 for empty, (6th element is first player token)
-#####  10        =                   Row colours of P1, -1 for empty, (6th element is first player token)
-#####  11    self.player_row_numbers Number of tiles on each row for P0, -1 for empty
-#####  12        =                   Number of tiles on each row for P1, -1 for empty
-#####  13-17 self.player_walls       P0 wall, 0 or 1 whether tile exists or not, 0
-#####  18-22     =                   P1 wall, 0 or 1 whether tile exists or not, 0
+# ### Index  Shortcut                Meaning
+# ###   0    self.scores             P0 score, P1 score, Round num, 0, 0, 0
+# ###  1-2   self.bag                Tiles in bag for each colour, 0
+# ###  2-3   self.discards           Tiles in discard pile for each colour, 0
+# ###  3-4   self.centre             Tiles of each colour in centre, (6th element is first player token)
+# ###  4-9   self.factories          Tiles of each colour in each factory, 0
+# ###  9     self.player_colours     Row colours of P0, -1 for empty, (6th element is first player token)
+# ###  10        =                   Row colours of P1, -1 for empty, (6th element is first player token)
+# ###  11    self.player_row_numbers Number of tiles on each row for P0, -1 for empty
+# ###  12        =                   Number of tiles on each row for P1, -1 for empty
+# ###  13-17 self.player_walls       P0 wall, 0 or 1 whether tile exists or not, 0
+# ###  18-22     =                   P1 wall, 0 or 1 whether tile exists or not, 0
 # Any line follow by a 0 (or n 0s) means the last (or last n) columns is always 0
 
 
-############################## ACTION DESCRIPTION #############################
+# ############################ ACTION DESCRIPTION #############################
 # There are 180 actions, 6 choices of factory/centre to chose from, 5 choices
 # of colour and 6 choice of destination line.
 # 6*5*6 = 180
@@ -32,44 +32,49 @@ import numba
 # Colour = {Blue: 0, Yellow: 1, Red: 2, Black: 3, White: 4}
 # Line = {Line 1: 0, Line 2: 1, ... Line 5: 4, Floor: 5}
 # To further demonstrate:
-##### Index  Meaning
-#####   0    Centre, Blue, Line 1
-#####   1    Centre, Blue, Line 2
-#####  ...
-#####   5    Centre, Blue, Floor
-#####   6    Centre, Yellow, Line 1
-#####  ...
-#####   29   Centre, White, Floor
-#####   30   Factory 1, Blue, Line 1
-#####  ...
-#####   59   Factory 1, White, Floor
-#####  ...
-#####   179  Factory 5, White, Floor
+# ### Index  Meaning
+# ###   0    Centre, Blue, Line 1
+# ###   1    Centre, Blue, Line 2
+# ###  ...
+# ###   5    Centre, Blue, Floor
+# ###   6    Centre, Yellow, Line 1
+# ###  ...
+# ###   29   Centre, White, Floor
+# ###   30   Factory 1, Blue, Line 1
+# ###  ...
+# ###   59   Factory 1, White, Floor
+# ###  ...
+# ###   179  Factory 5, White, Floor
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
     return (23, 6)
 
+
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
     return 180
+
 
 @njit(cache=True, fastmath=True, nogil=True)
 def my_random_choice(prob):
     result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
     return result
 
+
 spec = [
-    ('state' , numba.int8[:,:]),
-    ('scores' , numba.int8[:,:]),
-    ('bag' , numba.int8[:,:]),
-    ('discards' , numba.int8[:,:]),
-    ('centre' , numba.int8[:,:]),
-    ('factories' , numba.int8[:,:]),
-    ('player_colours' , numba.int8[:,:]),
-    ('player_row_numbers' , numba.int8[:,:]),
-    ('player_walls' , numba.int8[:,:]),
+    ('state', numba.int8[:, :]),
+    ('scores', numba.int8[:, :]),
+    ('bag', numba.int8[:, :]),
+    ('discards', numba.int8[:, :]),
+    ('centre', numba.int8[:, :]),
+    ('factories', numba.int8[:, :]),
+    ('player_colours', numba.int8[:, :]),
+    ('player_row_numbers', numba.int8[:, :]),
+    ('player_walls', numba.int8[:, :]),
 ]
+
+
 @numba.experimental.jitclass(spec)
 class Board():
     def __init__(self):
@@ -177,7 +182,7 @@ class Board():
         for i in range(len(player)):
             self.player_row_numbers[player[i], row_nums[i]] = 0
             self.player_colours[player[i], row_nums[i]] = -1
-        discard_mapping = {0:0, 1:1, 2:2, 3:4, 4:6, 5:8, 6:11, 7:14}
+        discard_mapping = {0: 0, 1: 1, 2: 2, 3: 4, 4: 6, 5: 8, 6: 11, 7: 14}
         self.scores[0, 0] = max(self.scores[0, 0] - discard_mapping[min(self.player_row_numbers[0, 5], 7)], 0)
         self.scores[0, 1] = max(self.scores[0, 1] - discard_mapping[min(self.player_row_numbers[1, 5], 7)], 0)
         self.player_row_numbers[0, 5] = 0
@@ -186,7 +191,7 @@ class Board():
 
     def score_bonuses(self):
         for p in range(2):
-            player_walls = self.player_walls[5*p : 5 + 5*p, :5]
+            player_walls = self.player_walls[5*p: 5 + 5*p, :5]
             for row in player_walls:
                 if np.all(row == 1):
                     self.scores[0, p] += 2
@@ -229,7 +234,6 @@ class Board():
         col_score = self.count_consecutive_ones(grid[:, c], r) if col_adjacent else 0
         return row_score + col_score
 
-
     def setup_new_round(self, random_seed):
         for i in range(5):
             if np.sum(self.bag) < 4:
@@ -250,7 +254,6 @@ class Board():
         self.centre[0, 5] = 1
         return next_player
 
-
     def select_tiles_from_bag(self, num, random_seed):
         result = np.zeros(6, dtype=np.int8)
         for _ in range(num):
@@ -264,25 +267,24 @@ class Board():
             self.bag[0, selected_idx] -= 1
         return result
 
-
     def copy_state(self, state, copy_or_not):
         if self.state is state and not copy_or_not:
-                return
+            return
         self.state = state.copy() if copy_or_not else state
-        self.scores = self.state[0 : 1 , :] # 1
-        self.bag = self.state[1 : 2 , :] # 1
-        self.discards = self.state[2 : 3 , :] # 1
-        self.centre = self.state[3 : 4 , :] # 1
-        self.factories = self.state[4 : 9 , :] # 5
-        self.player_colours = self.state[9 : 11 , :] # 2
-        self.player_row_numbers = self.state[11 : 13 , :] # 2
-        self.player_walls = self.state[13 : 23 , :]     # 10
+        self.scores = self.state[0: 1, :]  # 1
+        self.bag = self.state[1: 2, :]  # 1
+        self.discards = self.state[2: 3, :]  # 1
+        self.centre = self.state[3: 4, :]  # 1
+        self.factories = self.state[4: 9, :]  # 5
+        self.player_colours = self.state[9: 11, :]  # 2
+        self.player_row_numbers = self.state[11: 13, :]  # 2
+        self.player_walls = self.state[13: 23, :]  # 10
 
     def check_end_game(self):
         if self.check_game_over():
             row_totals = np.zeros(2, dtype=np.int8)
             for p in range(2):
-                player_walls = self.player_walls[5*p : 5 + 5*p, :5]
+                player_walls = self.player_walls[5*p: 5 + 5*p, :5]
                 for row in player_walls:
                     if np.all(row == 1):
                         row_totals[p] += 1
@@ -306,26 +308,27 @@ class Board():
         return
 
     def get_symmetries(self, policy, valid_actions):
-            def permute_factories(permutation):
-                factories_copy = self.factories.copy()
-                for i in range(5):
-                    self.factories[i, :] = factories_copy[permutation[i], :]
-                return
-            def permute_array(array, permutation):
-                new_array = array.copy()
-                for i, p in enumerate(permutation):
-                    new_array[30*(i+1):30*(i+2)] = array[30*(p+1):30*(p+2)]
-                return new_array
+        def permute_factories(permutation):
+            factories_copy = self.factories.copy()
+            for i in range(5):
+                self.factories[i, :] = factories_copy[permutation[i], :]
+            return
 
-            symmetries = []
-            for permutation in np_factory_symmetries:
-                factories_backup = self.factories.copy()
-                permute_factories(permutation)
-                new_policy = permute_array(policy, permutation)
-                new_valid_actions = permute_array(valid_actions, permutation)
-                symmetries.append((self.state.copy(), new_policy, new_valid_actions))
-                self.factories[:] = factories_backup
-            return symmetries
+        def permute_array(array, permutation):
+            new_array = array.copy()
+            for i, p in enumerate(permutation):
+                new_array[30*(i+1):30*(i+2)] = array[30*(p+1):30*(p+2)]
+            return new_array
+
+        symmetries = []
+        for permutation in np_factory_symmetries:
+            factories_backup = self.factories.copy()
+            permute_factories(permutation)
+            new_policy = permute_array(policy, permutation)
+            new_valid_actions = permute_array(valid_actions, permutation)
+            symmetries.append((self.state.copy(), new_policy, new_valid_actions))
+            self.factories[:] = factories_backup
+        return symmetries
 
     def get_round(self):
         return self.scores[0, 2]
