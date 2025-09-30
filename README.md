@@ -87,7 +87,7 @@ About 75+% winrate against [Undefeated Strategy](https://www.youtube.com/watch?v
 ### Azul
 
 * [x] Support of [Azul](https://boardgamegeek.com/boardgame/230802/azul) for 2 players
-* [x] Reasonable strong pretrained model for 2 players added
+* [x] Strong pretrained model for 2 players added
 
 ![Sample game](azul/sample_game.gif)
 
