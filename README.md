@@ -7,6 +7,7 @@ this [page](README_features.md).
 
 ## Supported games
 
+* [Azul](#azul)
 * [Botanik](#botanik)
 * [Machi Koro (a.k.a. Minivilles)](#machi-koro--minivilles)
 * [Santorini (with basic gods)](#santorini)
@@ -82,6 +83,15 @@ The AI engine doesn't know which tiles will be drawn.
 ![Sample game](akropolis/sample_game.gif)
 
 About 75+% winrate against [Undefeated Strategy](https://www.youtube.com/watch?v=1YKqBVuS65I). See [more details here](https://www.reddit.com/r/boardgames/comments/133f72n/comment/ne1dg79/)
+
+### Azul
+
+* [x] Support of [Azul](https://boardgamegeek.com/boardgame/230802/azul) for 2 players
+* [x] Strong pretrained model for 2 players added
+
+![Sample game](azul/sample_game.gif)
+
+The AI at reasonable MCTS depth seems much stronger than PJF98 (~700 rated on BGA).
 
 ---
 
