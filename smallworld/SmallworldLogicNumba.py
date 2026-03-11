@@ -153,7 +153,7 @@ class Board():
 		# Fill map with lost tribe
 		nb_lt = initial_nb_people[-LOST_TRIBE]
 		for i in range(NB_AREAS):
-			self.territories[i,:] = [nb_lt, LOST_TRIBE, NOPOWER, 0, 0, nb_lt+int(descr[i, 0] == MOUNTAIN), 0, -1] if descr[i][4] else [0, NOPPL, NOPOWER, 0, 0, 0, 0, -1]
+			self.territories[i,:] = [nb_lt, LOST_TRIBE, NOPOWER, 0, 0, nb_lt+int(descr[i, 0] == MOUNTAIN), 0, -1] if descr[i][4] else [0, NOPPL, NOPOWER, 0, 0, int(descr[i, 0] == MOUNTAIN), 0, -1]
 
 		# Init deck
 		self._init_deck()
@@ -540,13 +540,15 @@ class Board():
 			self.round_status[player, 4] = PHASE_STOUT_TO_DECLINE
 
 		declined_id = DECLINED_SPIRIT if current_ppl[2] == SPIRIT else DECLINED
+		declined_ppl = self.peoples[player, declined_id, :]
 
 		# If we are going to replace declined ppl...
 		if self.peoples[player, declined_id, 1] != NOPPL:
 			# Remove previous declined ppl from the board
 			for area in range(NB_AREAS):
-				if self._is_occupied_by(area, self.peoples[player, declined_id, :]):
+				if self._is_occupied_by(area, declined_ppl):
 					self.territories[area] = [0, NOPPL, NOPOWER, 0, 0, 0, 0, -1]
+					self.territories[area, 5] = int(descr[area][0] == MOUNTAIN)
 
 			self.peoples[player, declined_id, :7] = 0
 			self._update_deck_after_decline(random_seed)
@@ -1006,8 +1008,8 @@ class Board():
 			leaver_ppl[4] += 1
 
 		# Make the area empty
-		self.territories[area,:7] = 0
-		self.territories[area,7] = -1
+		self.territories[area] = [0, NOPPL, NOPOWER, 0, 0, 0, 0, -1]
+		self.territories[area, 5] = int(descr[area][0] == MOUNTAIN)
 
 	def _switch_territory_from_loser_to_winner(self, area, player, winner_ppl, nb_attacking_ppl):
 		nb_initial_ppl = self.territories[area, 0]
@@ -1479,16 +1481,15 @@ class Board():
 		self.round_status[player, 5] = 0
 		self.round_status[player, 6] = 0
 
-		territories_of_player = self._are_occupied_by(current_ppl)
-		for area in np.flatnonzero(territories_of_player):
-			# Compute peoples[:,:,6]
+		# 1. Update points specifically for current_ppl
+		territories_of_current_ppl = self._are_occupied_by(current_ppl)
+		for area in np.flatnonzero(territories_of_current_ppl):
 			current_ppl[6] += self.territories[area, 6]
-			# Compute round_status[0]
+
+		# 2. Update global metrics for ALL peoples of the player
+		territories_of_player = (self.territories[:, 7] == player)
+		for area in np.flatnonzero(territories_of_player):
 			self.round_status[player, 0] += self.territories[area, 0]
-			# Compute round_status[5]
-			# if self.territories[area, 5] > IMMUNITY+10:
-			# 	print(f'Overflow protection on IMMUNITY {self.territories[area, 5]}')
-			# self.round_status[player, 5] += min(self.territories[area, 5], IMMUNITY+10)
 			self.round_status[player, 5] += self.territories[area, 5]
 			if self.round_status[player, 5] < 0:
 				print(f'Overflow protection on round_status {self.territories[area, 5]} {self.round_status[player, 5]}')
@@ -1504,7 +1505,6 @@ class Board():
 				current_ppl[6] += 2
 			if current_ppl[2] == WEALTHY and current_ppl[4] > 0:
 				current_ppl[6] += current_ppl[4]
-				# Reset current_ppl[4] only at the end, in _compute_and_update_score()
 
-		# Compute round_status[6]
+		# 3. Compute total score preview
 		self.round_status[player, 6] = self.peoples[player, :, 6].sum()
