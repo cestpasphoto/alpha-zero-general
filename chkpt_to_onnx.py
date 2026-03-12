@@ -8,7 +8,9 @@ import argparse
 
 def load_checkpoint(filepath):
 	try:
-		checkpoint = torch.load(filepath, map_location='cpu')
+		checkpoint = torch.load(filepath, map_location='cpu', weights_only=False)
+		# print("NN training info:", ", ".join(f"{k} = {checkpoint.get(k)}" for k in ['nn_version', 'numMCTSSims', 'fpu', 'cpuct', 'forced_playouts', 'universes']))
+		print("NN full info:", ", ".join(f"{k} = {v}" for k, v in checkpoint.items() if k not in ['state_dict', 'full_model']))
 		nnet = checkpoint['full_model']
 		nn_shape = f'{nnet.nb_vect}x{nnet.vect_dim}' if 'vect_dim' in nnet.__dict__ else f'{nnet.board_size}'
 		print(f'NN version: {checkpoint["nn_version"]}, network i/o shape: {nn_shape} -> {nnet.action_size}, total nb of nnet params: {sum(p.numel() for p in nnet.parameters())}')
