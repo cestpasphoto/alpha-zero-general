@@ -55,7 +55,7 @@ from .AkropolisConstants import *
 # Each possible move (placing a tile with a given orientation on a given board position)
 # is mapped to a unique integer ID in a fixed, global action space.
 #
-#     action_id = tile_idx_in_cs * (CONSTR_SITE_SIZE * N_ORIENTS)
+#     action_id = tile_idx_in_cs * (CITY_AREA * N_ORIENTS)
 #               + site_idx * N_ORIENTS
 #               + orient_idx
 # Where:
@@ -426,10 +426,11 @@ class Board():
 	def check_end_game(self, next_player):
 		if (self.misc[1] <= 0 and self.construction_site[1, 0] == EMPTY):
 			# total_scores is not precise, need to recompute
-			scores_np16 = (self.districts.astype(np.int16) * self.plazas * PLAZA_STARS).sum(axis=1) + self.stones
-			m = scores_np16.max()
-			single_winner = int((scores_np16 == m).sum()) == 1
-			return np.where(scores_np16 == m, np.float32(1.0 if single_winner else 0.001), np.float32(-1.0))
+			district_scores = (self.districts.astype(np.int16) * self.plazas * PLAZA_STARS).sum(axis=1)
+			# We multiply the base score by 1000 and add the stones to implicitly break ties
+			scores_proxy = (district_scores + self.stones.astype(np.int16)) * 1000 + self.stones.astype(np.int16)
+			single_winner = int((scores_proxy == m).sum()) == 1
+			return np.where(scores_proxy == m, np.float32(1.0 if single_winner else 0.001), np.float32(-1.0))
 		return np.zeros((N_PLAYERS,), dtype=np.float32)
 
 	# if n=1, transform P0 to Pn, P1 to P0, ... and Pn to Pn-1
