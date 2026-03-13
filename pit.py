@@ -52,7 +52,7 @@ def create_player(name, args):
 		'universes'       : additional_keys.get('universes', 1),
 		'cpuct'           : args.cpuct if args.cpuct else cpuct,
 		'prob_fullMCTS'   : 1.,
-		'forced_playouts' : False,
+		'forced_playouts' : additional_keys.get('forced_playouts', False),
 		'no_mem_optim'    : False,
 	})
 	mcts = MCTS(game, net, mcts_args)
