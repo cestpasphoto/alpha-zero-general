@@ -150,7 +150,7 @@ class Board():
 
 	def get_score(self, player):
 		card_points  = self.players_cards[player, idx_points]
-		noble_points = self.players_nobles[player*3:player*3+3, idx_points].sum()
+		noble_points = self.players_nobles[player*self.num_nobles:(player+1)*self.num_nobles, idx_points].sum()
 		return card_points + noble_points
 
 	def init_game(self):
@@ -248,7 +248,7 @@ class Board():
 			for i in range(size0):
 				array[i,:] = tmp_copy[(i+shift)%size0,:]
 		_roll_in_place_axis0(self.players_gems    , 1*nb_swaps)
-		_roll_in_place_axis0(self.players_nobles  , 3*nb_swaps)
+		_roll_in_place_axis0(self.players_nobles  , self.num_nobles*nb_swaps)
 		_roll_in_place_axis0(self.players_cards   , 1*nb_swaps)
 		_roll_in_place_axis0(self.players_reserved, 6*nb_swaps)
 
