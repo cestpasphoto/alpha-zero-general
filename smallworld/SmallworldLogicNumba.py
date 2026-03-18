@@ -103,7 +103,7 @@ def my_dot(array1, array2):
 
 @njit(cache=True, fastmath=True, nogil=True)
 def my_dot2d(array1, array2):
-	return np.multiply(array1, array2).sum(axis=1, dtype=np.int8)
+	return np.multiply(array1, array2).sum(axis=1)
 
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint16)
 
@@ -830,8 +830,8 @@ class Board():
 			return True
 
 		elif current_ppl[2] == DIPLOMAT:
-			# Param is actually id of other player minus id of current player
-			other_player_relative_id = area
+			# Param is actually id of other player
+			other_player_relative_id = (player - area) % NUMBER_PLAYERS
 			# Check not attacked during this turn
 			if current_ppl[4] & 2**other_player_relative_id:
 				return False
