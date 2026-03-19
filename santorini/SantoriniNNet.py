@@ -112,6 +112,7 @@ class SantoriniNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
+		# input_data is (N, H, W, C) typically (N, 5, 5, 3)
 		if self.version == 1:
 			x = input_data.transpose(-1, -2)
 			x = torch.flatten(x, start_dim=1).unsqueeze(1)

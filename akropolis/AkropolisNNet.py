@@ -113,8 +113,8 @@ class AkropolisNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		# Switch from NHWC to NCHW
-		x = input_data.permute(0, 3, 1, 2)
+		# input_data is (N, H, W, C) typically (N, 13, 13, 8)
+		x = input_data.permute(0, 3, 1, 2) # Switch from NHWC to NCHW
 		# Split data
 		split_input_data = x.split([self.num_players, self.num_players, self.num_players, 1 ,1], dim=1)
 		boards_descr, boards_height, boards_tileID, per_pl_data, global_data = split_input_data

@@ -364,6 +364,7 @@ class SmallworldNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
+		# input_data is (N, H, C) typically (N, 40, 8)
 		if self.version in [10, 11, 20, 21, 31, 32, 33, 34]: # Use input as is
 			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
 			x = self.first_layer(x)

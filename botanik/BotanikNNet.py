@@ -249,6 +249,7 @@ class BotanikNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
+		# input_data is (N, H, C, C') typically (N, 66, 5, 7)
 		x = input_data[:,:(6+2*NB_ROWS_FOR_MACH), :, :] # Remove access to some channels
 
 

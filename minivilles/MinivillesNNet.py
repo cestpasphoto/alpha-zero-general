@@ -183,6 +183,7 @@ class MinivillesNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
+		# input_data is (N, H, C) typically (N, 58, 2)
 		if self.version in [80, 81, 82]:
 			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
 			x = self.first_layer(x)

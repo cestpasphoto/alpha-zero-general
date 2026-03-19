@@ -231,6 +231,7 @@ class SplendorNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
+		# input_data is (N, H, C) typically (N, 56, 7)
 		if self.version in [74, 76, 78, 80, 82]:
 			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
 			x = self.first_layer(x)
