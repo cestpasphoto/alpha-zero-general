@@ -14,6 +14,74 @@ class CatInTheMiddle(nn.Module):
 		x = self.layers1D(x)
 		return x
 
+class SimpleHead(nn.Module):
+    def __init__(self, in_channels, bottleneck_channels, out_features, is_value_head=False):
+        super().__init__()
+        self.conv1x1 = nn.Conv2d(in_channels, bottleneck_channels, kernel_size=1, bias=False)
+        self.bn = nn.BatchNorm2d(bottleneck_channels)
+        self.is_value_head = is_value_head
+        
+        flat_size = bottleneck_channels * 5 * 5
+        
+        if is_value_head:
+            self.fc1 = nn.Linear(flat_size, 64)
+            self.fc2 = nn.Linear(64, out_features)
+        else:
+            self.fc = nn.Linear(flat_size, out_features)
+
+    def forward(self, x):
+        x = F.relu(self.bn(self.conv1x1(x)))
+        x = torch.flatten(x, 1)
+        
+        if self.is_value_head:
+            x = F.relu(self.fc1(x))
+            x = self.fc2(x)
+        else:
+            x = self.fc(x)
+        return x
+
+class HeadWithMeta(nn.Module):
+    def __init__(self, in_channels, bottleneck_channels, meta_features, out_features, is_value_head=False):
+        super().__init__()
+        self.conv1x1 = nn.Conv2d(in_channels, bottleneck_channels, kernel_size=1, bias=False)
+        self.bn = nn.BatchNorm2d(bottleneck_channels)
+        self.is_value_head = is_value_head
+        
+        flat_size = bottleneck_channels * 5 * 5
+        
+        if is_value_head:
+            self.fc1 = nn.Linear(flat_size + meta_features, 64)
+            self.fc2 = nn.Linear(64, out_features)
+        else:
+            self.fc = nn.Linear(flat_size + meta_features, out_features)
+
+    def forward(self, x_spatial, x_meta):
+        x = F.relu(self.bn(self.conv1x1(x_spatial)))
+        x = torch.flatten(x, 1)
+        # Concatenate spatial features with gods/metadata features
+        x = torch.cat([x, x_meta], dim=1)
+        
+        if self.is_value_head:
+            x = F.relu(self.fc1(x))
+            x = self.fc2(x)
+        else:
+            x = self.fc(x)
+        return x
+
+class SimpleResBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(channels)
+
+    def forward(self, x):
+        residual = x
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += residual
+        return F.relu(out)
 
 class SantoriniNNet(nn.Module):
 	def __init__(self, game, args):
@@ -96,6 +164,58 @@ class SantoriniNNet(nn.Module):
 			]
 			self.output_layers_V = CatInTheMiddle(nn.Sequential(*head_V_2D), nn.Sequential(*head_V_1D))
 
+		elif self.version == 78 or self.version == 88:
+			n_filters = 64
+			depth = 10
+			meta_features = 32
+			
+			def inverted_residual(input_ch, expanded_ch, out_ch, use_se, activation, kernel=3, stride=1, dilation=1, width_mult=1):
+				return InvertedResidual(InvertedResidualConfig(input_ch, kernel, expanded_ch, out_ch, use_se, activation, stride, dilation, width_mult), nn.BatchNorm2d)
+			
+			self.first_layer = nn.Conv2d(2, n_filters, 3, padding=1, bias=False)
+			
+			# Expansion factor is 3 (n_filters * 3 = 192 internal channels)
+			confs = [inverted_residual(n_filters, n_filters*3, n_filters, False, "RE") for _ in range(depth)]
+			self.trunk = nn.Sequential(*confs)
+			
+			if self.version == 78:
+				self.meta_fc = nn.Sequential(
+					nn.Flatten(1),
+					nn.Linear(5 * 5, meta_features),
+					nn.ReLU()
+				)
+				# Keeping bottlenecks small to avoid exploding the parameter count in the dense layers
+				self.head_PI = HeadWithMeta(n_filters, bottleneck_channels=4, meta_features=meta_features, out_features=self.action_size, is_value_head=False)
+				self.head_V  = HeadWithMeta(n_filters, bottleneck_channels=2, meta_features=meta_features, out_features=self.num_players, is_value_head=True)
+			else:
+				self.head_PI = SimpleHead(n_filters, bottleneck_channels=4, out_features=self.action_size, is_value_head=False)
+				self.head_V  = SimpleHead(n_filters, bottleneck_channels=2, out_features=self.num_players, is_value_head=True)
+
+		elif self.version == 79 or self.version == 89:
+			n_filters = 64
+			depth = 5
+			meta_features = 32
+			
+			self.first_layer = nn.Sequential(
+				nn.Conv2d(2, n_filters, kernel_size=3, padding=1, bias=False),
+				nn.BatchNorm2d(n_filters),
+				nn.ReLU()
+			)
+			
+			self.trunk = nn.Sequential(*[SimpleResBlock(n_filters) for _ in range(depth)])
+			
+			if self.version == 79:
+				self.meta_fc = nn.Sequential(
+					nn.Flatten(1),
+					nn.Linear(5 * 5, meta_features),
+					nn.ReLU()
+				)
+				self.head_PI = HeadWithMeta(n_filters, bottleneck_channels=2, meta_features=meta_features, out_features=self.action_size, is_value_head=False)
+				self.head_V = HeadWithMeta(n_filters, bottleneck_channels=1, meta_features=meta_features, out_features=self.num_players, is_value_head=True)
+			else:
+				self.head_PI = SimpleHead(n_filters, bottleneck_channels=2, out_features=self.action_size, is_value_head=False)
+				self.head_V = SimpleHead(n_filters, bottleneck_channels=1, out_features=self.num_players, is_value_head=True)
+		
 		else:
 			raise Exception(f'Warning, unknown NN version {self.version}')
 
@@ -126,7 +246,7 @@ class SantoriniNNet(nn.Module):
 			pi = torch.where(valid_actions, self.output_layers_PI(x).squeeze(1), self.lowvalue)
 
 		elif self.version in [66]:
-			x = input_data.transpose(-1, -2).reshape(-1, 3, 5, 5)
+			x = input_data.transpose(-1, -2).reshape(-1, 3, 5, 5) # BUG, see V78
 			x, data = x.split([2,1], dim=1)
 			x = self.first_layer(x)
 			x = self.trunk(x)
@@ -134,11 +254,28 @@ class SantoriniNNet(nn.Module):
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 
 		elif self.version in [67]:
-			x = input_data.transpose(-1, -2).reshape(-1, 3, 5, 5)
+			x = input_data.transpose(-1, -2).reshape(-1, 3, 5, 5) # BUG, see V88
 			x, data = x.split([2,1], dim=1)
 			x = self.first_layer(x)
 			x = self.trunk(x)
 			v = self.output_layers_V(x, data)
 			pi = torch.where(valid_actions, self.output_layers_PI(x, data), self.lowvalue)
+
+		elif self.version in [78, 79]: # Generated by Gemini - with gods
+			x = input_data.permute(0, 3, 1, 2)         # (Batch, H, W, C) -> (Batch, C, H, W)
+			x_spatial, x_data = x.split([2, 1], dim=1) # Split spatial data (workers, levels) and metadata (gods/rounds)
+			x_features = self.first_layer(x_spatial) # Process trunk
+			x_features = self.trunk(x_features)
+			meta_embedding = self.meta_fc(x_data) # Process metadata
+			v = self.head_V(x_features, meta_embedding)
+			pi = torch.where(valid_actions, self.head_PI(x_features, meta_embedding), self.lowvalue)
+
+		elif self.version in [88, 89]: # Generated by Gemini - w/o gods
+			x = input_data.permute(0, 3, 1, 2)    # (Batch, H, W, C) -> (Batch, C, H, W)
+			x_spatial, _ = x.split([2, 1], dim=1) # We only keep the 2 spatial channels (workers, levels)
+			x_features = self.first_layer(x_spatial)
+			x_features = self.trunk(x_features)
+			v = self.head_V(x_features)
+			pi = torch.where(valid_actions, self.head_PI(x_features), self.lowvalue)
 
 		return F.log_softmax(pi, dim=1), torch.tanh(v)
