@@ -92,6 +92,11 @@ class Board():
 			self.players_cards[15*p + 1,:] = 1
 
 		# self.players_monuments[:,:] = 0
+
+		# Simulate the very first dice roll for Player 0
+		self.last_dice[0], _ = self._roll_dice(0)
+		self._dice_effect(self.last_dice[0], player_who_rolled=0)
+		#self.player_state[0] = 0
 		
 	def get_state(self):
 		return self.state
@@ -189,7 +194,18 @@ class Board():
 		return self.round[0]
 
 	def _valid_buy_card(self, player):
-		return np.logical_and(self.players_money[player,0] >= cards_cost, self.market[:,0])
+		# Base condition: enough money and at least 1 card in the market
+		valid = np.logical_and(self.players_money[player,0] >= cards_cost, self.market[:,0] > 0)
+		
+		# Purple cards constraint: only 1 of each type per player
+		if self.players_cards[15*player + STADE, 0] > 0:
+			valid[STADE] = False
+		if self.players_cards[15*player + AFFAIRES, 0] > 0:
+			valid[AFFAIRES] = False
+		if self.players_cards[15*player + CHAINE, 0] > 0:
+			valid[CHAINE] = False
+			
+		return valid
 
 	def _valid_buy_monument(self, player):
 		return np.logical_and(self.players_money[player,0] >= monuments_cost, self.players_monuments[4*player:4*(player+1),0] == 0)
@@ -319,9 +335,9 @@ class Board():
 			if self.players_cards[15*player_who_rolled+CHAINE, 0] > 0:
 				_tv_channel()
 		elif result == 7:
-			_current_receive_from_bank(FROMAGERIE, 3 * self._get_current_cow())
+			_current_receive_from_bank(FROMAGERIE, 3 * self._get_current_cow(player_who_rolled))
 		elif result == 8:
-			_current_receive_from_bank(MEUBLES, 3 * self._get_current_gear())
+			_current_receive_from_bank(MEUBLES, 3 * self._get_current_gear(player_who_rolled))
 		elif result == 9:
 			_current_give(RESTAURANT, 2, bonus_if_mall=True) # give first
 			_all_receive_from_bank(MINE, 5)
@@ -329,9 +345,9 @@ class Board():
 			_current_give(RESTAURANT, 2, bonus_if_mall=True) # give first
 			_all_receive_from_bank(VERGER, 3)
 		elif result == 11:
-			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat())
+			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat(player_who_rolled))
 		elif result == 12:
-			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat())
+			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat(player_who_rolled))
 
 	def _add_money(self, player, money_to_add):
 		new_money = self.players_money[player, 0] + np.int16(money_to_add)
@@ -341,14 +357,14 @@ class Board():
 			new_money = 0
 		self.players_money[player, 0] = new_money
 
-	def _get_current_cow(self):
-		return self.players_cards[15*self.current_player_index + FERME, 0]
+	def _get_current_cow(self, player_who_rolled):
+		return self.players_cards[15*player_who_rolled + FERME, 0]
 
-	def _get_current_gear(self):
-		return self.players_cards[15*self.current_player_index + FORET, 0] + self.players_cards[15*self.current_player_index + MINE, 0]
+	def _get_current_gear(self, player_who_rolled):
+		return self.players_cards[15*player_who_rolled + FORET, 0] + self.players_cards[15*player_who_rolled + MINE, 0]
 
-	def _get_current_wheat(self):
-		return self.players_cards[15*self.current_player_index + CHAMPS, 0] + self.players_cards[15*self.current_player_index + VERGER, 0]
+	def _get_current_wheat(self, player_who_rolled):
+		return self.players_cards[15*player_who_rolled + CHAMPS, 0] + self.players_cards[15*player_who_rolled + VERGER, 0]
 
 
 # Index of cards
