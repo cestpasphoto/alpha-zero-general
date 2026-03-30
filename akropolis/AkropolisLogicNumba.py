@@ -429,6 +429,7 @@ class Board():
 			district_scores = (self.districts.astype(np.int16) * self.plazas * PLAZA_STARS).sum(axis=1)
 			# We multiply the base score by 1000 and add the stones to implicitly break ties
 			scores_proxy = (district_scores + self.stones.astype(np.int16)) * 1000 + self.stones.astype(np.int16)
+			m = scores_proxy.max()
 			single_winner = int((scores_proxy == m).sum()) == 1
 			return np.where(scores_proxy == m, np.float32(1.0 if single_winner else 0.001), np.float32(-1.0))
 		return np.zeros((N_PLAYERS,), dtype=np.float32)
@@ -469,60 +470,34 @@ class Board():
 		self.stones[:] = tmp_stones
 
 	def get_symmetries(self, policy, valids):
-		"""
-		Retourne la liste des (state, policy, valids) pour
-		les 6 rotations et 6 réflexions axiales (dièdre D₆).
-		"""
 		syms = []
 		base_s, base_p, base_v = self.state, policy, valids
 
-		# on parcours d'abord sans réflexion puis avec réflexion
-		for do_reflect in (False, True):
-			# appliquer réflexion sur state et mapper policy/valids
-			if do_reflect:
-				s_in = reflect_state(base_s)
-				p_temp = np.zeros_like(base_p)
-				v_temp = np.zeros_like(base_v)
-				for a in range(base_p.size):
-					cs = a // N_PATTERNS
-					pt = a % N_PATTERNS
-					rp = reflect_pattern(pt)
-					ni = cs * N_PATTERNS + rp
-					p_temp[ni] = base_p[a]
-					v_temp[ni] = base_v[a]
-				p_in, v_in = p_temp, v_temp
-			else:
-				s_in = base_s.copy()
-				p_in = base_p.copy()
-				v_in = base_v.copy()
+		for k in range(N_ORIENTS):
+			new_s = np.zeros_like(base_s)
+			for r in range(CITY_SIZE):
+				for q in range(CITY_SIZE):
+					old = r * CITY_SIZE + q
+					nb  = rotate_cell(old, k)
+					if nb >= 0:
+						r2 = nb // CITY_SIZE
+						q2 = nb - r2 * CITY_SIZE
+						new_s[r2, q2, :] = base_s[r, q, :]
+			
+			new_s[:, :, 3*N_PLAYERS:] = base_s[:, :, 3*N_PLAYERS:].copy()
 
-			# appliquer les 6 rotations
-			for k in range(N_ORIENTS):
-				# rotation de l'état
-				new_s = np.zeros_like(s_in)
-				for r in range(CITY_SIZE):
-					for q in range(CITY_SIZE):
-						old = r * CITY_SIZE + q
-						nb  = rotate_cell(old, k)
-						if nb >= 0:
-							r2 = nb // CITY_SIZE
-							q2 = nb - r2 * CITY_SIZE
-							new_s[r2, q2, :] = s_in[r, q, :]
-				# conserver misc
-				new_s[:, :, 3*N_PLAYERS:] = s_in[:, :, 3*N_PLAYERS:].copy()
-
-				# remapper policy & valids
-				new_p = np.zeros_like(p_in)
-				new_v = np.zeros_like(v_in)
-				for a in range(p_in.size):
+			new_p = np.zeros_like(base_p)
+			new_v = np.zeros_like(base_v)
+			for a in range(base_p.size):
+				if base_v[a]: # Optimization: only rotate valid moves
 					cs = a // N_PATTERNS
 					pt = a % N_PATTERNS
 					rp = rotate_pattern(pt, k)
 					ni = cs * N_PATTERNS + rp
-					new_p[ni] = p_in[a]
-					new_v[ni] = v_in[a]
+					new_p[ni] = base_p[a]
+					new_v[ni] = base_v[a]
 
-				syms.append((new_s, new_p, new_v))
+			syms.append((new_s, new_p, new_v))
 		return syms
 
 	def _draw_tiles_constr_site(self, random_seed, initial_draw=False):
