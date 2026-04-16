@@ -98,55 +98,7 @@ class MinivillesNNet(nn.Module):
 
 		super(MinivillesNNet, self).__init__()
 
-		if self.version == 80:
-			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
-			confs  = []
-			confs += [InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 2, False, "RE")]
-			self.trunk = nn.Sequential(*confs)
-
-			head_PI = [
-				InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 2, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(self.nb_vect*2, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size),
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [
-				InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 2, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(self.nb_vect*2, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players),
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 81:
-			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
-			confs  = []
-			confs += [InvertedResidual1d(self.nb_vect, int(1.5*self.nb_vect), self.nb_vect, 2, False, "RE")]
-			self.trunk = nn.Sequential(*confs)
-
-			head_PI = [
-				InvertedResidual1d(self.nb_vect, int(1.5*self.nb_vect), self.nb_vect, 2, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(self.nb_vect*2, self.action_size),
-				nn.ReLU(),
-				nn.Linear(self.action_size, self.action_size),
-			]
-			self.output_layers_PI = nn.Sequential(*head_PI)
-
-			head_V = [
-				InvertedResidual1d(self.nb_vect, int(1.5*self.nb_vect), self.nb_vect, 2, True, "HS", setype='max'),
-				nn.Flatten(1),
-				nn.Linear(self.nb_vect*2, self.num_players),
-				nn.ReLU(),
-				nn.Linear(self.num_players, self.num_players),
-			]
-			self.output_layers_V = nn.Sequential(*head_V)
-
-		elif self.version == 82:
+		if self.version == 82:
 			self.first_layer = LinearNormActivation(self.nb_vect, self.nb_vect, None)
 			confs  = []
 			confs += [InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 2, False, "RE")]
@@ -170,6 +122,34 @@ class MinivillesNNet(nn.Module):
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
 
+		elif self.version == 83:
+			# V83: Temporal MLP - Flattens the entire board (58 features * 2 history states = 116)
+			self.flat_size = self.nb_vect * self.vect_dim
+			
+			self.trunk = nn.Sequential(
+				nn.Linear(self.flat_size, 256),
+				nn.LayerNorm(256),
+				nn.SiLU(),
+				nn.Linear(256, 256),
+				nn.LayerNorm(256),
+				nn.SiLU(),
+				nn.Linear(256, 128),
+				nn.LayerNorm(128),
+				nn.SiLU()
+			)
+			
+			self.output_layers_PI = nn.Sequential(
+				nn.Linear(128, 64),
+				nn.SiLU(),
+				nn.Linear(64, self.action_size)
+			)
+			
+			self.output_layers_V = nn.Sequential(
+				nn.Linear(128, 64),
+				nn.SiLU(),
+				nn.Linear(64, self.num_players)
+			)
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -184,12 +164,18 @@ class MinivillesNNet(nn.Module):
 
 	def forward(self, input_data, valid_actions):
 		# input_data is (N, H, C) typically (N, 58, 2)
-		if self.version in [80, 81, 82]:
-			x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
+		x = input_data.view(-1, self.nb_vect, self.vect_dim) # no transpose
+		if self.version in [82]:
 			x = self.first_layer(x)
 			x = F.dropout(self.trunk(x), p=self.args['dropout'], training=self.training)
 			v = self.output_layers_V(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
+			
+		elif self.version == 83:
+			x = F.dropout(self.trunk(x), p=self.args.get('dropout', 0.1), training=self.training)
+			v = self.output_layers_V(x)
+			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
+
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
 

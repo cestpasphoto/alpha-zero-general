@@ -6,6 +6,51 @@ from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResid
 
 from .AkropolisConstants import N_COLORS, CITY_SIZE, CITY_AREA, CONSTR_SITE_SIZE, CODES_LIST
 
+# --- HELPER CLASSES FOR NEW ARCHITECTURES ---
+
+class FiLMLayer(nn.Module):
+	"""Feature-wise Linear Modulation"""
+	def __init__(self, channels):
+		super().__init__()
+		self.channels = channels
+
+	def forward(self, x, gamma, beta):
+		# x: (N, C, H, W), gamma/beta: (N, C)
+		gamma = gamma.unsqueeze(-1).unsqueeze(-1)
+		beta = beta.unsqueeze(-1).unsqueeze(-1)
+		return x * gamma + beta
+
+class GlobalContextMLP(nn.Module):
+	"""Processes dynamic heterogeneous global data into a fixed-size context vector"""
+	def __init__(self, num_players, embed_dim, out_dim):
+		super().__init__()
+		self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=embed_dim)
+		
+		# Calculate input size dynamically based on num_players
+		# Scores/Districts/Plazas: 3 * num_players * N_COLORS
+		# Misc: 2 (round, remaining stacks)
+		# Constr Site: CONSTR_SITE_SIZE * 3 hexes * embed_dim
+		self.flat_size = (3 * num_players * N_COLORS) + 2 + (CONSTR_SITE_SIZE * 3 * embed_dim)
+		
+		self.mlp = nn.Sequential(
+			nn.Linear(self.flat_size, 64),
+			nn.BatchNorm1d(64),
+			nn.Hardswish(),
+			nn.Linear(64, out_dim)
+		)
+
+	def forward(self, scores_data, misc_data, constrs_site):
+		# Embed construction site descriptions
+		constrs_long = constrs_site.clamp(min=0., max=len(CODES_LIST)-1).long()
+		c_emb = self.embed(constrs_long) # (N, CS, 3, D)
+		
+		# Flatten everything
+		flat_scores = scores_data.flatten(1) # (N, 3 * num_players * N_COLORS)
+		flat_c_emb = c_emb.flatten(1)        # (N, CS * 3 * D)
+		
+		x = torch.cat([flat_scores, misc_data, flat_c_emb], dim=1)
+		return self.mlp(x), c_emb
+
 class AkropolisNNet(nn.Module):
 	def __init__(self, game, args):	
 		self.board_size = game.getBoardSize()
@@ -45,10 +90,10 @@ class AkropolisNNet(nn.Module):
 			)
 		elif self.version in [30, 31, 32]: # Less simple version using Embedding
 			constants = {
-			 	#    D   T   S   G  B  r
-                30: (3, 32, 16, 8 , 8 , 16),
-                31: (3, 32, 16, 8 , 8 , 16),
-                32: (3, 32, 16, 8 , 16, 16),
+				#    D   T   S   G  B  r
+				30: (3, 32, 16, 8 , 8 , 16),
+				31: (3, 32, 16, 8 , 8 , 16),
+				32: (3, 32, 16, 8 , 16, 16),
 			}
 			D, T, S, G, B, r = constants[self.version]
 			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
@@ -100,6 +145,223 @@ class AkropolisNNet(nn.Module):
 				nn.Hardswish(),
 			)
 
+		# =====================================================================
+		# V40: FiLM-Conditioned MobileNet (Attention Contextuelle)
+		# =====================================================================
+		elif self.version == 40:
+			D = 8         # Embedding dimension for hex descriptions
+			C_sp = 24     # Spatial channels (kept very small for < 2 MFLOPs)
+			C_ctx = 64    # Global context dimension
+			
+			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
+			self.global_extractor = GlobalContextMLP(self.num_players, D, C_ctx)
+			
+			# Spatial stem for Player 0 only (Embedding D + Height 1)
+			self.stem = nn.Sequential(
+				nn.Conv2d(D + 1, C_sp, kernel_size=3, padding=1, bias=False),
+				nn.BatchNorm2d(C_sp),
+				nn.Hardswish()
+			)
+			
+			# Spatial Blocks with FiLM
+			self.block1 = inverted_residual(C_sp, C_sp*3, C_sp, False, "RE")
+			self.film1_gamma = nn.Linear(C_ctx, C_sp)
+			self.film1_beta  = nn.Linear(C_ctx, C_sp)
+			self.film1 = FiLMLayer(C_sp)
+			
+			self.block2 = inverted_residual(C_sp, C_sp*3, C_sp, True, "HS")
+			self.film2_gamma = nn.Linear(C_ctx, C_sp)
+			self.film2_beta  = nn.Linear(C_ctx, C_sp)
+			self.film2 = FiLMLayer(C_sp)
+
+			# Policy Head (Einsum approach, factorized)
+			self.proj_board = nn.Conv2d(C_sp, C_sp, kernel_size=1)
+			self.proj_tile = nn.Linear(3 * D, C_sp)
+			self.proj_orient = nn.Linear(C_sp, 6 * C_sp)
+			
+			# Value Head (Dynamic output size = num_players)
+			self.val_head = nn.Sequential(
+				nn.Linear(C_sp + C_ctx, 32),
+				nn.Hardswish(),
+				nn.Linear(32, self.num_players)
+			)
+
+		# =====================================================================
+		# V41: Early-Broadcast Bottleneck (Compression Brutale)
+		# =====================================================================
+		elif self.version == 41:
+			D = 8
+			C_ctx = 16    # Tiny broadcast vector
+			C_sp = 24     # Spatial channels
+
+			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
+			self.global_extractor = GlobalContextMLP(self.num_players, D, C_ctx)
+			
+			# Bottleneck mixing Broadcasted Context (C_ctx) + Spatial P0 (D + 1)
+			self.bottleneck = nn.Sequential(
+				nn.Conv2d(D + 1 + C_ctx, C_sp, kernel_size=1, bias=False),
+				nn.BatchNorm2d(C_sp),
+				nn.Hardswish()
+			)
+			
+			# Standard Spatial Blocks
+			self.spatial_trunk = nn.Sequential(
+				inverted_residual(C_sp, C_sp*3, C_sp, False, "RE"),
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS")
+			)
+
+			# Policy Head
+			self.proj_board = nn.Conv2d(C_sp, C_sp, kernel_size=1)
+			self.proj_tile = nn.Linear(3 * D, C_sp)
+			self.proj_orient = nn.Linear(C_sp, 6 * C_sp)
+			
+			# Value Head
+			self.val_head = nn.Sequential(
+				nn.Linear(C_sp + C_ctx, 32),
+				nn.Hardswish(),
+				nn.Linear(32, self.num_players)
+			)
+
+		# =====================================================================
+		# V42: Asymmetric Dual-Stream DEEP
+		# =====================================================================
+		elif self.version == 42:
+			D = 16        # Increased to 16 for very rich categorical representation
+			C_sp = 16     # Must be a multiple of 8. Kept at 16 to allow more depth.
+			C_ctx = 64    # Global context dimension
+
+			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
+			self.global_extractor = GlobalContextMLP(self.num_players, D, C_ctx)
+			
+			# Deep analytical MLP for Global Data
+			self.deep_ctx = nn.Sequential(
+				nn.Linear(C_ctx, C_ctx),
+				nn.Hardswish(),
+				nn.Linear(C_ctx, C_ctx)
+			)
+
+			# Spatial Stream for Player 0
+			# Deeper network (4 blocks) to maximize the receptive field on the 13x13 grid
+			self.spatial_trunk = nn.Sequential(
+				nn.Conv2d(D + 1, C_sp, kernel_size=3, padding=1, bias=False),
+				nn.BatchNorm2d(C_sp),
+				nn.Hardswish(),
+				inverted_residual(C_sp, C_sp*3, C_sp, False, "RE"),
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
+			)
+
+			# Policy Head
+			self.proj_board = nn.Conv2d(C_sp, C_sp, kernel_size=1)
+			self.proj_tile = nn.Linear(3 * D + C_ctx, C_sp) 
+			self.proj_orient = nn.Linear(C_sp, 6 * C_sp)
+			
+			# Value Head
+			self.val_head = nn.Sequential(
+				nn.Linear(C_sp + C_ctx, 32),
+				nn.Hardswish(),
+				nn.Linear(32, self.num_players)
+			)
+
+		# =====================================================================
+		# V50: Siamese Spatial Pooling (Independent opponent summary)
+		# =====================================================================
+		elif self.version == 50:
+			D = 12        # Categorical embedding dimension
+			C_sp = 16     # Spatial channels (kept at 16 to afford Siamese processing)
+			C_ctx = 64    # Global context dimension
+
+			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
+			self.global_extractor = GlobalContextMLP(self.num_players, D, C_ctx)
+			
+			# SHARED spatial stem (used for Player 0 AND Opponents)
+			self.shared_stem = nn.Sequential(
+				nn.Conv2d(D + 1, C_sp, kernel_size=3, padding=1, bias=False),
+				nn.BatchNorm2d(C_sp),
+				nn.Hardswish(),
+				inverted_residual(C_sp, C_sp*3, C_sp, False, "RE")
+			)
+			
+			# Player 0 specific deeper trunk (for geometric planning)
+			self.p0_trunk = nn.Sequential(
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS")
+			)
+
+			# Deep context includes Global + Opponent Summary (Avg & Max pooled -> 2 * C_sp)
+			self.deep_ctx = nn.Sequential(
+				nn.Linear(C_ctx + (2 * C_sp), C_ctx),
+				nn.Hardswish(),
+				nn.Linear(C_ctx, C_ctx)
+			)
+
+			# Policy Head
+			self.proj_board = nn.Conv2d(C_sp, C_sp, kernel_size=1)
+			self.proj_tile = nn.Linear(3 * D + C_ctx, C_sp) 
+			self.proj_orient = nn.Linear(C_sp, 6 * C_sp)
+			
+			# Value Head
+			self.val_head = nn.Sequential(
+				nn.Linear(C_sp + C_ctx, 32),
+				nn.Hardswish(),
+				nn.Linear(32, self.num_players)
+			)
+
+		# =====================================================================
+		# V51: Opponent Threat Attention (Targeted evaluation)
+		# =====================================================================
+		elif self.version == 51:
+			D = 12
+			C_sp = 16     # Main spatial channels
+			C_opp = 16    # Smaller channels for opponent spatial attention
+			C_ctx = 64    
+
+			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
+			self.global_extractor = GlobalContextMLP(self.num_players, D, C_ctx)
+			
+			# Spatial Stream for Player 0
+			self.spatial_trunk = nn.Sequential(
+				nn.Conv2d(D + 1, C_sp, kernel_size=3, padding=1, bias=False),
+				nn.BatchNorm2d(C_sp),
+				nn.Hardswish(),
+				inverted_residual(C_sp, C_sp*3, C_sp, False, "RE"),
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
+				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS")
+			)
+
+			# Ultra-light Opponent Stem
+			self.opp_stem = nn.Sequential(
+				nn.Conv2d(D + 1, C_opp, kernel_size=3, padding=1, bias=False),
+				nn.BatchNorm2d(C_opp),
+				nn.Hardswish()
+			)
+
+			# Cross-Attention projections (Q=Tiles, K/V=Opponent Board)
+			self.q_proj = nn.Linear(3 * D, C_opp)
+			self.k_proj = nn.Conv2d(C_opp, C_opp, kernel_size=1)
+			self.v_proj = nn.Conv2d(C_opp, C_opp, kernel_size=1)
+
+			# Deep context
+			self.deep_ctx = nn.Sequential(
+				nn.Linear(C_ctx, C_ctx),
+				nn.Hardswish()
+			)
+
+			# Policy Head (Fuses Tile + Context + Opponent Threat Vector)
+			self.proj_board = nn.Conv2d(C_sp, C_sp, kernel_size=1)
+			self.proj_tile = nn.Linear(3 * D + C_ctx + C_opp, C_sp) 
+			self.proj_orient = nn.Linear(C_sp, 6 * C_sp)
+			
+			# Value Head
+			self.val_head = nn.Sequential(
+				nn.Linear(C_sp + C_ctx, 32),
+				nn.Hardswish(),
+				nn.Linear(32, self.num_players)
+			)
+
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -113,22 +375,197 @@ class AkropolisNNet(nn.Module):
 				layer.apply(_init)
 
 	def forward(self, input_data, valid_actions):
-		# input_data is (N, H, W, C) typically (N, 13, 13, 8)
-		x = input_data.permute(0, 3, 1, 2) # Switch from NHWC to NCHW
-		# Split data
+		x = input_data.permute(0, 3, 1, 2)
+		
+		# Slicer
 		split_input_data = x.split([self.num_players, self.num_players, self.num_players, 1 ,1], dim=1)
 		boards_descr, boards_height, boards_tileID, per_pl_data, global_data = split_input_data
+		
+		# Extract Global Context variables
 		scores_data = per_pl_data.squeeze(1)[:, :3*self.num_players, :N_COLORS]
 		constrs_site = global_data.squeeze(1)[:, :CONSTR_SITE_SIZE, :3]
+		misc_data = global_data.squeeze(1)[:, CONSTR_SITE_SIZE+1, :2]
 		globals_data = global_data.squeeze(1)[:, CONSTR_SITE_SIZE+1, :2]
-		# x.shape = Nx8x12x12
-		# boards_descr.shape = boards_height.shape = Nx2x12x12
-		# per_pl_data.shape = global_data.shape = Nx1x12x12
-		# scores_data.shape = Nx6x5
-		# constrs_site.shape = Nx3x3
-		# globals_data.shape = Nx2
 
-		if self.version in [1]:
+		if self.version in [50, 51]:
+			# --- COMMON SPATIAL PREPARATION ---
+			# Player 0
+			descr_p0 = boards_descr[:, 0, :, :].clamp(min=0., max=len(CODES_LIST)-1).long()
+			spatial_emb_p0 = self.embed(descr_p0).permute(0, 3, 1, 2)
+			height_p0 = boards_height[:, 0, :, :].unsqueeze(1)
+			spatial_p0 = torch.cat([spatial_emb_p0, height_p0], dim=1) # (N, D+1, 13, 13)
+
+			# Opponents (Dynamic handling of multiple opponents)
+			num_opp = self.num_players - 1
+			descr_opp = boards_descr[:, 1:, :, :].clamp(min=0., max=len(CODES_LIST)-1).long() # (N, num_opp, 13, 13)
+			spatial_emb_opp = self.embed(descr_opp).permute(0, 1, 4, 2, 3) # (N, num_opp, D, 13, 13)
+			height_opp = boards_height[:, 1:, :, :].unsqueeze(2) # (N, num_opp, 1, 13, 13)
+			spatial_opp = torch.cat([spatial_emb_opp, height_opp], dim=2) # (N, num_opp, D+1, 13, 13)
+			
+			# Flatten batch and opp dimensions for standard Conv2d processing
+			N, _, C_in, H, W = spatial_opp.shape
+			spatial_opp_flat = spatial_opp.view(N * num_opp, C_in, H, W)
+
+			# Global Context extraction
+			ctx_vec, c_emb = self.global_extractor(scores_data, misc_data, constrs_site)
+			flat_tiles = c_emb.flatten(start_dim=2) # (N, CS, 3*D)
+			ctx_expanded = ctx_vec.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # (N, CS, C_ctx)
+
+			# =================================================================
+			if self.version == 50: # Siamese Spatial Pooling
+				# Process P0 and Opponents through SHARED stem
+				feat_p0 = self.shared_stem(spatial_p0)
+				feat_opp_flat = self.shared_stem(spatial_opp_flat) # (N * num_opp, C_sp, 13, 13)
+				
+				# Independent Opponent Summary (Pool to remove rotation/position constraints)
+				feat_opp = feat_opp_flat.view(N, num_opp, -1, H, W)
+				opp_avg = F.adaptive_avg_pool2d(feat_opp.flatten(0, 1), 1).view(N, num_opp, -1).mean(dim=1) # (N, C_sp)
+				opp_max = F.adaptive_max_pool2d(feat_opp.flatten(0, 1), 1).view(N, num_opp, -1).max(dim=1)[0] # (N, C_sp)
+				opp_summary = torch.cat([opp_avg, opp_max], dim=1) # (N, 2 * C_sp)
+
+				# Continue P0 processing
+				feat = self.p0_trunk(feat_p0)
+				
+				# Build rich context combining explicit global data + implicit opponent summary
+				deep_ctx = self.deep_ctx(torch.cat([ctx_vec, opp_summary], dim=1))
+				
+				# Policy (Late fusion)
+				board_features = self.proj_board(feat).permute(0, 2, 3, 1).unsqueeze(1)
+				deep_ctx_expanded = deep_ctx.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1)
+				fused_tiles = torch.cat([flat_tiles, deep_ctx_expanded], dim=-1)
+				
+				tile_features = self.proj_tile(fused_tiles)
+				orient_features = self.proj_orient(tile_features).view(tile_features.shape[0], tile_features.shape[1], 6, -1)
+				
+				prod = board_features.unsqueeze(2) * orient_features.unsqueeze(3).unsqueeze(4)
+				logits = prod.sum(dim=-1).permute(0, 1, 3, 4, 2)
+				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
+				
+				# Value
+				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1)
+				v = self.val_head(torch.cat([pooled_spatial, deep_ctx], dim=1))
+
+			# =================================================================
+			elif self.version == 51: # Opponent Threat Attention
+				feat = self.spatial_trunk(spatial_p0)
+				deep_ctx = self.deep_ctx(ctx_vec)
+
+				# Process opponents through light stem
+				feat_opp_flat = self.opp_stem(spatial_opp_flat) # (N*num_opp, C_opp, 13, 13)
+				
+				# Attention mechanism: Q(Tiles) -> K,V(Opponents)
+				q = self.q_proj(flat_tiles) # (N, CS, C_opp)
+				
+				k = self.k_proj(feat_opp_flat).view(N, num_opp, -1, H*W).permute(0, 2, 1, 3).reshape(N, -1, num_opp * H * W) # (N, C_opp, num_opp*169)
+				v = self.v_proj(feat_opp_flat).view(N, num_opp, -1, H*W).permute(0, 1, 3, 2).reshape(N, num_opp * H * W, -1) # (N, num_opp*169, C_opp)
+				
+				# Scaled Dot-Product Attention
+				C_opp_scale = k.shape[1] ** 0.5
+				attn_logits = torch.bmm(q, k) / C_opp_scale # (N, CS, num_opp*169)
+				attn_weights = F.softmax(attn_logits, dim=-1)
+				threat_vec = torch.bmm(attn_weights, v) # (N, CS, C_opp)
+
+				# Policy (Fuse Tile + Context + Threat Vector)
+				board_features = self.proj_board(feat).permute(0, 2, 3, 1).unsqueeze(1)
+				deep_ctx_expanded = deep_ctx.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1)
+				fused_tiles = torch.cat([flat_tiles, deep_ctx_expanded, threat_vec], dim=-1) # (N, CS, 3*D + C_ctx + C_opp)
+				
+				tile_features = self.proj_tile(fused_tiles)
+				orient_features = self.proj_orient(tile_features).view(tile_features.shape[0], tile_features.shape[1], 6, -1)
+				
+				prod = board_features.unsqueeze(2) * orient_features.unsqueeze(3).unsqueeze(4)
+				logits = prod.sum(dim=-1).permute(0, 1, 3, 4, 2)
+				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
+				
+				# Value
+				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1)
+				v = self.val_head(torch.cat([pooled_spatial, deep_ctx], dim=1))
+
+		elif self.version in [40, 41, 42]:
+			# --- COMMON PRE-PROCESSING ---
+			# Spatial Embedding
+			descr_long = board_descr_p0.clamp(min=0., max=len(CODES_LIST)-1).long()
+			spatial_emb = self.embed(descr_long).permute(0, 3, 1, 2) # (N, D, 13, 13)
+			spatial_p0 = torch.cat([spatial_emb, board_height_p0], dim=1) # (N, D+1, 13, 13)
+			
+			# Global Context Processing
+			ctx_vec, c_emb = self.global_extractor(scores_data, misc_data, constrs_site) # ctx_vec: (N, C_ctx), c_emb: (N, CS, 3, D)
+			flat_tiles = c_emb.flatten(start_dim=2) # (N, CS, 3*D)
+			
+			# --- ARCHITECTURE SPECIFIC FORWARD ---
+			if self.version == 40: # FiLM-Conditioned MobileNet
+				feat = self.stem(spatial_p0)
+				
+				# Block 1 + FiLM
+				feat = self.block1(feat)
+				g1, b1 = self.film1_gamma(ctx_vec), self.film1_beta(ctx_vec)
+				feat = self.film1(feat, g1, b1)
+				
+				# Block 2 + FiLM
+				feat = self.block2(feat)
+				g2, b2 = self.film2_gamma(ctx_vec), self.film2_beta(ctx_vec)
+				feat = self.film2(feat, g2, b2)
+				
+				# Policy computation
+				board_features = self.proj_board(feat).permute(0, 2, 3, 1).unsqueeze(1) # (N, 1, 13, 13, C_sp)
+				tile_features = self.proj_tile(flat_tiles) # (N, CS, C_sp)
+				orient_features = self.proj_orient(tile_features).view(tile_features.shape[0], tile_features.shape[1], 6, -1) # (N, CS, 6, C_sp)
+				
+				prod = board_features.unsqueeze(2) * orient_features.unsqueeze(3).unsqueeze(4) # (N, CS, 6, 13, 13, C_sp)
+				logits = prod.sum(dim=-1).permute(0, 1, 3, 4, 2) # (N, CS, 13, 13, 6)
+				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
+				
+				# Value computation
+				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1) # (N, C_sp)
+				v = self.val_head(torch.cat([pooled_spatial, ctx_vec], dim=1))
+				
+			elif self.version == 41: # Early-Broadcast Bottleneck
+				# Broadcast ctx_vec to spatial dimensions
+				broadcast_ctx = ctx_vec.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, CITY_SIZE, CITY_SIZE)
+				mixed_input = torch.cat([spatial_p0, broadcast_ctx], dim=1) # (N, D+1+C_ctx, 13, 13)
+				
+				feat = self.bottleneck(mixed_input)
+				feat = self.spatial_trunk(feat)
+				
+				# Policy computation
+				board_features = self.proj_board(feat).permute(0, 2, 3, 1).unsqueeze(1)
+				tile_features = self.proj_tile(flat_tiles)
+				orient_features = self.proj_orient(tile_features).view(tile_features.shape[0], tile_features.shape[1], 6, -1)
+				
+				prod = board_features.unsqueeze(2) * orient_features.unsqueeze(3).unsqueeze(4)
+				logits = prod.sum(dim=-1).permute(0, 1, 3, 4, 2)
+				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
+				
+				# Value computation
+				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1)
+				v = self.val_head(torch.cat([pooled_spatial, ctx_vec], dim=1))
+
+			elif self.version == 42: # Asymmetric Dual-Stream
+				# Deep context stream
+				deep_ctx = self.deep_ctx(ctx_vec)
+				
+				# Spatial stream
+				feat = self.spatial_trunk(spatial_p0)
+				
+				# Policy computation (Late fusion of deep_ctx into tile embeddings)
+				board_features = self.proj_board(feat).permute(0, 2, 3, 1).unsqueeze(1)
+				
+				# Inject global understanding into the tiles before projection
+				ctx_expanded = deep_ctx.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # (N, CS, C_ctx)
+				fused_tiles = torch.cat([flat_tiles, ctx_expanded], dim=-1) # (N, CS, 3*D + C_ctx)
+				
+				tile_features = self.proj_tile(fused_tiles)
+				orient_features = self.proj_orient(tile_features).view(tile_features.shape[0], tile_features.shape[1], 6, -1)
+				
+				prod = board_features.unsqueeze(2) * orient_features.unsqueeze(3).unsqueeze(4)
+				logits = prod.sum(dim=-1).permute(0, 1, 3, 4, 2)
+				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
+				
+				# Value computation
+				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1)
+				v = self.val_head(torch.cat([pooled_spatial, deep_ctx], dim=1))
+
+		elif self.version in [1]:
 			x_1d = torch.cat([scores_data.flatten(1), constrs_site.flatten(1), globals_data, boards_descr.flatten(1), boards_height.flatten(1)], dim=1) # x_1d.shape = Nx39
 			x_1d = F.dropout(self.trunk_1d(x_1d), p=self.args['dropout'], training=self.training) # x_1d.shape = Nx100
 			v = self.final_layers_V(x_1d)
