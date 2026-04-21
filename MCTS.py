@@ -90,7 +90,7 @@ class MCTS():
                     del self.nodes_data[node]
                 self.last_cleaning = r
 
-        if temp == 0:
+        if temp <= 0.02: # For temp below this threshold it gives an overflow error in the next power operatio
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
             bestA = np.random.choice(bestAs)
             probs = [0] * len(counts)
@@ -145,7 +145,7 @@ class MCTS():
             else:
                 Ps, v = self.nnet.predict_client(canonicalBoard, Vs, self.batch_info)
             if dirichlet_noise:
-                Ps = softmax(Ps, self.args.temperature[0])
+                Ps = softmax(Ps, self.args.temperature[2])
                 self.applyDirNoise(Ps, Vs)
             normalise(Ps)
 
@@ -155,7 +155,7 @@ class MCTS():
 
         if dirichlet_noise:
             # We already visited this node, adding dirichlet noise this time
-            Ps = softmax(Ps, self.args.temperature[0])
+            Ps = softmax(Ps, self.args.temperature[2])
             self.applyDirNoise(Ps, Vs)
             normalise(Ps)
 

@@ -42,9 +42,6 @@ class Coach():
 		ends, the outcome of the game is used to assign values to each example
 		in trainExamples.
 
-		It uses a temp=1 if episodeStep < tempThreshold, and thereafter
-		uses temp=0.
-
 		Returns:
 			trainExamples: a list of examples of the form (canonicalBoard, currPlayer, pi,v)
 						   pi is the MCTS informed policy vector, v is +1 if
@@ -63,7 +60,7 @@ class Coach():
 			episodeStep += 1
 			canonicalBoard = my_game.getCanonicalForm(board, curPlayer)
 			pi, q, is_full_search = my_mcts.getActionProb(canonicalBoard, temp=1.)
-			action = random_pick(pi, temperature=2 if episodeStep < self.args.tempThreshold else self.args.temperature[1])
+			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep))
 
 			if is_full_search:
 				valids = my_game.getValidMoves(canonicalBoard, 0)
@@ -200,9 +197,8 @@ class Coach():
 			nmcts = MCTS(self.game, self.nnet, self.args)
 
 			# log.info('PITTING AGAINST PREVIOUS VERSION')
-			nb_moves_with_temperature = 6
-			arena = Arena(lambda x, n: np.argmax(nmcts.getActionProb(x, temp=(0.5 if n <= nb_moves_with_temperature else 0.), force_full_search=True)[0]),
-						  lambda x, n: np.argmax(pmcts.getActionProb(x, temp=(0.5 if n <= nb_moves_with_temperature else 0.), force_full_search=True)[0]), self.game)
+			arena = Arena(lambda x, n: np.argmax(nmcts.getActionProb(x, temp=self.temp_for_game(n), force_full_search=True)[0]),
+						  lambda x, n: np.argmax(pmcts.getActionProb(x, temp=self.temp_for_game(n), force_full_search=True)[0]), self.game)
 			nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
 
 			if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
@@ -265,6 +261,16 @@ class Coach():
 					history.pop()
 				log.info('Reduced nb of items in one history of loaded examples')
 
+
+	# Calculates the exponential decay for temperature during self-plays
+	def temp_for_selfplay(self, n):
+		t_begin, t_end, half_life = self.args.temperature[0], self.args.temperature[1], self.args.tempThreshold
+		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
+
+	# Calculates the exponential decay for temperature during test games
+	def temp_for_game(self, n):
+		t_begin, t_end, half_life = 0.1, 0.0, self.args.tempThreshold
+		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
 
 def applyTemperatureAndNormalize(probs, temperature):
 	if temperature == 0:

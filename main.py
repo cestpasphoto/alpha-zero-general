@@ -125,8 +125,8 @@ def main():
 	parser.add_argument('--numItersHistory' , '-i' , action='store', default=5   , type=int  , help='')
 
 	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=1600 , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')
-	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves after which changing temperature')
-	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.25, 0.8], type=float, nargs=2, help='Softmax temp: 1 = to apply before MCTS, 3 = after MCTS, only used for selection not for learning')
+	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves for half-life of temperature decay')
+	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.0, 0.1, 1.1], type=float, nargs=3, help='Temperatures at begin/end, and softmax temp applied on root policy before Dirichlet - used during self-plays not test games')
 	parser.add_argument('--cpuct'           , '-c' , action='store', default=1.25 , type=float, help='cpuct value')
 	parser.add_argument('--dirichletAlpha'  , '-d' , action='store', default=-1   , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position. 0 to disable. -1 for auto.')
 	parser.add_argument('--fpu'             , '-f' , action='store', default=0.   , type=float, help='Value for FPU (first play urgency): negative value for absolute value, positive value for parent-based reduction')
@@ -135,7 +135,7 @@ def main():
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
-	parser.add_argument('--dropout'         , '-D' , action='store', default=0.   , type=float  , help='')
+	parser.add_argument('--dropout'         , '-D' , action='store', default=0.   , type=float  , help='Dropout value - advised to disable')
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 
 	### Advanced params ###

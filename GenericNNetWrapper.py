@@ -69,7 +69,7 @@ class GenericNNetWrapper(NeuralNet):
 				optimizer.zero_grad(set_to_none=True)
 				out_pi, out_v = self.nnet(boards, valid_actions)
 				l_pi, l_v = self.loss_pi(target_pis, out_pi), self.loss_v(target_vs, target_qs, out_v)
-				total_loss = l_pi + l_v
+				total_loss = l_pi + 0.25*l_v # Weight 0.25 * value
 
 				# record loss
 				pi_losses.update(l_pi.item(), boards.size(0))
