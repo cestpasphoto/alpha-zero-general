@@ -88,7 +88,7 @@ class MCTS():
             if r > self.last_cleaning + 20:
                 for node in [n for n in self.nodes_data.keys() if self.nodes_data[n][6] < r-5]:
                     del self.nodes_data[node]
-                self.last_cleaning = r
+                self.last_cleaning = int(r)
 
         if temp <= 0.02: # For temp below this threshold it gives an overflow error in the next power operatio
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()

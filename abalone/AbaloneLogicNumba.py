@@ -2,6 +2,11 @@ import numpy as np
 from numba import njit
 import numba
 
+ENABLE_DOMAIN_RANDOMIZATION = False
+ENABLE_DYNAMIC_KOMI         = False
+ENABLE_SUMITO_SCORE         = False
+ENABLE_EDGE_PENALTY         = False
+
 # =============================================================================
 # BOARD DESCRIPTION
 # =============================================================================
@@ -28,6 +33,15 @@ import numba
 #   - A movement direction (0 to 5)
 # The Anchor is always the marble in the group closest to the axis origin 
 # (minimum 'r', and if tied, minimum 'q').
+
+# Pre-computed mask for edge penalty (Idea 5)
+EDGE_MASK = np.zeros((9, 9), dtype=np.int8)
+for r in range(9):
+	for q in range(9):
+		if 4 <= r + q <= 12:
+			# Edges are the boundaries of the playable area
+			if r == 0 or r == 8 or q == 0 or q == 8 or r + q == 4 or r + q == 12:
+				EDGE_MASK[r, q] = 1
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
@@ -155,51 +169,41 @@ class Board():
 	def init_game(self):
 		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
 		
-		# Initialize valid board mask (4 <= r + q <= 12)
 		for r in range(9):
 			for q in range(9):
 				if 4 <= r + q <= 12:
 					self.board_mask[r, q] = 1
 
-		# Classic Initial Layout
-		# P1 (Opponent - White)
 		self.opp_marbles[0, 4:9] = 1
 		self.opp_marbles[1, 3:9] = 1
 		self.opp_marbles[2, 4:7] = 1
 
-		# P0 (Current Player - Black, plays first)
 		self.my_marbles[8, 0:5] = 1
 		self.my_marbles[7, 0:6] = 1
 		self.my_marbles[6, 2:5] = 1
 
-		# =====================================================================
-		# ASYMMETRIC STARTING STATE (Random Penalty)
-		# =====================================================================
-		# We randomly alter the starting state to force aggressive play and
-		# break passivity. 
-		# For example, ~50% of games start normally, 25% penalize P0, 25% penalize P1.
-		
-		rand_val = np.random.random()
-		
-		if rand_val < 0.5: # 50% chance to apply a penalty
-			# Randomly pick penalty size (1 or 2 marbles)
-			nb_penalties = 1 if np.random.random() < 0.5 else 2
+		# IDEA 1: Domain Randomization
+		if ENABLE_DOMAIN_RANDOMIZATION and np.random.rand() < 0.5:
+			penalized_player = np.random.randint(2)
+			nb_to_remove = np.random.randint(1, 3)
+			marbles_layer = self.my_marbles if penalized_player == 0 else self.opp_marbles
 			
-			# Randomly pick who gets penalized (0 or 1)
-			penalized_player = 0 if np.random.random() < 0.5 else 1
-			
+			for _ in range(nb_to_remove):
+				while True:
+					r, q = np.random.randint(9), np.random.randint(9)
+					if marbles_layer[r, q] == 1:
+						marbles_layer[r, q] = 0
+						break
 			if penalized_player == 0:
-				# Remove marbles from the back row of P0
-				for i in range(nb_penalties):
-					self.my_marbles[8, i] = 0
-				# Grant points to P1
-				self.misc[0, 1] = nb_penalties 
+				self.misc[0, 1] += nb_to_remove
 			else:
-				# Remove marbles from the back row of P1
-				for i in range(nb_penalties):
-					self.opp_marbles[0, 8 - i] = 0
-				# Grant points to P0
-				self.misc[0, 0] = nb_penalties
+				self.misc[0, 0] += nb_to_remove
+
+		# IDEA 2: Dynamic Komi (Assigned to player 0 or 1 randomly)
+		if ENABLE_DYNAMIC_KOMI:
+			# misc[0, 3] = 1 means the CURRENT player wins ties
+			# misc[0, 3] = 0 means the OPPONENT wins ties
+			self.misc[0, 3] = np.random.randint(2)
 
 	def get_state(self):
 		return self.state
@@ -324,6 +328,10 @@ class Board():
 			tr, tq = front_r + DIRECTIONS[d, 0], front_q + DIRECTIONS[d, 1]
 
 			if is_on_board(tr, tq, self.board_mask) and self.state[tr, tq, opp] == 1:
+				# A sumito is happening!
+				if ENABLE_SUMITO_SCORE:
+					self.misc[0, 4] += 1 # Increment current player's sumito count
+
 				curr_r, curr_q = tr, tq
 				while is_on_board(curr_r, curr_q, self.board_mask) and self.state[curr_r, curr_q, opp] == 1:
 					curr_r += DIRECTIONS[d, 0]
@@ -347,18 +355,35 @@ class Board():
 			return np.array([1.0, -1.0], dtype=np.float32)
 		if self.misc[0, 1] >= 6:
 			return np.array([-1.0, 1.0], dtype=np.float32)
-		
-		if self.misc[0, 2] >= 127: # Hard limit reached
-			# Resolve by highest score instead of an automatic draw
-			if self.misc[0, 0] > self.misc[0, 1] and self.misc[0, 0] > 2:
-				return np.array([1.0, -1.0], dtype=np.float32)
-			elif self.misc[0, 1] > self.misc[0, 0] and self.misc[0, 1] > 2:
-				return np.array([-1.0, 1.0], dtype=np.float32)
-			else:
-				# Exact same score: Draw
-				return np.array([0.001, 0.001], dtype=np.float32)
-			#return np.array([-1., -1.], dtype=np.float32)
+			
+		if self.misc[0, 2] >= 127: # Limit reached
+			
+			# 1. Base Score (Ejections)
+			if self.misc[0, 0] > self.misc[0, 1]: return np.array([1.0, -1.0], dtype=np.float32)
+			if self.misc[0, 1] > self.misc[0, 0]: return np.array([-1.0, 1.0], dtype=np.float32)
+			
+			# 2. Idea 4: Sumito Score 
+			if ENABLE_SUMITO_SCORE:
+				if self.misc[0, 4] > self.misc[0, 5]: return np.array([1.0, -1.0], dtype=np.float32)
+				if self.misc[0, 5] > self.misc[0, 4]: return np.array([-1.0, 1.0], dtype=np.float32)
 				
+			# 3. Idea 5: Edge Penalty (Lower is better)
+			if ENABLE_EDGE_PENALTY:
+				my_edges = np.sum(self.my_marbles * EDGE_MASK)
+				opp_edges = np.sum(self.opp_marbles * EDGE_MASK)
+				if my_edges < opp_edges: return np.array([1.0, -1.0], dtype=np.float32)
+				if opp_edges < my_edges: return np.array([-1.0, 1.0], dtype=np.float32)
+				
+			# 4. Idea 2: Dynamic Komi
+			if ENABLE_DYNAMIC_KOMI:
+				if self.misc[0, 3] == 1:
+					return np.array([1.0, -1.0], dtype=np.float32)
+				else:
+					return np.array([-1.0, 1.0], dtype=np.float32)
+					
+			# 5. Perfect Draw (Fallback)
+			return np.array([0.001, 0.001], dtype=np.float32)
+			
 		return np.array([0.0, 0.0], dtype=np.float32)
 
 	def swap_players(self, nb_swaps):
@@ -372,6 +397,16 @@ class Board():
 			temp_score = self.misc[0, 0]
 			self.misc[0, 0] = self.misc[0, 1]
 			self.misc[0, 1] = temp_score
+
+			# Swap Komi ownership
+			if ENABLE_DYNAMIC_KOMI:
+				self.misc[0, 3] = 1 - self.misc[0, 3]
+				
+			# Swap Sumito scores
+			if ENABLE_SUMITO_SCORE:
+				temp_sumito = self.misc[0, 4]
+				self.misc[0, 4] = self.misc[0, 5]
+				self.misc[0, 5] = temp_sumito
 
 	def get_symmetries(self, policy, valids):
 		symmetries = []

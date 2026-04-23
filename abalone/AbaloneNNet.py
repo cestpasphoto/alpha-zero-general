@@ -50,7 +50,7 @@ class AbaloneNNet(nn.Module):
 			
 			# Metadata processing (P0 score, P1 score, round)
 			self.meta_fc = nn.Sequential(
-				nn.Linear(3, 16),
+				nn.Linear(6, 16),
 				nn.ReLU()
 			)
 			
@@ -92,7 +92,48 @@ class AbaloneNNet(nn.Module):
 			
 			# Metadata processing
 			self.meta_fc = nn.Sequential(
-				nn.Linear(3, 16),
+				nn.Linear(6, 16),
+				nn.ReLU()
+			)
+
+			# Policy Head
+			self.head_PI = nn.Sequential(
+				nn.Conv2d(n_filters, 42, kernel_size=1, bias=False),
+				nn.BatchNorm2d(42)
+			)
+			
+			# Value Head
+			self.head_V_conv = nn.Sequential(
+				nn.Conv2d(n_filters, 4, kernel_size=1, bias=False),
+				nn.BatchNorm2d(4),
+				nn.ReLU()
+			)
+			self.head_V_fc = nn.Sequential(
+				nn.Linear(4 * 9 * 9 + 16, 64),
+				nn.ReLU(),
+				nn.Linear(64, self.num_players)
+			)
+
+		elif self.version == 21:
+			n_filters = 24
+			depth = 4
+			
+			def inverted_residual(input_ch, expanded_ch, out_ch, use_se, activation, kernel=3, stride=1, dilation=1, width_mult=1):
+				return InvertedResidual(InvertedResidualConfig(input_ch, kernel, expanded_ch, out_ch, use_se, activation, stride, dilation, width_mult), nn.BatchNorm2d)
+			
+			self.first_layer = nn.Sequential(
+				nn.Conv2d(3, n_filters, kernel_size=3, padding=1, bias=False),
+				nn.BatchNorm2d(n_filters),
+				nn.ReLU()
+			)
+			
+			# Expansion factor of 3 (n_filters * 3 = 96 internal channels)
+			confs = [inverted_residual(n_filters, n_filters*2, n_filters, False, "RE") for _ in range(depth)]
+			self.trunk = nn.Sequential(*confs)
+			
+			# Metadata processing
+			self.meta_fc = nn.Sequential(
+				nn.Linear(6, 16),
 				nn.ReLU()
 			)
 
@@ -137,8 +178,8 @@ class AbaloneNNet(nn.Module):
 		spatial_data = input_data[:, :, :, :3].permute(0, 3, 1, 2) # -> (Batch, 3, 9, 9)
 		
 		# Metadata is extracted from specific cells defined in AbaloneLogicNumba.py
-		# (0, 0) : P0 score, (0, 1) : P1 score, (0, 2) : Round
-		meta_data = input_data[:, 0, 0:3, 3] # -> (Batch, 3)
+		# (0,0):P0 score, (0,1):P1 score, (0,2):Round, (0,3):Komi, (0,4):P0 sumito, (0,5):P1 sumito
+		meta_data = input_data[:, 0, 0:6, 3] # -> (Batch, 3)
 		
 		# 2. Process trunk
 		x_features = self.first_layer(spatial_data)
