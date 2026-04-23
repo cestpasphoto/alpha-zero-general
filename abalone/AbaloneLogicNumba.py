@@ -2,6 +2,7 @@ import numpy as np
 from numba import njit
 import numba
 
+INITIAL_LAYOUT              = 2    # 0: Classic, 1: Belgian Daisy, 2: German Daisy
 ENABLE_DOMAIN_RANDOMIZATION = False
 ENABLE_DYNAMIC_KOMI         = False
 ENABLE_SUMITO_SCORE         = False
@@ -169,19 +170,69 @@ class Board():
 	def init_game(self):
 		self.copy_state(np.zeros(observation_size(), dtype=np.int8), copy_or_not=False)
 		
+		# Initialize valid board mask
 		for r in range(9):
 			for q in range(9):
 				if 4 <= r + q <= 12:
 					self.board_mask[r, q] = 1
 
-		self.opp_marbles[0, 4:9] = 1
-		self.opp_marbles[1, 3:9] = 1
-		self.opp_marbles[2, 4:7] = 1
+		# ====================================================================
+		# STARTING LAYOUT CONFIGURATION
+		# ====================================================================
+		if INITIAL_LAYOUT == 0:
+			# Classic Layout
+			self.opp_marbles[0, 4:9] = 1
+			self.opp_marbles[1, 3:9] = 1
+			self.opp_marbles[2, 4:7] = 1
 
-		self.my_marbles[8, 0:5] = 1
-		self.my_marbles[7, 0:6] = 1
-		self.my_marbles[6, 2:5] = 1
+			self.my_marbles[8, 0:5] = 1
+			self.my_marbles[7, 0:6] = 1
+			self.my_marbles[6, 2:5] = 1
 
+		elif INITIAL_LAYOUT == 1:
+			# Belgian Daisy - Clusters closer to the edges
+			# Opponent (White)
+			self.opp_marbles[0, 4:6] = 1
+			self.opp_marbles[1, 3:6] = 1
+			self.opp_marbles[2, 3:5] = 1
+			
+			self.opp_marbles[6, 4:6] = 1
+			self.opp_marbles[7, 3:6] = 1
+			self.opp_marbles[8, 3:5] = 1
+
+			# Current Player (Black)
+			self.my_marbles[0, 7:9] = 1
+			self.my_marbles[1, 6:9] = 1
+			self.my_marbles[2, 6:8] = 1
+			
+			self.my_marbles[6, 1:3] = 1
+			self.my_marbles[7, 0:3] = 1
+			self.my_marbles[8, 0:2] = 1
+
+		elif INITIAL_LAYOUT == 2:
+			# German Daisy - Clusters closer to the center
+			# Opponent (White)
+			self.opp_marbles[1, 4:6] = 1
+			self.opp_marbles[2, 3:6] = 1
+			self.opp_marbles[3, 3:5] = 1
+			
+			self.opp_marbles[5, 4:6] = 1
+			self.opp_marbles[6, 3:6] = 1
+			self.opp_marbles[7, 3:5] = 1
+
+			# Current Player (Black)
+			self.my_marbles[1, 6:8] = 1
+			self.my_marbles[2, 5:8] = 1
+			self.my_marbles[3, 5:7] = 1
+			
+			self.my_marbles[5, 2:4] = 1
+			self.my_marbles[6, 1:4] = 1
+			self.my_marbles[7, 1:3] = 1
+
+		# ====================================================================
+		# RANDOM HANDICAP SYSTEM & DYNAMIC KOMI 
+		# ====================================================================
+		
 		# IDEA 1: Domain Randomization
 		if ENABLE_DOMAIN_RANDOMIZATION and np.random.rand() < 0.5:
 			penalized_player = np.random.randint(2)
