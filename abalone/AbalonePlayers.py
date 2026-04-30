@@ -1,26 +1,36 @@
 import numpy as np
 import random
+import os
 import sys
 import termios
 import tty
+import select
 from colorama import Style, Fore, Back
 
 from .AbaloneLogicNumba import _decode_action, DIRECTIONS
 
 def getch():
     """
-    Reads a single keystroke from the terminal without requiring the Enter key.
-    Captures arrow keys as 3-character escape sequences (\x1b[A, etc.).
+    Reads a single keystroke from the terminal safely.
+    Uses os.read to bypass Python's stdin buffering which causes deadlocks.
     """
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
-        tty.setraw(sys.stdin.fileno())
-        ch = sys.stdin.read(1)
-        if ch == '\x1b': # Arrow keys start with an escape character
-            ch += sys.stdin.read(2)
+        tty.setraw(fd)
+        # Read raw bytes directly from the OS file descriptor
+        ch_bytes = os.read(fd, 1)
+        ch = ch_bytes.decode('utf-8', 'ignore')
+        
+        # If escape character is detected, check for arrow keys sequences
+        if ch == '\x1b': 
+            if select.select([fd], [], [], 0.05)[0]:
+                ch += os.read(fd, 1).decode('utf-8', 'ignore')
+                if select.select([fd], [], [], 0.05)[0]:
+                    ch += os.read(fd, 1).decode('utf-8', 'ignore')
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    
     return ch
 
 class RandomPlayer():
@@ -35,102 +45,140 @@ class RandomPlayer():
 class HumanPlayer():
     def __init__(self, game):
         self.game = game
+        self.last_board_seen = None # Memory for AI moves
 
     def play(self, board, nb_moves):
         valid = self.game.getValidMoves(board, 0)
         valid_moves = np.flatnonzero(valid)
         
-        cursor_r, cursor_q = 8, 0 # Start near Player 0's default layout
-        phase = 0 # 0: Pick anchor, 1: Pick action direction
-        available_actions = []
-        action_idx = 0
+        cursor_r, cursor_q = 8, 0 
+        selected_marbles = []
+        
+        # --- INIT: Detect AI moves before the while loop ---
+        new_arrivals = set()
+        if self.last_board_seen is not None:
+            for r in range(9):
+                for q in range(9):
+                    if (board[r, q, 0] == 1 and self.last_board_seen[r, q, 0] == 0) or \
+                       (board[r, q, 1] == 1 and self.last_board_seen[r, q, 1] == 0):
+                        new_arrivals.add((r, q))
 
         while True:
-            self._render(board, cursor_r, cursor_q, phase, available_actions, action_idx)
+            # Dynamically compute valid destination cells
+            possible_dests = set()
+            selected_set = set(selected_marbles)
+            
+            if len(selected_set) > 0:
+                for a in valid_moves:
+                    r, q, size, axis, d = _decode_action(a)
+                    group = set()
+                    for i in range(size):
+                        group.add((r + i * DIRECTIONS[axis, 0], q + i * DIRECTIONS[axis, 1]))
+                    
+                    if group == selected_set:
+                        for gr, gq in group:
+                            dest = (gr + DIRECTIONS[d, 0], gq + DIRECTIONS[d, 1])
+                            if dest not in selected_set:
+                                possible_dests.add(dest)
+
+            # Pass new_arrivals to render
+            self._render(board, cursor_r, cursor_q, selected_marbles, possible_dests, new_arrivals)
             
             k = getch()
             if k == '\x03': # Ctrl+C
                 print("\nExiting...")
                 sys.exit(0)
             
-            if phase == 0:
-                if k == '\x1b[A':   cursor_r = max(0, cursor_r - 1) # Up
-                elif k == '\x1b[B': cursor_r = min(8, cursor_r + 1) # Down
-                elif k == '\x1b[C': cursor_q = min(8, cursor_q + 1) # Right
-                elif k == '\x1b[D': cursor_q = max(0, cursor_q - 1) # Left
-                elif k == ' ' or k == '\r':
-                    # Filter all valid moves starting from the selected anchor
-                    available_actions = [m for m in valid_moves if _decode_action(m)[0] == cursor_r and _decode_action(m)[1] == cursor_q]
-                    if available_actions:
-                        phase = 1
-                        action_idx = 0
+            # Navigation
+            if k == '\x1b[A':   cursor_r = max(0, cursor_r - 1)
+            elif k == '\x1b[B': cursor_r = min(8, cursor_r + 1)
+            elif k == '\x1b[C': cursor_q = min(8, cursor_q + 1)
+            elif k == '\x1b[D': cursor_q = max(0, cursor_q - 1)
             
-            elif phase == 1:
-                if k == '\x1b[C' or k == '\x1b[B':   # Right / Down cycle forward
-                    action_idx = (action_idx + 1) % len(available_actions)
-                elif k == '\x1b[D' or k == '\x1b[A': # Left / Up cycle backward
-                    action_idx = (action_idx - 1) % len(available_actions)
-                elif k == '\x7f' or k == '\x1b':     # Backspace or Esc to cancel
-                    phase = 0
-                elif k == ' ' or k == '\r':          # Space or Enter to confirm
-                    print("\033[H\033[J", end="")    # Final clear
-                    return available_actions[action_idx]
+            # Escape or Backspace to clear selection
+            elif k == '\x1b' or k == '\x7f':
+                selected_marbles.clear()
+                
+            # Undo (R)
+            elif k == 'r' or k == 'R':
+                print("\033[H\033[J", end="")
+                self.last_board_seen = None # Clear memory so time travel doesn't create ghost artifacts
+                return -1
+            
+            # Action (Space or Enter)
+            elif k in [' ', '\r', '\n']:
+                # 1. Selection
+                if board[cursor_r, cursor_q, 0] == 1:
+                    if (cursor_r, cursor_q) in selected_marbles:
+                        selected_marbles.remove((cursor_r, cursor_q))
+                    elif len(selected_marbles) < 3:
+                        selected_marbles.append((cursor_r, cursor_q))
+                
+                # 2. Execution
+                elif len(selected_marbles) > 0:
+                    matched_action = None
+                    for a in valid_moves:
+                        r, q, size, axis, d = _decode_action(a)
+                        group = set()
+                        for i in range(size):
+                            group.add((r + i * DIRECTIONS[axis, 0], q + i * DIRECTIONS[axis, 1]))
+                        
+                        if group == selected_set:
+                            dest_group = set()
+                            for gr, gq in group:
+                                dest_group.add((gr + DIRECTIONS[d, 0], gq + DIRECTIONS[d, 1]))
+                            if (cursor_r, cursor_q) in dest_group:
+                                matched_action = a
+                                break
+                    
+                    if matched_action is not None:
+                        print("\033[H\033[J", end="") 
+                        next_board, _ = self.game.getNextState(board, 0, matched_action)
+                        self.last_board_seen = next_board.copy()
+                        return matched_action
 
-    def _render(self, board, cr, cq, phase, available_actions, action_idx):
-        # Clear terminal completely and put cursor at top-left
+    def _render(self, board, cr, cq, selected_marbles, possible_dests, new_arrivals):
         print("\033[H\033[J", end="") 
-        
-        print("=" * 45)
-        if phase == 0:
-            print(f"{Fore.YELLOW} Phase 1: Use ARROWS to move, SPACE to select.{Style.RESET_ALL}")
-        else:
-            print(f"{Fore.GREEN} Phase 2: ARROWS to cycle preview, SPACE to confirm, ESC to cancel.{Style.RESET_ALL}")
-        print("=" * 45)
+        print("=" * 55)
+        print(f" {Fore.GREEN}SPACE{Style.RESET_ALL}   : Select/Deselect your marbles (max 3)")
+        print(f" {Fore.MAGENTA}SPACE{Style.RESET_ALL}   : Click on a MAGENTA cell to push")
+        print(f" {Fore.CYAN}R{Style.RESET_ALL}       : Undo (Annuler les 2 derniers coups)")
+        print(f" {Fore.YELLOW}ESC{Style.RESET_ALL}     : Clear selection")
+        print("=" * 55)
         print()
 
-        preview_move = available_actions[action_idx] if phase == 1 else None
-        group_cells = []
-        dest_cells = []
-        
-        if preview_move is not None:
-            r, q, size, axis, d = _decode_action(preview_move)
-            for i in range(size):
-                gr = r + i * DIRECTIONS[axis, 0]
-                gq = q + i * DIRECTIONS[axis, 1]
-                group_cells.append((gr, gq))
-                dest_cells.append((gr + DIRECTIONS[d, 0], gq + DIRECTIONS[d, 1]))
-
-        # Render the hex grid with interactive overlays
         for r in range(9):
             spaces = abs(r - 4)
             print(" " * spaces, end="")
             for q in range(9):
                 if not (4 <= r + q <= 12):
-                    # Out of bounds
-                    print("   ", end="")
                     continue
                 
-                # Base content
-                content = f"{Fore.LIGHTBLACK_EX} + {Style.RESET_ALL}"
-                if board[r, q, 0] == 1:
-                    content = f"{Fore.RED} ⬤ {Style.RESET_ALL}"
-                elif board[r, q, 1] == 1:
-                    content = f"{Fore.WHITE} ⬤ {Style.RESET_ALL}"
+                content_char = "+"
+                color = Fore.LIGHTBLACK_EX
                 
-                # Overlays
-                if phase == 0 and r == cr and q == cq:
-                    content = f"{Back.YELLOW}{content}{Style.RESET_ALL}"
-                elif phase == 1:
-                    if (r, q) in group_cells:
-                        content = f"{Back.GREEN}{content}{Style.RESET_ALL}"
-                    elif (r, q) in dest_cells:
-                        content = f"{Back.MAGENTA}{content}{Style.RESET_ALL}"
+                # AI move feedback integration
+                if board[r, q, 0] == 1:
+                    content_char = "⬤"
+                    color = Fore.RED
+                elif board[r, q, 1] == 1:
+                    content_char = "⬤"
+                    color = Fore.WHITE
+                
+                bg_color = ""
+                if r == cr and q == cq:
+                    bg_color = Back.YELLOW
+                elif (r, q) in selected_marbles:
+                    bg_color = Back.GREEN
+                elif (r, q) in possible_dests:
+                    bg_color = Back.MAGENTA
+                elif (r, q) in new_arrivals:
+                    bg_color = Back.LIGHTBLUE_EX
 
-                print(content, end="")
+                print(f"{bg_color}{color}{content_char} {Style.RESET_ALL}", end="")
             print()
         print("\n")
-
-
+        
 class GreedyPlayer():
     def __init__(self, game):
         self.game = game
