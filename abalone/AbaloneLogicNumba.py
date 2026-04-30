@@ -2,7 +2,7 @@ import numpy as np
 from numba import njit
 import numba
 
-INITIAL_LAYOUT              = 2    # 0: Classic, 1: Belgian Daisy, 2: German Daisy
+INITIAL_LAYOUT              = 1    # 0: Classic, 1: Belgian Daisy, 2: German Daisy
 ENABLE_DOMAIN_RANDOMIZATION = False
 ENABLE_DYNAMIC_KOMI         = False
 ENABLE_SUMITO_SCORE         = False
