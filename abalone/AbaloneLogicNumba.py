@@ -2,11 +2,8 @@ import numpy as np
 from numba import njit
 import numba
 
-INITIAL_LAYOUT              = 1    # 0: Classic, 1: Belgian Daisy, 2: German Daisy
-ENABLE_DOMAIN_RANDOMIZATION = False
-ENABLE_DYNAMIC_KOMI         = False
-ENABLE_SUMITO_SCORE         = False
-ENABLE_EDGE_PENALTY         = False
+INITIAL_LAYOUT              = 2    # 0: Classic, 1: Belgian Daisy, 2: German Daisy
+ENABLE_DYNAMIC_KOMI         = False # Must disable during games, but good to enable during training
 
 # =============================================================================
 # BOARD DESCRIPTION
@@ -229,28 +226,7 @@ class Board():
 			self.my_marbles[6, 1:4] = 1
 			self.my_marbles[7, 1:3] = 1
 
-		# ====================================================================
-		# RANDOM HANDICAP SYSTEM & DYNAMIC KOMI 
-		# ====================================================================
-		
-		# IDEA 1: Domain Randomization
-		if ENABLE_DOMAIN_RANDOMIZATION and np.random.rand() < 0.5:
-			penalized_player = np.random.randint(2)
-			nb_to_remove = np.random.randint(1, 3)
-			marbles_layer = self.my_marbles if penalized_player == 0 else self.opp_marbles
-			
-			for _ in range(nb_to_remove):
-				while True:
-					r, q = np.random.randint(9), np.random.randint(9)
-					if marbles_layer[r, q] == 1:
-						marbles_layer[r, q] = 0
-						break
-			if penalized_player == 0:
-				self.misc[0, 1] += nb_to_remove
-			else:
-				self.misc[0, 0] += nb_to_remove
 
-		# IDEA 2: Dynamic Komi (Assigned to player 0 or 1 randomly)
 		if ENABLE_DYNAMIC_KOMI:
 			# misc[0, 3] = 1 means the CURRENT player wins ties
 			# misc[0, 3] = 0 means the OPPONENT wins ties
@@ -379,10 +355,6 @@ class Board():
 			tr, tq = front_r + DIRECTIONS[d, 0], front_q + DIRECTIONS[d, 1]
 
 			if is_on_board(tr, tq, self.board_mask) and self.state[tr, tq, opp] == 1:
-				# A sumito is happening!
-				if ENABLE_SUMITO_SCORE:
-					self.misc[0, 4] += 1 # Increment current player's sumito count
-
 				curr_r, curr_q = tr, tq
 				while is_on_board(curr_r, curr_q, self.board_mask) and self.state[curr_r, curr_q, opp] == 1:
 					curr_r += DIRECTIONS[d, 0]
@@ -408,31 +380,13 @@ class Board():
 			return np.array([-1.0, 1.0], dtype=np.float32)
 			
 		if self.misc[0, 2] >= 127: # Limit reached
-			
-			# 1. Base Score (Ejections)
 			if self.misc[0, 0] > self.misc[0, 1]: return np.array([1.0, -1.0], dtype=np.float32)
 			if self.misc[0, 1] > self.misc[0, 0]: return np.array([-1.0, 1.0], dtype=np.float32)
-			
-			# 2. Idea 4: Sumito Score 
-			if ENABLE_SUMITO_SCORE:
-				if self.misc[0, 4] > self.misc[0, 5]: return np.array([1.0, -1.0], dtype=np.float32)
-				if self.misc[0, 5] > self.misc[0, 4]: return np.array([-1.0, 1.0], dtype=np.float32)
-				
-			# 3. Idea 5: Edge Penalty (Lower is better)
-			if ENABLE_EDGE_PENALTY:
-				my_edges = np.sum(self.my_marbles * EDGE_MASK)
-				opp_edges = np.sum(self.opp_marbles * EDGE_MASK)
-				if my_edges < opp_edges: return np.array([1.0, -1.0], dtype=np.float32)
-				if opp_edges < my_edges: return np.array([-1.0, 1.0], dtype=np.float32)
-				
-			# 4. Idea 2: Dynamic Komi
 			if ENABLE_DYNAMIC_KOMI:
 				if self.misc[0, 3] == 1:
 					return np.array([1.0, -1.0], dtype=np.float32)
 				else:
 					return np.array([-1.0, 1.0], dtype=np.float32)
-					
-			# 5. Perfect Draw (Fallback)
 			return np.array([0.001, 0.001], dtype=np.float32)
 			
 		return np.array([0.0, 0.0], dtype=np.float32)
@@ -444,20 +398,12 @@ class Board():
 			self.my_marbles[:, :] = self.opp_marbles
 			self.opp_marbles[:, :] = temp_marbles
 			
-			# Swap scores (misc[0,0] is always current player score)
 			temp_score = self.misc[0, 0]
 			self.misc[0, 0] = self.misc[0, 1]
 			self.misc[0, 1] = temp_score
 
-			# Swap Komi ownership
 			if ENABLE_DYNAMIC_KOMI:
 				self.misc[0, 3] = 1 - self.misc[0, 3]
-				
-			# Swap Sumito scores
-			if ENABLE_SUMITO_SCORE:
-				temp_sumito = self.misc[0, 4]
-				self.misc[0, 4] = self.misc[0, 5]
-				self.misc[0, 5] = temp_sumito
 
 	def get_symmetries(self, policy, valids):
 		symmetries = []
