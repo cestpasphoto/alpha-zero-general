@@ -57,9 +57,9 @@ def create_player(name, args):
 	})
 	mcts = MCTS(game, net, mcts_args)
 	def temp_for_game(n):
-		t_begin, t_end, half_life = 0.1, 0.0, (additional_keys['temperature'][2:3] or [10])[0]
+		t_begin, t_end, half_life = 0.5, 0.0, (additional_keys['temperature'][2:3] or [10])[0]
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
-		# print(f'{n=} {temp=:e}')
+		# return t_begin if n < half_life else t_end
 	player = lambda x, n: np.argmax(mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0])
 	return player
 

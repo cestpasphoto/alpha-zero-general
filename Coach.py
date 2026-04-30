@@ -265,11 +265,14 @@ class Coach():
 	# Calculates the exponential decay for temperature during self-plays
 	def temp_for_selfplay(self, n):
 		t_begin, t_end, half_life = self.args.temperature[0], self.args.temperature[1], self.args.tempThreshold
-		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
+		if half_life < 0:
+			return t_end if n > -half_life else t_begin 
+		else:
+			return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
 
 	# Calculates the exponential decay for temperature during test games
 	def temp_for_game(self, n):
-		t_begin, t_end, half_life = 0.1, 0.0, self.args.tempThreshold
+		t_begin, t_end, half_life = 0.5, 0.0, abs(self.args.tempThreshold)
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
 
 def applyTemperatureAndNormalize(probs, temperature):
