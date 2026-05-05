@@ -163,7 +163,9 @@ class MCTS():
         # get next state and get canonical version of it
         a, next_s, next_player = get_next_best_action_and_canonical_state(
             Es, Vs, Ps, Ns, Qsa, Nsa, Qs,
-            self.args.cpuct,
+            self.args.cpuct_base,
+            self.args.cpuct_init,
+            self.args.cpuct_factor,
             self.game.board,
             canonicalBoard,
             forced_playouts,
@@ -208,15 +210,19 @@ def np_roll(arr, n):
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)
-def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, n_iter, fpu):
+def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, forced_playouts, n_iter, fpu):
     cur_best = MINFLOAT
     best_act = -1
-    fpu_init = Qs-fpu if fpu > 0 else fpu
+    fpu_init = Qs - fpu if fpu > 0 else fpu
+    
+    # Calculate dynamic cpuct once per node selection
+    # Formula: c_base + log((Ns + c_init + 1) / c_init)
+    cpuct = cpuct_base + math.log((Ns + cpuct_init + 1) / cpuct_init) * cpuct_factor
 
     for a, valid in enumerate(Vs):
         if valid:
             if forced_playouts:
-                if Nsa[a] < int(math.sqrt(k * Ps[a] * n_iter)): # Nsa is zero when not set
+                if Nsa[a] < int(math.sqrt(k * Ps[a] * n_iter)):
                     return a
 
             if Qsa[a] != NAN:
@@ -231,8 +237,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, n_ite
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, n_iter, fpu, random_seed):
-    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, n_iter, fpu)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, gameboard, canonicalBoard, forced_playouts, n_iter, fpu, random_seed):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, forced_playouts, n_iter, fpu)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)

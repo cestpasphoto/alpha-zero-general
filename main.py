@@ -127,7 +127,11 @@ def main():
 	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=1600 , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')
 	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves for half-life of temperature decay')
 	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.0, 0.1, 1.1], type=float, nargs=3, help='Temperatures at begin/end, and softmax temp applied on root policy before Dirichlet - used during self-plays not test games')
-	parser.add_argument('--cpuct'           , '-c' , action='store', default=1.25 , type=float, help='cpuct value')
+	#parser.add_argument('--cpuct'           , '-c' , action='store', default=1.25 , type=float, help='cpuct value')
+	# Replace or add next to --cpuct
+	parser.add_argument('--cpuct-base'             , action='store', default=1.25 , type=float, help='c_base for log-cpuct')
+	parser.add_argument('--cpuct-init'             , action='store', default=19652, type=int  , help='c_init for log-cpuct')	
+	parser.add_argument('--cpuct-factor'           , action='store', default=1.0. , type=float, help='c_factor for log-cpuct')	
 	parser.add_argument('--dirichletAlpha'  , '-d' , action='store', default=-1   , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position. 0 to disable. -1 for auto.')
 	parser.add_argument('--fpu'             , '-f' , action='store', default=0.   , type=float, help='Value for FPU (first play urgency): negative value for absolute value, positive value for parent-based reduction')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
