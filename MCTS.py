@@ -62,7 +62,7 @@ class MCTS():
         for self.step in range(nb_MCTS_sims):
             self.random_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
             dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
-            self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts)
+            self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts, is_root=True)
 
         s = self.game.stringRepresentation(canonicalBoard)
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
@@ -102,7 +102,7 @@ class MCTS():
         probs = [x / counts_sum for x in counts]
         return probs, q, is_full_search
 
-    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False):
+    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
@@ -169,8 +169,10 @@ class MCTS():
             self.game.board,
             canonicalBoard,
             forced_playouts,
+            is_root,
             self.step,
             self.args.fpu,
+            self.args.fpu_root,
             self.random_seed,
         )
 
@@ -210,10 +212,12 @@ def np_roll(arr, n):
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)
-def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, forced_playouts, n_iter, fpu):
+def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, forced_playouts, is_root, n_iter, fpu, fpu_root):
     cur_best = MINFLOAT
     best_act = -1
-    fpu_init = Qs - fpu if fpu > 0 else fpu
+
+    # Apply a specific FPU reduction (usually none) if we are at the root node
+    fpu_init = Qs - fpu_root if is_root else Qs - fpu
     
     # Calculate dynamic cpuct once per node selection
     # Formula: c_base + log((Ns + c_init + 1) / c_init)
@@ -237,8 +241,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, gameboard, canonicalBoard, forced_playouts, n_iter, fpu, random_seed):
-    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, forced_playouts, n_iter, fpu)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, gameboard, canonicalBoard, forced_playouts, is_root, n_iter, fpu, fpu_root, random_seed):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct_base, cpuct_init, cpuct_factor, forced_playouts, is_root, n_iter, fpu, fpu_root)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)

@@ -133,7 +133,8 @@ def main():
 	parser.add_argument('--cpuct-init'             , action='store', default=19652, type=int  , help='c_init for log-cpuct')	
 	parser.add_argument('--cpuct-factor'           , action='store', default=1.0. , type=float, help='c_factor for log-cpuct')	
 	parser.add_argument('--dirichletAlpha'  , '-d' , action='store', default=-1   , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position. 0 to disable. -1 for auto.')
-	parser.add_argument('--fpu'             , '-f' , action='store', default=0.   , type=float, help='Value for FPU (first play urgency): negative value for absolute value, positive value for parent-based reduction')
+	parser.add_argument('--fpu'             , '-f' , action='store', default=0.1  , type=float, help='Value for FPU (first play urgency, using parent-based reduction)')
+	parser.add_argument('--fpu-root'               , action='store', default=0.   , type=float, help='Value for FPU at root level (first play urgency, using parent-based reduction)')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
