@@ -55,14 +55,17 @@ class Coach():
 		board = my_game.getInitBoard()
 		curPlayer = 0
 		episodeStep = 0
+		episode_metrics = {"max_depth": [], "new_nodes": [], "entropy": [], "confidence": []}
 
 		while True:
 			episodeStep += 1
 			canonicalBoard = my_game.getCanonicalForm(board, curPlayer)
-			pi, q, is_full_search = my_mcts.getActionProb(canonicalBoard, temp=1.)
+			pi, q, is_full_search, metrics = my_mcts.getActionProb(canonicalBoard, temp=1.)
 			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep))
 
 			if is_full_search:
+				for k, v in metrics.items():
+					episode_metrics[k].append(v)
 				valids = my_game.getValidMoves(canonicalBoard, 0)
 				sym = my_game.getSymmetries(canonicalBoard, pi, valids)
 				for b, p, v in sym:
@@ -72,6 +75,8 @@ class Coach():
 
 			r = my_game.getGameEnded(board, curPlayer)
 			if r.any():
+				# if episode_metrics["max_depth"]:
+				# 	log.info(f"Game End Metrics -> Depth: {avg_metrics['max_depth']:.1f} | New Nodes: {avg_metrics['new_nodes']:.0f} | Entropy: {avg_metrics['entropy']:.2f} | Conf: {avg_metrics['confidence']:.2f}")
 				final_scores = [my_game.getScore(board, p) for p in range(my_game.num_players)]
 				trainExamples = [(
 					x[0],                                # board
@@ -81,7 +86,9 @@ class Coach():
 					x[4],                                # Q estimates
 				) for x in trainExamples]
 
-				return trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
+				examples = trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
+				avg_metrics = {k: np.mean(v) for k, v in episode_metrics.items()}
+				return examples, avg_metrics
 
 	def executeEpisodes_batch(self, i_thread, shared_memory, locks):
 		# Execute an episode in a thread until need to evaluate NN
@@ -94,8 +101,8 @@ class Coach():
 			my_game = self.game.__class__()
 			my_game.getInitBoard()
 			my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info)
-			episode = self.executeEpisode(my_mcts, my_game)
-			self.examplesQueue.put(episode)
+			episode_examples, episode_metrics = self.executeEpisode(my_mcts, my_game)
+			self.examplesQueue.put((episode_examples, episode_metrics))
 
 		while shared_memory[-1] == 1: # We received signal 1, wait for other threads to complete
 			locks[i_thread+1].release()
@@ -105,8 +112,21 @@ class Coach():
 	def executeEpisodes(self):
 		iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 		if self.nb_threads == 1:
+			total_metrics = {"max_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0}
+			completed_episodes = 0
 			for _ in trange(self.args.numEps, desc="Self Play", ncols=120):
-				iterationTrainExamples += self.executeEpisode()
+				episode_examples, episode_metrics = self.executeEpisode()
+				iterationTrainExamples += episode_examples
+				completed_episodes += 1
+				for k in total_metrics:
+					total_metrics[k] += episode_metrics[k]
+				t.set_postfix(
+					d=f"{total_metrics['max_depth']/completed_episodes:.1f}",
+					n=f"{total_metrics['new_nodes']/completed_episodes:.0f}",
+					ent=f"{total_metrics['entropy']/completed_episodes:.2f}",
+					conf=f"{total_metrics['confidence']/completed_episodes:.2f}",
+					refresh=False
+				)
 				self.MCTS = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
 				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
 					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
@@ -126,11 +146,22 @@ class Coach():
 
 			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=None)
 			nb_examples, max_nb_episodes = 0, self.args.numEps
+			total_metrics = {"max_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0}
 			while True:
 				sleep(1)
 				for _ in range(self.examplesQueue.qsize()):
-					iterationTrainExamples += self.examplesQueue.get_nowait()
+					episode_examples, episode_metrics = self.examplesQueue.get_nowait()
+					iterationTrainExamples += episode_examples
 					nb_examples += 1
+					for k in total_metrics:
+						total_metrics[k] += episode_metrics[k]
+					progress.set_postfix(
+						d=f"{total_metrics['max_depth']/nb_examples:.1f}",
+						n=f"{total_metrics['new_nodes']/nb_examples:.0f}",
+						ent=f"{total_metrics['entropy']/nb_examples:.2f}",
+						conf=f"{total_metrics['confidence']/nb_examples:.2f}",
+						refresh=False
+					)
 					progress.update()
 				# Check if we have collected enough samples
 				if nb_examples >= self.args.numEps - self.nb_threads:

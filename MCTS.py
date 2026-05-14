@@ -45,6 +45,7 @@ class MCTS():
         self.last_cleaning = 0
         self.batch_info = batch_info
         self.random_seed = -1
+        self.max_current_depth = 0
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -58,11 +59,13 @@ class MCTS():
         is_full_search = force_full_search or (self.rng.random() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
+        initial_nodes_count = len(self.nodes_data)
+        self.max_current_depth = 0
 
         for self.step in range(nb_MCTS_sims):
             self.random_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
             dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
-            self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts, is_root=True)
+            self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts, is_root=True, depth=0)
 
         s = self.game.stringRepresentation(canonicalBoard)
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
@@ -82,6 +85,17 @@ class MCTS():
         probs = np.array(counts)
         probs = probs / probs.sum()
 
+        # Metrics
+        new_nodes = len(self.nodes_data) - initial_nodes_count
+        entropy = -np.sum(probs * np.log(probs + 1e-8)) # 1e-8 to avoid log(0)
+        confidence = float(np.max(probs))
+        metrics = {
+            "max_depth": self.max_current_depth,
+            "new_nodes": new_nodes,
+            "entropy": entropy,
+            "confidence": confidence
+        }
+
         # Clean search tree from very old moves = less memory footprint and less keys to search into
         if not self.args.no_mem_optim:
             r = self.game.getRound(canonicalBoard)
@@ -95,14 +109,14 @@ class MCTS():
             bestA = np.random.choice(bestAs)
             probs = [0] * len(counts)
             probs[bestA] = 1
-            return probs, q, is_full_search
+            return probs, q, is_full_search, metrics
 
         counts = [x ** (1. / temp) for x in counts]
         counts_sum = float(sum(counts))
         probs = [x / counts_sum for x in counts]
-        return probs, q, is_full_search
+        return probs, q, is_full_search, metrics
 
-    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False):
+    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False, depth=0):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
@@ -121,6 +135,9 @@ class MCTS():
         Returns:
             v: the negative of the value of the current canonicalBoard
         """
+
+        if depth > self.max_current_depth:
+            self.max_current_depth = depth
 
         s = self.game.stringRepresentation(canonicalBoard)
         Es, Vs, Ps, Ns, Qsa, Nsa, r, Qs = self.nodes_data.get(s, (None, )*8)
@@ -174,7 +191,7 @@ class MCTS():
             self.random_seed,
         )
 
-        v = self.search(next_s)
+        v = self.search(next_s, depth=depth+1)
         v = np_roll(v, next_player)
 
         Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
