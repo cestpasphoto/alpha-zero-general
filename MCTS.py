@@ -46,6 +46,7 @@ class MCTS():
         self.batch_info = batch_info
         self.random_seed = -1
         self.max_current_depth = 0
+        self.sum_new_nodes_depth = 0
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -61,6 +62,7 @@ class MCTS():
         forced_playouts = (is_full_search and self.args.forced_playouts)
         initial_nodes_count = len(self.nodes_data)
         self.max_current_depth = 0
+        self.sum_new_nodes_depth = 0
 
         for self.step in range(nb_MCTS_sims):
             self.random_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
@@ -89,8 +91,10 @@ class MCTS():
         new_nodes = len(self.nodes_data) - initial_nodes_count
         entropy = -np.sum(probs * np.log(probs + 1e-8)) # 1e-8 to avoid log(0)
         confidence = float(np.max(probs))
+        avg_new_depth = (self.sum_new_nodes_depth / new_nodes) if new_nodes > 0 else 0.0
         metrics = {
             "max_depth": self.max_current_depth,
+            "avg_new_depth": avg_new_depth,
             "new_nodes": new_nodes,
             "entropy": entropy,
             "confidence": confidence
@@ -156,6 +160,7 @@ class MCTS():
 
         if Ps is None:
             # First time that we explore state s
+            self.sum_new_nodes_depth += depth
             Vs = self.game.getValidMoves(canonicalBoard, 0)
             if self.batch_info is None:
                 Ps, v = self.nnet.predict(canonicalBoard, Vs)

@@ -55,13 +55,17 @@ class Coach():
 		board = my_game.getInitBoard()
 		curPlayer = 0
 		episodeStep = 0
-		episode_metrics = {"max_depth": [], "new_nodes": [], "entropy": [], "confidence": []}
+		episode_metrics = {"max_depth": [], "avg_new_depth": [], "new_nodes": [], "entropy": [], "confidence": []}
+		opening_sequence = []
+		DEPTH_OPENING = 2 * self.args.tempThreshold
 
 		while True:
 			episodeStep += 1
 			canonicalBoard = my_game.getCanonicalForm(board, curPlayer)
 			pi, q, is_full_search, metrics = my_mcts.getActionProb(canonicalBoard, temp=1.)
 			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep))
+			if episodeStep <= DEPTH_OPENING:
+				opening_sequence.append(action)
 
 			if is_full_search:
 				for k, v in metrics.items():
@@ -87,7 +91,8 @@ class Coach():
 				) for x in trainExamples]
 
 				examples = trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
-				avg_metrics = {k: np.mean(v) for k, v in episode_metrics.items()}
+				avg_metrics = {k: np.mean(v) for k, v in episode_metrics.items()} if episode_metrics["max_depth"] else {k: 0.0 for k in episode_metrics.keys()}
+				avg_metrics["opening"] = tuple(opening_sequence)
 				return examples, avg_metrics
 
 	def executeEpisodes_batch(self, i_thread, shared_memory, locks):
@@ -112,19 +117,25 @@ class Coach():
 	def executeEpisodes(self):
 		iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 		if self.nb_threads == 1:
-			total_metrics = {"max_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0}
+			total_metrics = {"max_depth": 0, "avg_new_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0}
 			completed_episodes = 0
-			for _ in trange(self.args.numEps, desc="Self Play", ncols=120):
+			unique_openings = set()
+			t = trange(self.args.numEps, desc="Self Play", ncols=120)
+			for _ in t:
 				episode_examples, episode_metrics = self.executeEpisode()
 				iterationTrainExamples += episode_examples
 				completed_episodes += 1
+				# log.info({k:v/completed_episodes for k,v in total_metrics.items()})
 				for k in total_metrics:
 					total_metrics[k] += episode_metrics[k]
+				unique_openings.add(episode_metrics["opening"])
 				t.set_postfix(
-					d=f"{total_metrics['max_depth']/completed_episodes:.1f}",
-					n=f"{total_metrics['new_nodes']/completed_episodes:.0f}",
+					max_d=f"{total_metrics['max_depth']/completed_episodes:.1f}",
+					avg_d=f"{total_metrics['avg_new_depth']/completed_episodes:.1f}",
+					# n=f"{total_metrics['new_nodes']/completed_episodes:.0f}",
 					ent=f"{total_metrics['entropy']/completed_episodes:.2f}",
 					conf=f"{total_metrics['confidence']/completed_episodes:.2f}",
+					uniq=f"{len(unique_openings)/completed_episodes:.0%}",
 					refresh=False
 				)
 				self.MCTS = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
@@ -146,7 +157,8 @@ class Coach():
 
 			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=None)
 			nb_examples, max_nb_episodes = 0, self.args.numEps
-			total_metrics = {"max_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0}
+			total_metrics = {"max_depth": 0, "avg_new_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0}
+			unique_openings = set()
 			while True:
 				sleep(1)
 				for _ in range(self.examplesQueue.qsize()):
@@ -155,11 +167,14 @@ class Coach():
 					nb_examples += 1
 					for k in total_metrics:
 						total_metrics[k] += episode_metrics[k]
+					unique_openings.add(episode_metrics["opening"])
 					progress.set_postfix(
-						d=f"{total_metrics['max_depth']/nb_examples:.1f}",
-						n=f"{total_metrics['new_nodes']/nb_examples:.0f}",
+						max_d=f"{total_metrics['max_depth']/nb_examples:.1f}",
+						avg_d=f"{total_metrics['avg_new_depth']/completed_episodes:.1f}",
+						# n=f"{total_metrics['new_nodes']/nb_examples:.0f}",
 						ent=f"{total_metrics['entropy']/nb_examples:.2f}",
 						conf=f"{total_metrics['confidence']/nb_examples:.2f}",
+						uniq=f"{len(unique_openings)/nb_examples:.0%}",
 						refresh=False
 					)
 					progress.update()
