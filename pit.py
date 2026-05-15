@@ -23,7 +23,7 @@ game = None
 _lock = multiprocessing.Lock()
 
 
-def create_player(name, args):
+def create_player(name, args, player_id):
 	global game
 	global NNet
 	global players
@@ -69,7 +69,7 @@ def play(args):
 
 	if not args.useray:
 		print(players[0], 'vs', players[1])
-	player1, player2 = create_player(players[0], args), create_player(players[1], args)
+	player1, player2 = create_player(players[0], args, 0), create_player(players[1], args, 1)
 	human = 'human' in players
 	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
 	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)

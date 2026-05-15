@@ -130,8 +130,8 @@ class Coach():
 					total_metrics[k] += episode_metrics[k]
 				unique_openings.add(episode_metrics["opening"])
 				t.set_postfix(
-					max_d=f"{total_metrics['max_depth']/completed_episodes:.1f}",
-					avg_d=f"{total_metrics['avg_new_depth']/completed_episodes:.1f}",
+					d_max=f"{total_metrics['max_depth']/completed_episodes:.1f}",
+					d_avg=f"{total_metrics['avg_new_depth']/completed_episodes:.1f}",
 					# n=f"{total_metrics['new_nodes']/completed_episodes:.0f}",
 					ent=f"{total_metrics['entropy']/completed_episodes:.2f}",
 					conf=f"{total_metrics['confidence']/completed_episodes:.2f}",
@@ -169,8 +169,8 @@ class Coach():
 						total_metrics[k] += episode_metrics[k]
 					unique_openings.add(episode_metrics["opening"])
 					progress.set_postfix(
-						max_d=f"{total_metrics['max_depth']/nb_examples:.1f}",
-						avg_d=f"{total_metrics['avg_new_depth']/completed_episodes:.1f}",
+						d_max=f"{total_metrics['max_depth']/nb_examples:.1f}",
+						d_avg=f"{total_metrics['avg_new_depth']/nb_examples:.1f}",
 						# n=f"{total_metrics['new_nodes']/nb_examples:.0f}",
 						ent=f"{total_metrics['entropy']/nb_examples:.2f}",
 						conf=f"{total_metrics['confidence']/nb_examples:.2f}",
