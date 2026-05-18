@@ -48,11 +48,12 @@ def create_player(name, args, player_id):
 	cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
 	mcts_args = dotdict({
 		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
-		'fpu'             : args.fpu if args.fpu else additional_keys.get('fpu', 0.),
+		'fpu_root'        : additional_keys.get('fpu_root', additional_keys.get('fpu', None)),
+		'fpu'             : additional_keys.get('fpu', None),
 		'universes'       : additional_keys.get('universes', 1),
 		'cpuct'           : args.cpuct if args.cpuct else cpuct,
 		'prob_fullMCTS'   : 1.,
-		'forced_playouts' : additional_keys.get('forced_playouts', False),
+		'forced_playouts' : False,
 		'no_mem_optim'    : False,
 	})
 	mcts = MCTS(game, net, mcts_args)

@@ -9,7 +9,7 @@ from numba import njit
 
 EPS = 1e-8
 NAN = -42.
-k = 0.5
+k = 2
 MINFLOAT = float('-inf')
 magic_seeds = [31416, 1, 14142, 42, 27183, 2, 16180, 7]
 
@@ -243,7 +243,10 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_ro
         if valid:
             if forced_playouts:
                 if Nsa[a] < int(math.sqrt(k * Ps[a] * n_iter)):
-                    return a
+                    u = 1000000.0 + Ps[a] 
+                    if u > cur_best:
+                        cur_best, best_act = u, a
+                    continue
 
             if Qsa[a] != NAN:
                 u = Qsa[a] + cpuct * Ps[a] * math.sqrt(Ns) / (1 + Nsa[a])
