@@ -9,7 +9,7 @@ from numba import njit
 
 EPS = 1e-8
 NAN = -42.
-k = 2
+k = 1.5
 MINFLOAT = float('-inf')
 magic_seeds = [31416, 1, 14142, 42, 27183, 2, 16180, 7]
 
@@ -73,7 +73,7 @@ class MCTS():
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
 
         # Compute Q at root node
-        q_player0 = self.nodes_data[s][7]
+        q_player0 = self.nodes_data[s][3][1]
         q = [q_player0 if n == 0 else -q_player0/(self.game.num_players-1) for n in range(self.game.num_players)]
 
         # Policy target pruning
@@ -145,20 +145,19 @@ class MCTS():
         Returns:
             v: the negative of the value of the current canonicalBoard
         """
-
         if depth > self.max_current_depth:
             self.max_current_depth = depth
 
         s = self.game.stringRepresentation(canonicalBoard)
-        Es, Vs, Ps, Ns, Qsa, Nsa, r, Qs = self.nodes_data.get(s, (None, )*8)
+        Es, Vs, Ps, meta_ns_qs, Qsa, Nsa, r = self.nodes_data.get(s, (None, )*7)
         if r is None:
             r = self.game.getRound(canonicalBoard)
 
         if Es is None:
             Es = self.game.getGameEnded(canonicalBoard, 0)
             if Es.any():
-                # terminal node
-                self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r, Qs)
+                # terminal node (we can leave meta_ns_qs as None since it won't be expanded)
+                self.nodes_data[s] = (Es, Vs, Ps, None, Qsa, Nsa, r)
                 return Es
         elif Es.any():
             # terminal node
@@ -177,15 +176,19 @@ class MCTS():
                 self.applyDirNoise(Ps, Vs)
             normalise(Ps)
 
-            Ns, Qsa, Nsa = 0, self.Qsa_default.copy(), self.Nsa_default.copy()
-            self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r, v[0])
+            Qsa, Nsa = self.Qsa_default.copy(), self.Nsa_default.copy()
+            
+            # Optimization: create the mutable list [Ns, Qs]
+            meta_ns_qs = [0, float(v[0])]
+            self.nodes_data[s] = (Es, Vs, Ps, meta_ns_qs, Qsa, Nsa, r)
             return v
 
         if dirichlet_noise:
-            # We already visited this node, adding dirichlet noise this time
             Ps = softmax(Ps, self.args.temperature[2])
             self.applyDirNoise(Ps, Vs)
             normalise(Ps)
+
+        Ns, Qs = meta_ns_qs[0], meta_ns_qs[1]
 
         # pick the action with the highest upper confidence bound
         # get next state and get canonical version of it
@@ -206,11 +209,13 @@ class MCTS():
         v = np_roll(v, next_player)
 
         Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
-        Qs = ((Ns+1) * Qs + v[0]) / (Ns+2) # Qs can't be None here
+        
+        # In-place updates of the list values
+        # Qs = ((Ns+1) * Qs + v[0]) / (Ns+2)
+        meta_ns_qs[1] = ((meta_ns_qs[0]+1) * meta_ns_qs[1] + v[0]) / (meta_ns_qs[0]+2)
         Nsa[a] += 1
-        Ns += 1
-
-        self.nodes_data[s] = (Es, Vs, Ps, Ns, Qsa, Nsa, r, Qs)
+        # Ns += 1
+        meta_ns_qs[0] += 1
         return v
 
 
