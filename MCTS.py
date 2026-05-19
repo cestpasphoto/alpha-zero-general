@@ -37,8 +37,8 @@ class MCTS():
         #       r stores round number
         #       Qs stores Q value for s
         self.nodes_data = {} # stores data for each nodes in a single dictionary
-        self.Qsa_default = np.full (self.game.getActionSize(), NAN, dtype=np.float64)
-        self.Nsa_default = np.zeros(self.game.getActionSize()     , dtype=np.int64)
+        self.Qsa_default = np.full (self.game.getActionSize(), NAN, dtype=np.float32)
+        self.Nsa_default = np.zeros(self.game.getActionSize()     , dtype=np.int16)
 
         self.rng = np.random.default_rng()
         self.step = 0
@@ -231,6 +231,7 @@ class MCTS():
         for obj in [o for o in gc.get_objects() if type(o) is MCTS]: # dirtier than isinstance, but that would trigger a pytorch warning
             obj.nodes_data = {}
             obj.last_cleaning = 0
+        gc.collect()
         
 @njit(cache=True, fastmath=True, nogil=True)
 def np_roll(arr, n):
