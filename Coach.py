@@ -55,7 +55,7 @@ class Coach():
 		board = my_game.getInitBoard()
 		curPlayer = 0
 		episodeStep = 0
-		episode_metrics = {"max_depth": [], "avg_new_depth": [], "new_nodes": [], "entropy": [], "confidence": []}
+		episode_metrics = {"max_depth": [], "avg_new_depth": [], "new_nodes": [], "entropy": [], "confidence": [], "root_coverage": []}
 		opening_sequence = []
 		DEPTH_OPENING = 2 * self.args.tempThreshold
 
@@ -117,7 +117,7 @@ class Coach():
 	def executeEpisodes(self):
 		iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 		if self.nb_threads == 1:
-			total_metrics = {"max_depth": 0, "avg_new_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0}
+			total_metrics = {"max_depth": 0, "avg_new_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0, "root_coverage": 0}
 			completed_episodes = 0
 			unique_openings = set()
 			t = trange(self.args.numEps, desc="Self Play", ncols=120)
@@ -135,6 +135,7 @@ class Coach():
 					# n=f"{total_metrics['new_nodes']/completed_episodes:.0f}",
 					ent=f"{total_metrics['entropy']/completed_episodes:.2f}",
 					conf=f"{total_metrics['confidence']/completed_episodes:.2f}",
+					cov=f"{total_metrics['root_coverage']/completed_episodes:.0%}",
 					uniq=f"{len(unique_openings)/completed_episodes:.0%}",
 					refresh=False
 				)
@@ -157,7 +158,7 @@ class Coach():
 
 			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=None)
 			nb_examples, max_nb_episodes = 0, self.args.numEps
-			total_metrics = {"max_depth": 0, "avg_new_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0}
+			total_metrics = {"max_depth": 0, "avg_new_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0, "root_coverage": 0}
 			unique_openings = set()
 			while True:
 				sleep(1)
@@ -174,6 +175,7 @@ class Coach():
 						# n=f"{total_metrics['new_nodes']/nb_examples:.0f}",
 						ent=f"{total_metrics['entropy']/nb_examples:.2f}",
 						conf=f"{total_metrics['confidence']/nb_examples:.2f}",
+						cov=f"{total_metrics['root_coverage']/nb_examples:.0%}",
 						uniq=f"{len(unique_openings)/nb_examples:.0%}",
 						refresh=False
 					)

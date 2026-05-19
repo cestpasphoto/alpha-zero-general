@@ -92,12 +92,18 @@ class MCTS():
         entropy = -np.sum(probs * np.log(probs + 1e-8)) # 1e-8 to avoid log(0)
         confidence = float(np.max(probs))
         avg_new_depth = (self.sum_new_nodes_depth / new_nodes) if new_nodes > 0 else 0.0
+        valid_moves_mask = self.nodes_data[s][1] # Vs from root node
+        total_valid_moves = np.sum(valid_moves_mask)
+        visited_at_root = sum(1 for a in range(self.game.getActionSize()) if valid_moves_mask[a] and counts[a] > 0)
+        root_coverage = (visited_at_root / total_valid_moves) if total_valid_moves > 0 else 0.0
+
         metrics = {
             "max_depth": self.max_current_depth,
             "avg_new_depth": avg_new_depth,
             "new_nodes": new_nodes,
             "entropy": entropy,
-            "confidence": confidence
+            "confidence": confidence,
+            "root_coverage": root_coverage,
         }
 
         # Clean search tree from very old moves = less memory footprint and less keys to search into
