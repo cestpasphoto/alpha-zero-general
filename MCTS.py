@@ -297,6 +297,6 @@ def normalise(vector):
 def softmax(Ps, softmax_temp):
     if softmax_temp == 1.:
         return Ps
-    result = Ps ** (1. / softmax_temp)
+    result = (Ps + 1e-12) ** (1. / softmax_temp)
     normalise(result)
     return result.astype(np.float32)
