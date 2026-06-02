@@ -8,6 +8,7 @@ from tqdm import tqdm, trange
 from queue import SimpleQueue
 from threading import Thread, Lock
 from time import sleep
+import glob
 
 from random import shuffle
 import numpy as np
@@ -242,6 +243,25 @@ class Coach():
 			pmcts = MCTS(self.game, self.pnet, self.args)
 
 			self.nnet.train(trainExamples)
+			# SWA : Exponential Checkpoint Averaging
+			if self.args.swa_window > 1:
+				# Récupérer les anciens checkpoints validés par l'Arena, classés par date
+				cpt_files = sorted(glob.glob(os.path.join(self.args.checkpoint, 'checkpoint_*.pt')), key=os.path.getmtime)
+				recent_cpts = cpt_files[-(self.args.swa_window - 1):] if cpt_files else []
+				
+				# Sauvegarder temporairement le réseau qu'on vient d'entraîner pour l'inclure
+				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp_trained.pt')
+				
+				# Liste chronologique (du plus vieux au plus récent)
+				files_to_average = recent_cpts + [os.path.join(self.args.checkpoint, 'temp_trained.pt')]
+				
+				# Calcul des poids exponentiels (le plus récent reçoit decay^0 = 1.0, le plus vieux reçoit decay^N)
+				decay = self.args.swa_decay
+				weights = [decay ** i for i in reversed(range(len(files_to_average)))]
+				
+				# Application de la moyenne et recalibration de la BatchNorm
+				self.nnet.apply_checkpoint_averaging(files_to_average, weights=weights)
+				self.nnet.recalibrate_bn(trainExamples)
 			nmcts = MCTS(self.game, self.nnet, self.args)
 
 			# log.info('PITTING AGAINST PREVIOUS VERSION')

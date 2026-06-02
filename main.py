@@ -30,6 +30,8 @@ def run(args):
 		learn_rate=args.learn_rate,
 		no_compression=args.no_compression,
 		q_weight=args.q_weight,
+		swa_window=args.swa_window,
+		swa_decay=args.swa_decay,
 	)
 	nnet = NNet(g, nn_args)
 
@@ -149,6 +151,8 @@ def main():
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
 	parser.add_argument('--universes'       , '-u' , action='store', default=1    , type=int  , choices=range(9), help='Number of universes (up to 8); will switch between each of them at each rollout. Set to 0 for a deterministic exploration')
+	parser.add_argument('--swa-window'     , action='store', default=3  , type=int, help='Number of recent checkpoints to average. 1 to disable.')
+	parser.add_argument('--swa-decay'      , action='store', default=0.7, type=float, help='Decay weight for older checkpoints. 1.0 = Arithmetic mean. 0.7 = Exponentially weighted mean.')
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
 	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int, help='')
