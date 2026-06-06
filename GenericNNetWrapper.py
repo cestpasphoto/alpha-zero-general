@@ -344,60 +344,6 @@ class GenericNNetWrapper(NeuralNet):
 		trainable_params = sum(p.numel() for p in self.nnet.parameters() if p.requires_grad)
 		return total_params, trainable_params
 
-	def apply_checkpoint_averaging(self, checkpoint_files, weights=None):
-		"""
-		Averages the weights of the given checkpoint files and loads them.
-		Applies Exponential Weighting if weights are provided.
-		"""
-		if not checkpoint_files: return
-
-		if weights is None:
-			weights = [1.0 / len(checkpoint_files)] * len(checkpoint_files)
-		else:
-			sum_w = sum(weights)
-			weights = [w / sum_w for w in weights] # Normalization
-
-		# print(f"\n[SWA] Averaging {len(checkpoint_files)} checkpoints with weights: {[round(w, 2) for w in weights]}")
-
-		# Load the first checkpoint to initialize the shape of the dictionary
-		base_checkpoint = torch.load(checkpoint_files[0], map_location='cpu', weights_only=False)
-		swa_state_dict = base_checkpoint['state_dict']
-		for k in swa_state_dict.keys():
-			swa_state_dict[k] = torch.zeros_like(swa_state_dict[k], dtype=torch.float32)
-
-		# Accumulate weighted parameters
-		for path, w in zip(checkpoint_files, weights):
-			checkpoint = torch.load(path, map_location='cpu', weights_only=False)
-			for k, v in checkpoint['state_dict'].items():
-				swa_state_dict[k] += v.float() * w
-
-		# Cast back to original types and load into the network
-		for k, v in base_checkpoint['state_dict'].items():
-			swa_state_dict[k] = swa_state_dict[k].to(v.dtype)
-
-		self.nnet.load_state_dict(swa_state_dict)
-
-	def recalibrate_bn(self, examples, nb_samples=2000):
-		"""
-		Recalibrates BatchNorm running statistics (mean and var).
-		Must be called exactly ONCE after weights are averaged.
-		"""
-		print("[SWA] Recalibrating BatchNorm statistics...")
-		self.nnet.train() 
-		with torch.no_grad():
-			sample_ids = np.random.choice(len(examples), size=min(nb_samples, len(examples)), replace=False)
-			batch_size = self.args['batch_size']
-			for start_idx in range(0, len(sample_ids), batch_size):
-				ids = sample_ids[start_idx:start_idx+batch_size]
-				if len(ids) < batch_size: break
-				
-				packed = self.pick_examples(examples, ids)
-				boards = torch.FloatTensor(np.array(packed[0]).astype(np.float32))
-				valid_actions = torch.BoolTensor(np.array(packed[3]).astype(np.bool_))
-				# Forward pass forces BN layers to update their running buffers
-				_ = self.nnet(boards, valid_actions)
-		self.nnet.eval()
-
 if __name__ == "__main__":
 	import argparse
 	import os.path
