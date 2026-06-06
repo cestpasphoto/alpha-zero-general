@@ -357,7 +357,7 @@ class GenericNNetWrapper(NeuralNet):
 			sum_w = sum(weights)
 			weights = [w / sum_w for w in weights] # Normalization
 
-		print(f"\n[SWA] Averaging {len(checkpoint_files)} checkpoints with weights: {[round(w, 2) for w in weights]}")
+		# print(f"\n[SWA] Averaging {len(checkpoint_files)} checkpoints with weights: {[round(w, 2) for w in weights]}")
 
 		# Load the first checkpoint to initialize the shape of the dictionary
 		base_checkpoint = torch.load(checkpoint_files[0], map_location='cpu', weights_only=False)
