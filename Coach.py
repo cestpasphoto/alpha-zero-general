@@ -8,6 +8,7 @@ from tqdm import tqdm, trange
 from queue import SimpleQueue
 from threading import Thread, Lock
 from time import sleep
+import json
 
 from random import shuffle
 import numpy as np
@@ -34,7 +35,7 @@ class Coach():
 		self.consecutive_failures = 0
 		self.nb_threads = self.args.parallel_inferences
 
-	def executeEpisode(self, my_mcts=None, my_game=None):
+	def executeEpisode(self, my_mcts=None, my_game=None, mcts_list=None, players_to_save=None):
 		"""
 		This function executes one episode of self-play, starting with player 1.
 		As the game is played, each turn is added as a training example to
@@ -47,10 +48,17 @@ class Coach():
 						   pi is the MCTS informed policy vector, v is +1 if
 						   the player eventually won the game, else -1.
 		"""
-		if my_mcts is None:
-			my_mcts = self.mcts
-		if my_game is None:
-			my_game = self.game
+		if isinstance(my_mcts, list):
+			mcts_list = my_mcts
+			my_mcts = None
+
+		if my_game is None: my_game = self.game
+		if mcts_list is None: 
+			if my_mcts is None: my_mcts = getattr(self, 'mcts', None)
+			mcts_list = [my_mcts] * my_game.num_players
+		if players_to_save is None: 
+			players_to_save = list(range(my_game.num_players))
+
 		trainExamples = []
 		board = my_game.getInitBoard()
 		curPlayer = 0
@@ -62,12 +70,21 @@ class Coach():
 		while True:
 			episodeStep += 1
 			canonicalBoard = my_game.getCanonicalForm(board, curPlayer)
-			pi, q, is_full_search, metrics = my_mcts.getActionProb(canonicalBoard, temp=1.)
-			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep))
+			
+			my_mcts = mcts_list[curPlayer]
+			is_saving = (curPlayer in players_to_save)
+			
+			# pnet joue sans exploration (temp=0.0) et en full_search
+			temp = 1.0 if is_saving else 0.0
+			force_full = not is_saving
+			
+			pi, q, is_full_search, metrics = my_mcts.getActionProb(canonicalBoard, temp=temp, force_full_search=force_full)
+			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep) if is_saving else 0.0)
+			
 			if episodeStep <= DEPTH_OPENING:
 				opening_sequence.append(action)
 
-			if is_full_search:
+			if is_full_search and is_saving:
 				for k, v in metrics.items():
 					episode_metrics[k].append(v)
 				valids = my_game.getValidMoves(canonicalBoard, 0)
@@ -76,12 +93,9 @@ class Coach():
 					trainExamples.append([b, p, curPlayer, v, q])
 
 			board, curPlayer = my_game.getNextState(board, curPlayer, action)
-
 			r = my_game.getGameEnded(board, curPlayer)
+
 			if r.any():
-				# if episode_metrics["max_depth"]:
-				# 	log.info(f"Game End Metrics -> Depth: {avg_metrics['max_depth']:.1f} | New Nodes: {avg_metrics['new_nodes']:.0f} | Entropy: {avg_metrics['entropy']:.2f} | Conf: {avg_metrics['confidence']:.2f}")
-				final_scores = [my_game.getScore(board, p) for p in range(my_game.num_players)]
 				trainExamples = [(
 					x[0],                                # board
 					x[1],                                # policy
@@ -101,12 +115,35 @@ class Coach():
 		# then server runs inferences on batch.
 		# Each thread loops until receiving a signal to stop
 		locks[i_thread].acquire()
-		batch_info = (i_thread, i_thread+self.nb_threads, shared_memory, locks)
+		batch_info_nnet = (i_thread, i_thread+self.nb_threads, shared_memory, locks, 0)
+		batch_info_pnet = (i_thread, i_thread+self.nb_threads, shared_memory, locks, 1)
+
 		while shared_memory[-1] == 0: # Signal 0 means to continue computing
 			my_game = self.game.__class__()
 			my_game.getInitBoard()
-			my_mcts = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info)
-			episode_examples, episode_metrics = self.executeEpisode(my_mcts, my_game)
+			
+			# Tire les dés pour ce match précis
+			is_asymmetric = (np.random.rand() >= (self.args.selfPlayRatio / 100.0)) and getattr(self, 'pnet_loaded', False) and my_game.num_players > 1
+			players_to_save = list(range(my_game.num_players))
+			
+			if is_asymmetric:
+				pnet_player = np.random.randint(my_game.num_players)
+				players_to_save.remove(pnet_player)
+				from copy import deepcopy
+				pnet_args = deepcopy(self.args)
+				pnet_args.forced_playouts = False # Désactive l'exploration forcée pour l'évaluateur
+				
+				mcts_list = []
+				for p in range(my_game.num_players):
+					if p == pnet_player:
+						mcts_list.append(MCTS(my_game, self.pnet, pnet_args, dirichlet_noise=False, batch_info=batch_info_pnet))
+					else:
+						mcts_list.append(MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info_nnet))
+			else:
+				mcts_nnet = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info_nnet)
+				mcts_list = [mcts_nnet] * my_game.num_players
+
+			episode_examples, episode_metrics = self.executeEpisode(my_game=my_game, mcts_list=mcts_list, players_to_save=players_to_save)
 			self.examplesQueue.put((episode_examples, episode_metrics))
 
 		while shared_memory[-1] == 1: # We received signal 1, wait for other threads to complete
@@ -153,7 +190,8 @@ class Coach():
 			self.examplesQueue = SimpleQueue()
 			[l.acquire() for l in locks]
 			threads_list = [Thread(target=self.executeEpisodes_batch, args=(i_thread, shared_memory, locks)) for i_thread in range(self.nb_threads)]
-			threads_list.append(Thread(target=self.nnet.predict_server, args=(self.nb_threads, shared_memory, locks)))
+			pnet_to_pass = self.pnet if getattr(self, 'pnet_loaded', False) else None
+			threads_list.append(Thread(target=self.nnet.predict_server, args=(self.nb_threads, shared_memory, locks, pnet_to_pass)))
 			[t.start() for t in threads_list]
 
 			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=None)
@@ -205,16 +243,32 @@ class Coach():
 		"""
 
 		for i in range(1, self.args.numIters + 1):
-			# examples of the iteration
+			# 1. Sélectionne le sparring partner de l'itération si la ligue est activée
+			self.pnet_loaded = False
+			if self.args.selfPlayRatio < 100:
+				leaderboard_file = os.path.join(self.args.checkpoint, 'leaderboard.json')
+				if os.path.exists(leaderboard_file):
+					try:
+						import json
+						with open(leaderboard_file, 'r') as f:
+							leaderboard = json.load(f)
+						if leaderboard:
+							# Trie par Elo décroissant et garde les 20 meilleurs
+							top_models = sorted(leaderboard, key=leaderboard.get, reverse=True)[:20]
+							selected = np.random.choice(top_models)
+							self.pnet.load_checkpoint(folder=self.args.checkpoint, filename=selected)
+							self.pnet_loaded = True
+							log.info(f"League Active: Loaded {selected} (Elo: {int(leaderboard[selected])}) as sparring partner.")
+					except Exception as e:
+						log.warning(f"Could not load {leaderboard_file}: {e}")
+
+			# 2. Génération des exemples (Mélange 80% self-play / 20% ligue géré en interne)
 			if not self.skipFirstSelfPlay or i > 1:
 				iterationTrainExamples = self.executeEpisodes()
 				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
-					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
-
-				# save the iteration examples to the history 
+					log.warning(f'saturation of elements in iterationTrainExamples...')
 				self.trainExamplesHistory.append(iterationTrainExamples)
 
-				# Check average number of valid moves, and compare to Dirichlet
 				if self.args.no_compression:
 					nb_valid_moves = [sum(x[3]) for x in iterationTrainExamples]
 				else:
@@ -228,39 +282,21 @@ class Coach():
 
 			if len(self.trainExamplesHistory) > self.args.numItersHistory:
 				self.trainExamplesHistory.pop(0)
-			# backup history to a file
+			
 			self.saveTrainExamples()
-			# shuffle examples before training
 			trainExamples = []
 			for e in self.trainExamplesHistory:
 				trainExamples.extend(e)
 			shuffle(trainExamples)
 
-			# training new network, keeping a copy of the old one
-			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt', additional_keys=vars(self.args))
-			self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
-			pmcts = MCTS(self.game, self.pnet, self.args)
-
+			# 3. Entraînement du modèle courant
 			self.nnet.train(trainExamples)
-			nmcts = MCTS(self.game, self.nnet, self.args)
 
-			# log.info('PITTING AGAINST PREVIOUS VERSION')
-			arena = Arena(lambda x, n: np.argmax(nmcts.getActionProb(x, temp=self.temp_for_game(n), force_full_search=True)[0]),
-						  lambda x, n: np.argmax(pmcts.getActionProb(x, temp=self.temp_for_game(n), force_full_search=True)[0]), self.game)
-			nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
-
-			if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
-				self.consecutive_failures += 1
-				log.info(f'Iter #{i} - new vs prev: {nwins}-{pwins} ({draws}) -> REJECTED ({self.consecutive_failures})')
-				if self.consecutive_failures >= self.args.stop_after_N_fail and i < self.args.numIters:
-					log.error('Exceeded threshold number of consecutive fails, stopping process')
-					exit()
-				self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
-			else:
-				log.info(f'Iter #{i} - new vs prev: {nwins}-{pwins} ({draws}) -> ACCEPTED')
-				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
-				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
-				self.consecutive_failures = 0
+			# 5. Sauvegarde finale Asynchrone (Plus de matchs Arena synchrones !)
+			log.info(f'Iter #{i} - Training completed. Saving Checkpoint.')
+			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
+			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
+			self.consecutive_failures = 0
 
 	def getCheckpointFile(self, iteration):
 		return 'checkpoint_' + str(iteration) + '.pt'

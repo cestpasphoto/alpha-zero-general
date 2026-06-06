@@ -46,18 +46,22 @@ def create_player(name, args, player_id):
 
 	cpuct = additional_keys.get('cpuct')
 	cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
+	is_daemon = getattr(args, 'daemon', False)
 	mcts_args = dotdict({
 		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
-		'fpu_root'        : additional_keys.get('fpu_root', additional_keys.get('fpu', None)),
+		'fpu_root'        : 0.0 if is_daemon else additional_keys.get('fpu_root', additional_keys.get('fpu', None)),
 		'fpu'             : additional_keys.get('fpu', None),
 		'universes'       : additional_keys.get('universes', 1),
-		'cpuct'           : args.cpuct if args.cpuct else cpuct,
+		'cpuct'           : args.cpuct if args.cpuct else (1.0 if is_daemon else cpuct),
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
 		'no_mem_optim'    : False,
 	})
+
 	mcts = MCTS(game, net, mcts_args)
 	def temp_for_game(n):
+		if is_daemon: 
+			return 0.0
 		t_begin, t_end, half_life = 0.5, 0.0, (additional_keys['temperature'][2:3] or [10])[0]
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
 		# return t_begin if n < half_life else t_end
@@ -165,6 +169,63 @@ def update_ratings(p1, p2, game_results, args):
 		# for p, pname in [(player1, p1), (player2, p2)]:
 		# 	print(f'{pname[-20:].rjust(20)} rating={int(p.rating)}±{int(p.rd)}, vol={p.vol:.3e}')
 
+def run_daemon(args):
+	import time, glob, json, re
+	leaderboard_file = os.path.join(args.compare, 'leaderboard.json')
+	
+	print(f"Starting Asynchronous Evaluator in {args.compare}...")
+	while True:
+		leaderboard = json.load(open(leaderboard_file)) if os.path.exists(leaderboard_file) else {}
+		
+		# Récupère les checkpoints qui finissent par un chiffre
+		cpts = [f for f in glob.glob(os.path.join(args.compare, 'checkpoint_*.pt')) if re.search(r'checkpoint_\d+\.pt$', f)]
+		cpts = sorted(cpts, key=os.path.getmtime)
+		new_cpts = [c for c in cpts if os.path.basename(c) not in leaderboard]
+		
+		if not new_cpts:
+			time.sleep(30)
+			continue
+			
+		for cpt in new_cpts:
+			cpt_name = os.path.basename(cpt)
+			print(f"\n--- Evaluating {cpt_name} ---")
+			cpt_elo = leaderboard.get(cpt_name, 1200.0)
+			
+			# Construit le pool des adversaires : les 20 meilleurs au-dessus de 1200 Elo
+			league_pool = [m for m in sorted(leaderboard, key=leaderboard.get, reverse=True) if leaderboard[m] >= 1200.0][:20]
+			candidates = [p for p in league_pool if p != cpt_name]
+			
+			opponents = list(np.random.choice(candidates, min(args.daemon_opponents, len(candidates)), replace=False)) if candidates else []
+			
+			# Fallback de sécurité si le pool est vide
+			if not opponents and leaderboard:
+				best_old = max(leaderboard, key=leaderboard.get)
+				if best_old != cpt_name: opponents = [best_old]
+			
+			for opp in opponents:
+				opp_elo = leaderboard.get(opp, 1200.0)
+				print(f"Match: {cpt_name} (Elo: {int(cpt_elo)}) vs {opp} (Elo: {int(opp_elo)})")
+				
+				args.players = [cpt, os.path.join(args.compare, opp)]
+				oneWon, twoWon, draws = play(args)
+				
+				total_games = oneWon + twoWon + draws
+				if total_games == 0: continue
+				actual_score = (oneWon + draws * 0.5) / total_games
+				
+				# Mise à jour Elo
+				expected = 1 / (1 + 10 ** ((opp_elo - cpt_elo) / 400))
+				k_factor = 32
+				cpt_elo += k_factor * (actual_score - expected)
+				opp_elo += k_factor * ( (1 - actual_score) - (1 - expected) )
+				
+				leaderboard[cpt_name] = cpt_elo
+				leaderboard[opp] = opp_elo
+
+			# Sauvegarde l'état unique
+			with open(leaderboard_file, 'w') as f: json.dump(leaderboard, f, indent=2)
+			print(f"Current Elo of {cpt_name}: {int(cpt_elo)}")
+
 def play_several_files(args):
 	players = args.players[:]  # Copy, because it will be overwritten by plays()
 	list_tasks = []
@@ -239,9 +300,13 @@ def main():
 	parser.add_argument('--compare-age'        , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
 	parser.add_argument('--max-compare-threads', '-T' , action='store', default=1           , help='No of threads to run comparison on', type=int)
 
+	parser.add_argument('--daemon'             , '-D' , action='store_true', help='Run as asynchronous evaluator')	
+	parser.add_argument('--daemon-opponents'   , '-O' , action='store', default=3, type=int, help='Nb of opponents per evaluation')
 	args = parser.parse_args()
 	
-	if args.profile:
+	if args.daemon:
+		run_daemon(args)
+	elif args.profile:
 		profiling(args)
 	elif args.compare_age:
 		play_age(args)

@@ -122,12 +122,19 @@ class GenericNNetWrapper(NeuralNet):
 	def predict_client(self, board, valid_actions, batch_info):
 		if self.current_mode != 'onnx':
 			raise Exception('Batch prediction only in ONNX mode')
-		i_thread, i_result, shared_memory, locks = batch_info
+		
+		# Legacy compatibility 
+		if len(batch_info) == 5:
+			i_thread, i_result, shared_memory, locks, network_id = batch_info
+		else:
+			i_thread, i_result, shared_memory, locks = batch_info
+			network_id = 0
 
 		# Store inputs in shared memory
 		shared_memory[i_thread] = (
 			np.expand_dims(board.astype(np.float32), 0),
 			np.expand_dims(np.array(valid_actions).astype(np.bool_), 0),
+			network_id
 		)
 		# Unblock next thread (= next MCTS or server), and wait for our turn
 		locks[i_thread+1].release()
@@ -139,20 +146,39 @@ class GenericNNetWrapper(NeuralNet):
 
 		return pi, v
 
-	def predict_server(self, nb_threads, shared_memory, locks):
+	def predict_server(self, nb_threads, shared_memory, locks, pnet=None):
 		self.switch_target('inference')
+		if pnet is not None:
+			pnet.switch_target('inference')
 		locks[0].release()
 
 		while shared_memory[-1] <= 1:
 			locks[-1].acquire() # Wait for all inputs
 
-			# Batch inference
-			ort_outs = self.ort_session.run(None, {
-				'board'        : np.concatenate([x[0] for x in shared_memory[:nb_threads]]),
-				'valid_actions': np.concatenate([x[1] for x in shared_memory[:nb_threads]]),
-			})
-			for i in range(nb_threads):
-				shared_memory[i+nb_threads] = (ort_outs[0][i], ort_outs[1][i])
+			reqs_0 = [i for i in range(nb_threads) if len(shared_memory[i]) > 2 and shared_memory[i][2] == 0]
+			reqs_1 = [i for i in range(nb_threads) if len(shared_memory[i]) > 2 and shared_memory[i][2] == 1]
+			
+			# Fallback if network_id not provided
+			if not reqs_0 and not reqs_1:
+				reqs_0 = list(range(nb_threads))
+
+			# inference batch for current network (nnet)
+			if reqs_0:
+				ort_outs_0 = self.ort_session.run(None, {
+					'board'        : np.concatenate([shared_memory[i][0] for i in reqs_0]),
+					'valid_actions': np.concatenate([shared_memory[i][1] for i in reqs_0]),
+				})
+				for j, idx in enumerate(reqs_0):
+					shared_memory[idx+nb_threads] = (ort_outs_0[0][j], ort_outs_0[1][j])
+
+			# inference batch for the sparring partner (pnet)
+			if reqs_1 and pnet is not None and pnet.ort_session is not None:
+				ort_outs_1 = pnet.ort_session.run(None, {
+					'board'        : np.concatenate([shared_memory[i][0] for i in reqs_1]),
+					'valid_actions': np.concatenate([shared_memory[i][1] for i in reqs_1]),
+				})
+				for j, idx in enumerate(reqs_1):
+					shared_memory[idx+nb_threads] = (ort_outs_1[0][j], ort_outs_1[1][j])
 
 			locks[0].release() # Unblock 1st thread
 
