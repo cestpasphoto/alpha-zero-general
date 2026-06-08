@@ -243,6 +243,11 @@ class Coach():
 		"""
 
 		for i in range(1, self.args.numIters + 1):
+			stop_file = os.path.join(self.args.checkpoint, 'STOP_TRAINING.flag')
+			if os.path.exists(stop_file):
+				log.warning("Stop signal received from Evaluator (Stagnation). Halting training gracefully.")
+				break
+
 			# 1. Sélectionne le sparring partner de l'itération si la ligue est activée
 			self.pnet_loaded = False
 			if self.args.selfPlayRatio < 100:
@@ -254,7 +259,7 @@ class Coach():
 							leaderboard = json.load(f)
 						if leaderboard:
 							# Trie par Elo décroissant et garde les 20 meilleurs
-							top_models = sorted(leaderboard, key=leaderboard.get, reverse=True)[:20]
+							top_models = sorted(leaderboard, key=leaderboard.get, reverse=True)[:self.args.leagueSize]
 							selected = np.random.choice(top_models)
 							self.pnet.load_checkpoint(folder=self.args.checkpoint, filename=selected)
 							self.pnet_loaded = True

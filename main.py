@@ -136,7 +136,8 @@ def main():
 	parser.add_argument('--fpu'             , '-f' , action='store', default=0.1  , type=float, help='Value for FPU (first play urgency, using parent-based reduction)')
 	parser.add_argument('--fpu-root'               , action='store', default=0.   , type=float, help='Value for FPU at root level (first play urgency, using parent-based reduction)')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
-	
+	parser.add_argument('--forced-playouts-k', '-k' , action='store', default=1.5  , type=float, help='Multiplier k for forced playouts')
+
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
@@ -145,6 +146,7 @@ def main():
 
 	### Advanced params ###
 	parser.add_argument('--selfPlayRatio'          , action='store', default=80   , type=int  , help='Percentage of pure self-play games (100 = disable league)')
+	parser.add_argument('--leagueSize'             , action='store', default=10   , type=int  , help='Max number of models kept in the league pool')
 	parser.add_argument('--q-weight'        , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')

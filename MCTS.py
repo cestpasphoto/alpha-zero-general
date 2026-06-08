@@ -9,7 +9,6 @@ from numba import njit
 
 EPS = 1e-8
 NAN = -42.
-k = 1.5
 MINFLOAT = float('-inf')
 magic_seeds = [31416, 1, 14142, 42, 27183, 2, 16180, 7]
 
@@ -80,7 +79,7 @@ class MCTS():
         if forced_playouts:
             best_count = max(counts)
             Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
-            adjusted_counts = [Nsa-int(math.sqrt(k*Psa*nb_MCTS_sims)) if Nsa != best_count else Nsa for (Nsa, Psa) in zip(counts, Psas)]
+            adjusted_counts = [Nsa-int(math.sqrt(self.args.forced_playouts_k*Psa*nb_MCTS_sims)) if Nsa != best_count else Nsa for (Nsa, Psa) in zip(counts, Psas)]
             adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
             counts = adjusted_counts
 
@@ -203,6 +202,7 @@ class MCTS():
             self.args.fpu,
             self.args.fpu_root,
             self.random_seed,
+            self.args.forced_playouts_k,
         )
 
         v = self.search(next_s, depth=depth+1)
@@ -244,7 +244,7 @@ def np_roll(arr, n):
 
 # pick the action with the highest upper confidence bound
 @njit(cache=True, fastmath=True, nogil=True)
-def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_root, n_iter, fpu, fpu_root):
+def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_root, n_iter, fpu, fpu_root, k):
     cur_best = MINFLOAT
     best_act = -1
 
@@ -272,8 +272,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_ro
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, is_root, n_iter, fpu, fpu_root, random_seed):
-    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_root, n_iter, fpu, fpu_root)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, is_root, n_iter, fpu, fpu_root, random_seed, k):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_root, n_iter, fpu, fpu_root, k)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)

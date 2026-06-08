@@ -55,6 +55,7 @@ def create_player(name, args, player_id):
 		'cpuct'           : args.cpuct if args.cpuct else (1.0 if is_daemon else cpuct),
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
+		'forced_playouts_k': additional_keys.get('forced_playouts_k', 1.5),
 		'no_mem_optim'    : False,
 	})
 
@@ -186,45 +187,67 @@ def run_daemon(args):
 			time.sleep(30)
 			continue
 			
-		for cpt in new_cpts:
-			cpt_name = os.path.basename(cpt)
-			print(f"\n--- Evaluating {cpt_name} ---")
-			cpt_elo = leaderboard.get(cpt_name, 1200.0)
+		for skipped_cpt in new_cpts[:-1]:
+			leaderboard[os.path.basename(skipped_cpt)] = "skipped"
+		
+		# On ne garde que le tout dernier checkpoint généré
+		cpt = new_cpts[-1] 
+		cpt_name = os.path.basename(cpt)
+		print(f"\n--- Evaluating {cpt_name} ---")
+		cpt_elo = leaderboard.get(cpt_name, 1200.0)
+		
+		# Construit le pool des adversaires
+		league_pool = [m for m in sorted(leaderboard, key=leaderboard.get, reverse=True) if leaderboard[m] >= 1200.0][:args.league_size]
+		candidates = [p for p in league_pool if p != cpt_name]
+		
+		opponents = list(np.random.choice(candidates, min(args.daemon_opponents, len(candidates)), replace=False)) if candidates else []
+		
+		# Fallback de sécurité si le pool est vide
+		if not opponents and leaderboard:
+			best_old = max(leaderboard, key=leaderboard.get)
+			if best_old != cpt_name: opponents = [best_old]
+		
+		for opp in opponents:
+			opp_elo = leaderboard.get(opp, 1200.0)
+			print(f"Match: {cpt_name} (Elo: {int(cpt_elo)}) vs {opp} (Elo: {int(opp_elo)})")
 			
-			# Construit le pool des adversaires : les 20 meilleurs au-dessus de 1200 Elo
-			league_pool = [m for m in sorted(leaderboard, key=leaderboard.get, reverse=True) if leaderboard[m] >= 1200.0][:20]
-			candidates = [p for p in league_pool if p != cpt_name]
+			args.players = [cpt, os.path.join(args.compare, opp)]
+			oneWon, twoWon, draws = play(args)
 			
-			opponents = list(np.random.choice(candidates, min(args.daemon_opponents, len(candidates)), replace=False)) if candidates else []
+			total_games = oneWon + twoWon + draws
+			if total_games == 0: continue
+			actual_score = (oneWon + draws * 0.5) / total_games
 			
-			# Fallback de sécurité si le pool est vide
-			if not opponents and leaderboard:
-				best_old = max(leaderboard, key=leaderboard.get)
-				if best_old != cpt_name: opponents = [best_old]
+			# Mise à jour Elo
+			expected = 1 / (1 + 10 ** ((opp_elo - cpt_elo) / 400))
+			k_factor = 32
+			cpt_elo += k_factor * (actual_score - expected)
+			opp_elo += k_factor * ( (1 - actual_score) - (1 - expected) )
 			
-			for opp in opponents:
-				opp_elo = leaderboard.get(opp, 1200.0)
-				print(f"Match: {cpt_name} (Elo: {int(cpt_elo)}) vs {opp} (Elo: {int(opp_elo)})")
-				
-				args.players = [cpt, os.path.join(args.compare, opp)]
-				oneWon, twoWon, draws = play(args)
-				
-				total_games = oneWon + twoWon + draws
-				if total_games == 0: continue
-				actual_score = (oneWon + draws * 0.5) / total_games
-				
-				# Mise à jour Elo
-				expected = 1 / (1 + 10 ** ((opp_elo - cpt_elo) / 400))
-				k_factor = 32
-				cpt_elo += k_factor * (actual_score - expected)
-				opp_elo += k_factor * ( (1 - actual_score) - (1 - expected) )
-				
-				leaderboard[cpt_name] = cpt_elo
-				leaderboard[opp] = opp_elo
+			leaderboard[cpt_name] = cpt_elo
+			leaderboard[opp] = opp_elo
 
-			# Sauvegarde l'état unique
-			with open(leaderboard_file, 'w') as f: json.dump(leaderboard, f, indent=2)
-			print(f"Current Elo of {cpt_name}: {int(cpt_elo)}")
+		# Sauvegarde l'état unique
+		with open(leaderboard_file, 'w') as f: json.dump(leaderboard, f, indent=2)
+		print(f"Current Elo of {cpt_name}: {int(cpt_elo)}")
+			
+		# --- LOGIQUE DE STAGNATION (EARLY STOPPING) ---
+		max_elo = max([v for v in leaderboard.values() if isinstance(v, float)])
+		
+		# Si l'Elo du checkpoint actuel est un nouveau record (ou très proche du record, ex: à 10 points)
+		if cpt_elo >= max_elo - 10:
+			leaderboard["_stagnation_counter"] = 0
+		else:
+			current_count = leaderboard.get("_stagnation_counter", 0) + 1
+			leaderboard["_stagnation_counter"] = current_count
+			print(f"Stagnation warning: {current_count}/15 evaluated checkpoints without beating the record.")
+			
+			if current_count >= 15:
+				stop_file = os.path.join(args.compare, 'STOP_TRAINING.flag')
+				with open(stop_file, 'w') as f:
+					f.write("Stagnation threshold reached.")
+				print(">>> STAGNATION LIMIT REACHED. STOP SIGNAL SENT TO COACH. <<<")
+				exit(0) # L'évaluateur peut s'arrêter aussi
 
 def play_several_files(args):
 	players = args.players[:]  # Copy, because it will be overwritten by plays()
@@ -302,6 +325,7 @@ def main():
 
 	parser.add_argument('--daemon'             , '-D' , action='store_true', help='Run as asynchronous evaluator')	
 	parser.add_argument('--daemon-opponents'   , '-O' , action='store', default=3, type=int, help='Nb of opponents per evaluation')
+	parser.add_argument('--league-size'        , '-L' , action='store', default=20, type=int, help='Max number of models kept in the league pool')
 	args = parser.parse_args()
 	
 	if args.daemon:
