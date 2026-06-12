@@ -32,11 +32,11 @@ def create_player(name, args, player_id):
 		game = Game()
 	# all players
 	if name == 'random':
-		return players.RandomPlayer(game).play
+		return players.RandomPlayer(game).play, None
 	if name == 'greedy':
-		return players.GreedyPlayer(game).play
+		return players.GreedyPlayer(game).play, None
 	if name == 'human':
-		return players.HumanPlayer(game).play
+		return players.HumanPlayer(game).play, None
 
 	# set default values but will be overloaded when loading checkpoint
 	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1)
@@ -47,10 +47,20 @@ def create_player(name, args, player_id):
 	cpuct = additional_keys.get('cpuct')
 	cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
 	is_daemon = getattr(args, 'daemon', False)
+
+	# Defect 5: detect a silent fallback to the default sim count (the 3200-vs-800 trap)
+	sims_from_ckpt = additional_keys.get('numMCTSSims', None)
+	sims = args.numMCTSSims if args.numMCTSSims else (sims_from_ckpt if sims_from_ckpt else 100)
+	if not args.numMCTSSims and sims_from_ckpt is None:
+		print(f"[EVAL WARNING] {name}: numMCTSSims missing from checkpoint, falling back to {sims}. "
+		      f"Pass -m explicitly to avoid a silent sim-count mismatch.")
+
+	# Defect 6: --fpu was parsed but never applied; honour it for both players when given
+	fpu_cli = args.fpu if getattr(args, 'fpu', None) is not None else None
 	mcts_args = dotdict({
-		'numMCTSSims'     : args.numMCTSSims if args.numMCTSSims else additional_keys.get('numMCTSSims', 100),
-		'fpu_root'        : 0.0 if is_daemon else additional_keys.get('fpu_root', additional_keys.get('fpu', None)),
-		'fpu'             : additional_keys.get('fpu', None),
+		'numMCTSSims'     : sims,
+		'fpu'             : fpu_cli if fpu_cli is not None else additional_keys.get('fpu', None),
+		'fpu_root'        : 0.0 if is_daemon else (fpu_cli if fpu_cli is not None else additional_keys.get('fpu_root', additional_keys.get('fpu', None))),
 		'universes'       : additional_keys.get('universes', 1),
 		'cpuct'           : args.cpuct if args.cpuct else (1.0 if is_daemon else cpuct),
 		'prob_fullMCTS'   : 1.,
@@ -61,21 +71,39 @@ def create_player(name, args, player_id):
 
 	mcts = MCTS(game, net, mcts_args)
 	def temp_for_game(n):
-		if is_daemon: 
+		if is_daemon:
 			return 0.0
-		t_begin, t_end, half_life = 0.5, 0.0, (additional_keys['temperature'][2:3] or [10])[0]
+		# Defect 3: half-life read from temperature[3] (merged --tempThreshold), fallback 10
+		# for older checkpoints. Was wrongly temperature[2] (softmax temp ~1.1) -> near-greedy
+		# play from move ~5, collapsing opening diversity.
+		t_begin, t_end = 0.5, 0.0
+		half_life = (additional_keys.get('temperature', [])[3:4] or [10])[0]
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
-		# return t_begin if n < half_life else t_end
 	player = lambda x, n: np.argmax(mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0])
-	return player
+	return player, mcts_args
+
+
+def _resolve_player_path(p):
+	# Prefer best.pt (post-hoc selected); fall back to latest.pt (most recent checkpoint).
+	if os.path.isdir(p):
+		for cand in ('best.pt', 'latest.pt'):
+			full = os.path.join(p, cand)
+			if os.path.exists(full):
+				return full
+		return os.path.join(p, 'best.pt')  # informative failure downstream
+	return p
 
 
 def play(args):
-	players = [p + '/best.pt' if os.path.isdir(p) else p for p in args.players]
+	players = [_resolve_player_path(p) for p in args.players]
 
 	if not args.useray:
 		print(players[0], 'vs', players[1])
-	player1, player2 = create_player(players[0], args, 0), create_player(players[1], args, 1)
+	# Defect 5: create_player now also returns the resolved MCTS args (or None for baselines)
+	(player1, m1), (player2, m2) = create_player(players[0], args, 0), create_player(players[1], args, 1)
+	if m1 is not None and m2 is not None and m1.numMCTSSims != m2.numMCTSSims:
+		print(f"[EVAL WARNING] sim-count mismatch: P1={m1.numMCTSSims} vs P2={m2.numMCTSSims}. "
+		      f"This pit measures search budget, not network strength. Pin -m for both.")
 	human = 'human' in players
 	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
 	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
@@ -171,7 +199,7 @@ def update_ratings(p1, p2, game_results, args):
 		# 	print(f'{pname[-20:].rjust(20)} rating={int(p.rating)}±{int(p.rd)}, vol={p.vol:.3e}')
 
 def run_daemon(args):
-	import time, glob, json, re
+	import time, glob, json, re, math
 	leaderboard_file = os.path.join(args.compare, 'leaderboard.json')
 	
 	print(f"Starting Asynchronous Evaluator in {args.compare}...")
@@ -196,59 +224,72 @@ def run_daemon(args):
 		print(f"\n--- Evaluating {cpt_name} ---")
 		cpt_elo = leaderboard.get(cpt_name, 1200.0)
 		
-		# Construit le pool des adversaires
-		league_pool = [m for m in sorted(leaderboard, key=leaderboard.get, reverse=True) if leaderboard[m] >= 1200.0][:args.league_size]
+		# FILTRE SÉCURISÉ : On isole uniquement les vrais modèles avec un Elo numérique
+		valid_models = {m: v for m, v in leaderboard.items() if isinstance(v, (int, float)) and not m.startswith('_')}
+		
+		# Construit le pool des adversaires avec les modèles valides
+		league_pool = [m for m in sorted(valid_models, key=valid_models.get, reverse=True) if valid_models[m] >= 1200.0][:args.league_size]
 		candidates = [p for p in league_pool if p != cpt_name]
 		
 		opponents = list(np.random.choice(candidates, min(args.daemon_opponents, len(candidates)), replace=False)) if candidates else []
 		
 		# Fallback de sécurité si le pool est vide
-		if not opponents and leaderboard:
-			best_old = max(leaderboard, key=leaderboard.get)
+		if not opponents and valid_models:
+			best_old = max(valid_models, key=valid_models.get)
 			if best_old != cpt_name: opponents = [best_old]
 		
+		# Defect 7: frozen anchors + direct Elo from aggregate score (no K=32 compression).
+		# A 30-50 game match is information worth tens of Elo; the old K=32 update moved the
+		# rating by only a few points AND mutated the opponents, making the whole board drift.
+		elo_estimates = []
 		for opp in opponents:
 			opp_elo = leaderboard.get(opp, 1200.0)
-			print(f"Match: {cpt_name} (Elo: {int(cpt_elo)}) vs {opp} (Elo: {int(opp_elo)})")
-			
+			print(f"Match: {cpt_name} vs {opp} (anchor Elo: {int(opp_elo)})")
+
 			args.players = [cpt, os.path.join(args.compare, opp)]
 			oneWon, twoWon, draws = play(args)
-			
+
 			total_games = oneWon + twoWon + draws
 			if total_games == 0: continue
 			actual_score = (oneWon + draws * 0.5) / total_games
-			
-			# Mise à jour Elo
-			expected = 1 / (1 + 10 ** ((opp_elo - cpt_elo) / 400))
-			k_factor = 32
-			cpt_elo += k_factor * (actual_score - expected)
-			opp_elo += k_factor * ( (1 - actual_score) - (1 - expected) )
-			
-			leaderboard[cpt_name] = cpt_elo
-			leaderboard[opp] = opp_elo
+			# Continuity correction to avoid +/-inf at score 0 or 1
+			eps = 0.5 / total_games
+			s = min(max(actual_score, eps), 1 - eps)
+			# Anchor is frozen: estimate the candidate's Elo, never touch the opponent's
+			elo_estimates.append(opp_elo + 400 * math.log10(s / (1 - s)))
 
-		# Sauvegarde l'état unique
-		with open(leaderboard_file, 'w') as f: json.dump(leaderboard, f, indent=2)
+		if elo_estimates:
+			cpt_elo = sum(elo_estimates) / len(elo_estimates)
+		leaderboard[cpt_name] = cpt_elo
+
 		print(f"Current Elo of {cpt_name}: {int(cpt_elo)}")
 			
-		# --- LOGIQUE DE STAGNATION (EARLY STOPPING) ---
-		max_elo = max([v for v in leaderboard.values() if isinstance(v, float)])
-		
-		# Si l'Elo du checkpoint actuel est un nouveau record (ou très proche du record, ex: à 10 points)
-		if cpt_elo >= max_elo - 10:
+		# --- STAGNATION (EARLY STOPPING) ---
+		# Defect 8: compare to the best *candidate* so far (frozen anchors sit high and would
+		# trip the counter instantly), with a noise-aware margin (~one CI half-width at ~100
+		# games) so the counter tracks real progress, not measurement noise.
+		STAGNATION_MARGIN = 50.0
+		best_cpt_elo = leaderboard.get("_best_cpt_elo", cpt_elo)
+		if cpt_elo >= best_cpt_elo - STAGNATION_MARGIN:
 			leaderboard["_stagnation_counter"] = 0
+			leaderboard["_best_cpt_elo"] = max(best_cpt_elo, cpt_elo)
 		else:
 			current_count = leaderboard.get("_stagnation_counter", 0) + 1
 			leaderboard["_stagnation_counter"] = current_count
-			print(f"Stagnation warning: {current_count}/15 evaluated checkpoints without beating the record.")
-			
+			print(f"Stagnation warning: {current_count}/15 checkpoints without progress "
+			      f"(best candidate {int(best_cpt_elo)}, this one {int(cpt_elo)}).")
+
 			if current_count >= 15:
 				stop_file = os.path.join(args.compare, 'STOP_TRAINING.flag')
 				with open(stop_file, 'w') as f:
 					f.write("Stagnation threshold reached.")
 				print(">>> STAGNATION LIMIT REACHED. STOP SIGNAL SENT TO COACH. <<<")
-				exit(0) # L'évaluateur peut s'arrêter aussi
+				with open(leaderboard_file, 'w') as f: json.dump(leaderboard, f, indent=2)
+				exit(0)
 
+		# Sauvegarde l'état unique complet (incluant le compteur de stagnation)
+		with open(leaderboard_file, 'w') as f: json.dump(leaderboard, f, indent=2)
+		
 def play_several_files(args):
 	players = args.players[:]  # Copy, because it will be overwritten by plays()
 	list_tasks = []

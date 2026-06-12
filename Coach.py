@@ -258,15 +258,17 @@ class Coach():
 						with open(leaderboard_file, 'r') as f:
 							leaderboard = json.load(f)
 						if leaderboard:
-							# Trie par Elo décroissant et garde les 20 meilleurs
-							top_models = sorted(leaderboard, key=leaderboard.get, reverse=True)[:self.args.leagueSize]
-							selected = np.random.choice(top_models)
-							self.pnet.load_checkpoint(folder=self.args.checkpoint, filename=selected)
-							self.pnet_loaded = True
-							log.info(f"League Active: Loaded {selected} (Elo: {int(leaderboard[selected])}) as sparring partner.")
+							# FILTRE SÉCURISÉ : On ignore "skipped" et les métadonnées internes (_stagnation_counter)
+							valid_models = {m: v for m, v in leaderboard.items() if isinstance(v, (int, float)) and not m.startswith('_')}
+							if valid_models:
+								# Trie par Elo décroissant et garde les meilleurs selon le paramètre fourni
+								top_models = sorted(valid_models, key=valid_models.get, reverse=True)[:self.args.leagueSize]
+								selected = np.random.choice(top_models)
+								self.pnet.load_checkpoint(folder=self.args.checkpoint, filename=selected)
+								self.pnet_loaded = True
+								log.info(f"League Active: Loaded {selected} (Elo: {int(valid_models[selected])}) as sparring partner.")
 					except Exception as e:
 						log.warning(f"Could not load {leaderboard_file}: {e}")
-
 			# 2. Génération des exemples (Mélange 80% self-play / 20% ligue géré en interne)
 			if not self.skipFirstSelfPlay or i > 1:
 				iterationTrainExamples = self.executeEpisodes()
@@ -300,7 +302,9 @@ class Coach():
 			# 5. Sauvegarde finale Asynchrone (Plus de matchs Arena synchrones !)
 			log.info(f'Iter #{i} - Training completed. Saving Checkpoint.')
 			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
-			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
+			# 'best.pt' is reserved for post-hoc selection (the last checkpoint is rarely the best).
+			# Write 'latest.pt' as the convenience "most recent" pointer instead.
+			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='latest.pt', additional_keys=vars(self.args))
 			self.consecutive_failures = 0
 
 	def getCheckpointFile(self, iteration):

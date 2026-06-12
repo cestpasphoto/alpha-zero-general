@@ -36,6 +36,44 @@ def run(args):
 	if args.load_model:
 		log.info('Loading checkpoint "%s"...', args.load_folder_file)
 		nnet.load_checkpoint(os.path.dirname(args.load_folder_file), os.path.basename(args.load_folder_file))
+
+		if os.path.abspath(args.checkpoint) != os.path.abspath(os.path.dirname(args.load_folder_file)):
+			import shutil, json
+			os.makedirs(args.checkpoint, exist_ok=True)
+			
+			new_leaderboard_path = os.path.join(args.checkpoint, 'leaderboard.json')
+			old_dir = os.path.dirname(args.load_folder_file)
+			old_lb_path = os.path.join(old_dir, 'leaderboard.json')
+
+			if not os.path.exists(new_leaderboard_path):
+				new_leaderboard = {}
+				if os.path.exists(old_lb_path):
+					try:
+						with open(old_lb_path, 'r') as f:
+							old_lb = json.load(f)
+						# Nettoyage préventif des clés de l'ancien leaderboard
+						valid_old = {m: v for m, v in old_lb.items() if isinstance(v, (int, float)) and not m.startswith('_')}
+						top_models = sorted(valid_old, key=valid_old.get, reverse=True)[:3]
+						
+						for rank, old_name in enumerate(top_models, start=1):
+							old_file_path = os.path.join(old_dir, old_name)
+							if os.path.exists(old_file_path):
+								new_name = f'parent_rank_{rank}.pt'
+								shutil.copy(old_file_path, os.path.join(args.checkpoint, new_name))
+								new_leaderboard[new_name] = valid_old[old_name]
+								log.info(f"Imported {old_name} as {new_name} (Elo: {int(valid_old[old_name])})")
+					except Exception as e:
+						log.warning(f"Failed to import Elite Vanguard: {e}")
+
+				if not new_leaderboard:
+					new_name = 'parent_baseline.pt'
+					shutil.copy(args.load_folder_file, os.path.join(args.checkpoint, new_name))
+					new_leaderboard[new_name] = 1200.0
+					log.info(f"Fallback: League initialized with single {new_name}")
+
+				with open(new_leaderboard_path, 'w') as f:
+					json.dump(new_leaderboard, f, indent=2)
+
 		if not args.useray:
 			compare_settings(args)
 	# else:
@@ -125,8 +163,10 @@ def main():
 	parser.add_argument('--numItersHistory' , '-i' , action='store', default=5   , type=int  , help='')
 
 	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=1600 , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')
-	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=10   , type=int  , help='Nb of moves for half-life of temperature decay')
-	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.0, 0.1, 1.1], type=float, nargs=3, help='Temperatures at begin/end, and softmax temp applied on root policy before Dirichlet - used during self-plays not test games')
+	# --tempThreshold is now the 4th value of --temperature (single source of truth).
+	# -T is kept as a DEPRECATED override so existing command lines keep working unchanged.
+	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=None , type=int  , help='DEPRECATED: half-life of temp decay, now temperature[3]. If set, overrides it.')
+	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.0, 0.1, 1.1, 10.0], type=float, nargs=4, help='[t_begin, t_end, softmax_temp, half_life]. half_life in moves (neg => step). Self-play only')
 	parser.add_argument('--cpuct'           , '-c' , action='store', default=1.25 , type=float, help='cpuct value')
 	# Replace or add next to --cpuct
 	# parser.add_argument('--cpuct'                  , action='store', default=1.25 , type=float, help='cpuct setting')
@@ -164,6 +204,9 @@ def main():
 	parser.add_argument('--no-mem-optim'           , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	
 	args = parser.parse_args()
+	if args.tempThreshold is not None:              # backward-compat: -T overrides temperature[3]
+		args.temperature[3] = float(args.tempThreshold)
+	args.tempThreshold = int(args.temperature[3])   # canonical value, used as-is across Coach
 	args.arenaCompare = 30
 	args.maxlenOfQueue = int(2.5e6 / ((
 		                                  2 if args.no_compression else 0.5) * args.numItersHistory))  # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
@@ -174,9 +217,6 @@ def main():
 		args.parallel_inferences = 1
 		args.no_compression = True
 		args.no_mem_optim = True
-
-	if args.useray and args.updateThreshold == 0.60:
-		args.updateThreshold == 0.55
 
 	args.load_model = (args.load_folder_file is not None)
 	if args.profile:

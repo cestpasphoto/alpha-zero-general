@@ -56,6 +56,7 @@ class Arena():
             players = [self.player2]+[self.player1]*(self.game.getNumberOfPlayers()-1)
         curPlayer, it = 0, 0
         board = self.game.getInitBoard()
+        opening = []  # first plies, for duplicate-game detection (effective-N check)
 
         # Load initial state
         if initial_state != "":
@@ -74,6 +75,8 @@ class Arena():
                 
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
             action = players[curPlayer](canonical_board, it)
+            if len(opening) < 10:
+                opening.append(int(action))
             valids = self.game.getValidMoves(canonical_board, 0)
 
             if verbose:
@@ -98,7 +101,7 @@ class Arena():
 
         MCTS.reset_all_search_trees()
             
-        return self.game.getGameEnded(board, curPlayer)[0]
+        return self.game.getGameEnded(board, curPlayer)[0], tuple(opening)
 
     def playGames(self, num, initial_state="", verbose=False):
         """
@@ -116,6 +119,7 @@ class Arena():
             colors = ['RED', 'MAGENTA', 'YELLOW', 'CYAN', 'GREEN']
 
         oneWon, twoWon, draws = 0, 0, 0
+        openings = set()  # bonus: opening uniqueness -> detects collapsed effective-N
         t = trange(num, desc="Arena.playGames", ncols=120, disable=None)
         for i in t:
             # Since trees may not be resetted, the first games (1vs2) can't be
@@ -125,6 +129,7 @@ class Arena():
             one_vs_two = (i%4 == 0) or (i%4 == 3) or (initial_state != "")
             t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'), refresh=False)
             gameResult = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
+            openings.add(opening)
             if gameResult == (1. if one_vs_two else -1.):
                 oneWon += 1
             elif gameResult == (-1. if one_vs_two else 1.):
@@ -136,5 +141,15 @@ class Arena():
             ratio = oneWon / (oneWon+twoWon) if oneWon+twoWon>0 else 0.5
             t.colour = colors[bisect.bisect_right(ratio_boundaries, ratio)]
         t.close()
+
+        # Bonus: opening uniqueness. Low values mean games are near-duplicates and the
+        # effective sample size is far below `num` -> the pit result is unreliable.
+        played = oneWon + twoWon + draws
+        if played:
+            uniq = len(openings) / played
+            msg = f"Opening uniqueness: {uniq:.0%} ({len(openings)}/{played} distinct first-10-ply lines)"
+            if uniq < 0.20:
+                msg += "  <-- WARNING: effective N collapsed, pit likely unreliable"
+            print(msg)
 
         return oneWon, twoWon, draws
