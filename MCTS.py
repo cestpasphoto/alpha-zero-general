@@ -59,6 +59,12 @@ class MCTS():
         is_full_search = force_full_search or (self.rng.random() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
+        # KataGo regime: self-play full searches start from a fresh tree so FP/PTP/noise
+        # operate on uncontaminated counts. Tree reuse stays on elsewhere (fast searches,
+        # arena, pit) because self.dirichlet_noise is False there.
+        if is_full_search and self.dirichlet_noise:
+            self.nodes_data = {}
+            self.last_cleaning = 0
         initial_nodes_count = len(self.nodes_data)
         self.max_current_depth = 0
         self.sum_new_nodes_depth = 0
@@ -71,15 +77,30 @@ class MCTS():
         s = self.game.stringRepresentation(canonicalBoard)
         counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
 
-        # Compute Q at root node
-        q_player0 = self.nodes_data[s][3][1]
-        q = [q_player0 if n == 0 else -q_player0/(self.game.num_players-1) for n in range(self.game.num_players)]
+        # Per-player Q measured directly from backups (no zero-sum assumption)
+        q = list(self.nodes_data[s][3][1])
 
-        # Policy target pruning
+        # Policy target pruning: subtract up to n_forced playouts from each non-best child,
+        # but stop before PUCT(a) would reach PUCT(best) (holding final utilities constant).
         if forced_playouts:
-            best_count = max(counts)
-            Psas   = [self.nodes_data[s][2][a] for a in range(self.game.getActionSize())] # Ps[a]
-            adjusted_counts = [Nsa-int(math.sqrt(self.args.forced_playouts_k*Psa*nb_MCTS_sims)) if Nsa != best_count else Nsa for (Nsa, Psa) in zip(counts, Psas)]
+            Ps_root  = self.nodes_data[s][2]
+            Qsa_root = self.nodes_data[s][4]
+            S = float(sum(counts))
+            best_a = int(np.argmax(counts))
+            best_count = counts[best_a]
+            puct_best = Qsa_root[best_a] + self.args.cpuct * Ps_root[best_a] * math.sqrt(S) / (1 + best_count)
+            adjusted_counts = list(counts)
+            for a in range(len(counts)):
+                n = counts[a]
+                if n == 0 or a == best_a:
+                    continue
+                n_forced = int(math.sqrt(self.args.forced_playouts_k * Ps_root[a] * S))
+                gap = puct_best - Qsa_root[a]
+                if gap <= 0:
+                    continue   # already at least as urgent as best: subtract nothing
+                n_min = math.ceil(self.args.cpuct * Ps_root[a] * math.sqrt(S) / gap - 1)
+                new_n = max(n - n_forced, int(n_min), 0)
+                adjusted_counts[a] = new_n
             adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
             counts = adjusted_counts
 
@@ -177,17 +198,23 @@ class MCTS():
 
             Qsa, Nsa = self.Qsa_default.copy(), self.Nsa_default.copy()
             
-            # Optimization: create the mutable list [Ns, Qs]
-            meta_ns_qs = [0, float(v[0])]
+            # Mutable [Ns, Q_vector]: keep the full per-player Q (lives in Z-space,
+            # no zero-sum assumption) instead of collapsing to player 0.
+            meta_ns_qs = [0, np.array(v, dtype=np.float64)]
             self.nodes_data[s] = (Es, Vs, Ps, meta_ns_qs, Qsa, Nsa, r)
             return v
 
         if dirichlet_noise:
             Ps = softmax(Ps, self.args.temperature[2])
+            if Ps is self.nodes_data[s][2]:   # softmax_temp == 1.0 returns the same object
+                Ps = Ps.copy()
             self.applyDirNoise(Ps, Vs)
             normalise(Ps)
+            # Persist noised priors so sims 1..N-1 see them (a node is root at most
+            # once: the state vector embeds the move counter, so this is never revisited)
+            self.nodes_data[s] = (Es, Vs, Ps, meta_ns_qs, Qsa, Nsa, r)
 
-        Ns, Qs = meta_ns_qs[0], meta_ns_qs[1]
+        Ns, Qs = meta_ns_qs[0], float(meta_ns_qs[1][0])   # scalar Q for numba FPU
 
         # pick the action with the highest upper confidence bound
         # get next state and get canonical version of it
@@ -210,9 +237,9 @@ class MCTS():
 
         Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
         
-        # In-place updates of the list values
+        # In-place update of the full per-player Q vector
         # Qs = ((Ns+1) * Qs + v[0]) / (Ns+2)
-        meta_ns_qs[1] = ((meta_ns_qs[0]+1) * meta_ns_qs[1] + v[0]) / (meta_ns_qs[0]+2)
+        meta_ns_qs[1] = ((meta_ns_qs[0]+1) * meta_ns_qs[1] + v) / (meta_ns_qs[0]+2)
         Nsa[a] += 1
         # Ns += 1
         meta_ns_qs[0] += 1
