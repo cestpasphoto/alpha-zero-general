@@ -128,7 +128,7 @@ class Arena():
             # 1 2 2 1   1 2 2 1  ...
             one_vs_two = (i%4 == 0) or (i%4 == 3) or (initial_state != "")
             t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'), refresh=False)
-            gameResult = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
+            gameResult, opening = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
             openings.add(opening)
             if gameResult == (1. if one_vs_two else -1.):
                 oneWon += 1

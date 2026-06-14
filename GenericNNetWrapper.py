@@ -252,7 +252,7 @@ class GenericNNetWrapper(NeuralNet):
 				if name in target_state:
 					target_params = target_state[name]
 					if target_params.shape == params.shape:
-						params.copy_(target_params)
+						target_params.copy_(params)
 						# print(f'no problem to copy {name}')
 					elif target_params.dim() == params.dim():
 						if len(target_params.shape) == 1:

@@ -76,7 +76,7 @@ class Coach():
 			
 			# pnet joue sans exploration (temp=0.0) et en full_search
 			temp = 1.0 if is_saving else 0.0
-			force_full = not is_saving
+			force_full = False
 			
 			pi, q, is_full_search, metrics = my_mcts.getActionProb(canonicalBoard, temp=temp, force_full_search=force_full)
 			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep) if is_saving else 0.0)
@@ -176,7 +176,7 @@ class Coach():
 					uniq=f"{len(unique_openings)/completed_episodes:.0%}",
 					refresh=False
 				)
-				self.MCTS = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
+				self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
 				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
 					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
 					break

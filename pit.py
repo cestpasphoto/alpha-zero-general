@@ -57,10 +57,12 @@ def create_player(name, args, player_id):
 
 	# Defect 6: --fpu was parsed but never applied; honour it for both players when given
 	fpu_cli = args.fpu if getattr(args, 'fpu', None) is not None else None
+	fpu_ckpt      = additional_keys.get('fpu')
+	fpu_root_ckpt = additional_keys.get('fpu_root', fpu_ckpt)
 	mcts_args = dotdict({
 		'numMCTSSims'     : sims,
-		'fpu'             : fpu_cli if fpu_cli is not None else additional_keys.get('fpu', None),
-		'fpu_root'        : 0.0 if is_daemon else (fpu_cli if fpu_cli is not None else additional_keys.get('fpu_root', additional_keys.get('fpu', None))),
+		'fpu'             : fpu_cli if fpu_cli is not None else (0.1 if fpu_ckpt is None else fpu_ckpt),
+		'fpu_root'        : 0.0 if is_daemon else (fpu_cli if fpu_cli is not None else (0.0 if fpu_root_ckpt is None else fpu_root_ckpt)),
 		'universes'       : additional_keys.get('universes', 1),
 		'cpuct'           : args.cpuct if args.cpuct else (1.0 if is_daemon else cpuct),
 		'prob_fullMCTS'   : 1.,
@@ -72,14 +74,17 @@ def create_player(name, args, player_id):
 	mcts = MCTS(game, net, mcts_args)
 	def temp_for_game(n):
 		if is_daemon:
-			return 0.0
+			return 0.2 if n <= 20 else 0.0
 		# Defect 3: half-life read from temperature[3] (merged --tempThreshold), fallback 10
 		# for older checkpoints. Was wrongly temperature[2] (softmax temp ~1.1) -> near-greedy
 		# play from move ~5, collapsing opening diversity.
 		t_begin, t_end = 0.5, 0.0
 		half_life = (additional_keys.get('temperature', [])[3:4] or [10])[0]
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
-	player = lambda x, n: np.argmax(mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0])
+	
+	def player(x, n):
+		probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
+		return int(np.random.choice(len(probs), p=probs))
 	return player, mcts_args
 
 
