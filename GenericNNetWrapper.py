@@ -226,6 +226,9 @@ class GenericNNetWrapper(NeuralNet):
 		data = {
 			'state_dict': self.nnet.state_dict(),
 			'full_model': self.nnet,
+			# Explicit version key: version check no longer relies solely on the
+			# pickled full_model object (which can be corrupted by cross-arch transfer).
+			'nn_version': self.nnet.version,
 		}
 		data.update(additional_keys)
 		torch.save(data, filepath)
@@ -277,29 +280,45 @@ class GenericNNetWrapper(NeuralNet):
 				# else:
 				# 	print(f'hasnt loaded layer {name} because not in target')
 
-		if strict and (checkpoint['full_model'].version != self.args['nn_version']):
-			print('Checkpoint includes NN version', checkpoint['full_model'].version, ', but you ask version', self.args['nn_version'], ' so not loading it and initiate knowledge transfer')
+		# Prefer the explicit 'nn_version' key (written since the fix); fall back to
+		# full_model.version for legacy checkpoints that pre-date this key.
+		ckpt_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
+
+
+		if strict and (ckpt_version != self.args['nn_version']):
+			print('Checkpoint includes NN version', ckpt_version, ', but you ask version', self.args['nn_version'], ' so not loading it and initiate knowledge transfer')
 			self.requestKnowledgeTransfer = True
 			return
 
 		try:
 			self.nnet.load_state_dict(checkpoint['state_dict'])
-			self.nnet.version = checkpoint['full_model'].version
+			self.nnet.version = ckpt_version
 		except:
 			if strict:
-				print('Cant load NN ', checkpoint['full_model'].version, 'in checkpoint, so initiate knowledge transfer')
+				print('Cant load NN', ckpt_version, 'in checkpoint, so initiate knowledge transfer')
 				self.requestKnowledgeTransfer = True
 			else:
 				if self.nnet.version > 0:
 					try:
 						load_not_strict(checkpoint['state_dict'], self.nnet)
-						print('Could load state dict but NOT STRICT, saved archi-version was', checkpoint['full_model'].version)
+						print('Could load state dict but NOT STRICT, saved archi-version was', ckpt_version)
 					except:
-						self.nnet = checkpoint['full_model']
-						print('Had to load full model AS IS, saved archi-version was', checkpoint['full_model'].version, 'and WONT BE UPDATED')
-						if input("Continue? [y|n]") != "y":
-							sys.exit()
+						# GUARD: only replace self.nnet with the full pickled model if the
+						# versions match (same class). A cross-version replacement (e.g.
+						# V62 SmallworldNNet replacing a V72 SmallworldGraphNNet) corrupts
+						# all subsequent saves: full_model.version becomes the OLD version
+						# and the next strict load wrongly fires the version-mismatch path.
+						if ckpt_version == self.nnet.version:
+							self.nnet = checkpoint['full_model']
+							print('Had to load full model AS IS (V%s), WONT BE UPDATED' % ckpt_version)
+							if input("Continue? [y|n]") != "y":
+								sys.exit()
+						else:
+							print('load_not_strict failed V%s->V%s; keeping random init for V%s' % (
+								ckpt_version, self.nnet.version, self.nnet.version))
 				else:
+					# nn_version=-1 (e.g. GenericNNetWrapper.py -i <file> without -V):
+					# accept the full pickled model as-is (diagnostic / standalone use).
 					self.nnet = checkpoint['full_model']
 
 
