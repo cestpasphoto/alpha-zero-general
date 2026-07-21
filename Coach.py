@@ -29,7 +29,9 @@ class Coach():
 		self.nnet = nnet
 		self.pnet = self.nnet.__class__(self.game, self.nnet.args)  # the competitor network
 		self.args = args
-		self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
+		# dirichlet_noise doubles as the "training exploration" marker in MCTS;
+		# Gumbel needs it set too (it then supersedes the actual Dirichlet noise)
+		self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0 or self.args.gumbel))
 		self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
 		self.skipFirstSelfPlay = nnet.requestKnowledgeTransfer  # can be overriden in loadTrainExamples()
 		self.consecutive_failures = 0
@@ -79,7 +81,15 @@ class Coach():
 			force_full = False
 			
 			pi, q, is_full_search, metrics = my_mcts.getActionProb(canonicalBoard, temp=temp, force_full_search=force_full)
-			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep) if is_saving else 0.0)
+			# Gumbel mode: pi is the improved-policy TRAINING TARGET, not a sampling
+			# law. The move to play is the Sequential Halving winner (exploration is
+			# provided by the Gumbel noise, resampled each move), so the temperature
+			# schedule does not apply. pop() keeps episode_metrics aggregation clean.
+			gumbel_action = metrics.pop('gumbel_action', -1)
+			if gumbel_action >= 0:
+				action = int(gumbel_action)
+			else:
+				action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep) if is_saving else 0.0)
 			
 			if episodeStep <= DEPTH_OPENING:
 				opening_sequence.append(action)
@@ -132,15 +142,16 @@ class Coach():
 				from copy import deepcopy
 				pnet_args = deepcopy(self.args)
 				pnet_args.forced_playouts = False # Désactive l'exploration forcée pour l'évaluateur
+				pnet_args.gumbel = False          # L'évaluateur joue en PUCT pur (déjà garanti par dirichlet_noise=False, ceinture et bretelles)
 				
 				mcts_list = []
 				for p in range(my_game.num_players):
 					if p == pnet_player:
 						mcts_list.append(MCTS(my_game, self.pnet, pnet_args, dirichlet_noise=False, batch_info=batch_info_pnet))
 					else:
-						mcts_list.append(MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info_nnet))
+						mcts_list.append(MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0 or self.args.gumbel), batch_info=batch_info_nnet))
 			else:
-				mcts_nnet = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info_nnet)
+				mcts_nnet = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0 or self.args.gumbel), batch_info=batch_info_nnet)
 				mcts_list = [mcts_nnet] * my_game.num_players
 
 			episode_examples, episode_metrics = self.executeEpisode(my_game=my_game, mcts_list=mcts_list, players_to_save=players_to_save)
@@ -176,7 +187,7 @@ class Coach():
 					uniq=f"{len(unique_openings)/completed_episodes:.0%}",
 					refresh=False
 				)
-				self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
+				self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0 or self.args.gumbel))
 				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
 					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
 					break
@@ -243,14 +254,19 @@ class Coach():
 		"""
 
 		for i in range(1, self.args.numIters + 1):
+			# Stagnation flag written by the async evaluator daemon: only meaningful
+			# outside gate mode (in gate mode a leftover flag from a previous run
+			# would silently kill the training)
 			stop_file = os.path.join(self.args.checkpoint, 'STOP_TRAINING.flag')
-			if os.path.exists(stop_file):
+			if not self.args.arena_gate and os.path.exists(stop_file):
 				log.warning("Stop signal received from Evaluator (Stagnation). Halting training gracefully.")
 				break
 
 			# 1. Sélectionne le sparring partner de l'itération si la ligue est activée
+			# (jamais en mode arena-gate : le pool vient du leaderboard du daemon,
+			# qui n'existe pas dans ce mode)
 			self.pnet_loaded = False
-			if self.args.selfPlayRatio < 100:
+			if not self.args.arena_gate and self.args.selfPlayRatio < 100:
 				leaderboard_file = os.path.join(self.args.checkpoint, 'leaderboard.json')
 				if os.path.exists(leaderboard_file):
 					try:
@@ -296,14 +312,69 @@ class Coach():
 				trainExamples.extend(e)
 			shuffle(trainExamples)
 
-			# 3. Entraînement du modèle courant
+			# 3. Entraînement du modèle courant (mode gate : snapshot du réseau
+			# AVANT training, il servira de référence au match d'acceptation)
+			if self.args.arena_gate:
+				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt', additional_keys=vars(self.args))
+				self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
 			self.nnet.train(trainExamples)
 
-			# 5. Sauvegarde finale Asynchrone (Plus de matchs Arena synchrones !)
-			log.info(f'Iter #{i} - Training completed. Saving Checkpoint.')
+			if self.args.arena_gate:
+				# 4a. Mode historique restauré : gate synchrone contre le snapshot
+				self.arena_gate_step(i)
+			else:
+				# 4b. Sauvegarde finale Asynchrone (pas de match Arena synchrone :
+				# évaluation par le daemon pit.py -D, sélection post-hoc)
+				log.info(f'Iter #{i} - Training completed. Saving Checkpoint.')
+				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
+				# 'best.pt' is reserved for post-hoc selection (the last checkpoint is rarely the best).
+				# Write 'latest.pt' as the convenience "most recent" pointer instead.
+				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='latest.pt', additional_keys=vars(self.args))
+				self.consecutive_failures = 0
+
+	def arena_gate_step(self, i):
+		"""
+		Legacy synchronous gate (the pre-league mode, restored): pit the freshly
+		trained net against its pre-training snapshot (temp.pt, already loaded in
+		pnet) and keep it only if it clears args.updateThreshold.
+
+		Eval hygiene inherited from the recent fixes:
+		- both players share the exact same search profile (same args object),
+		  full search forced, dirichlet_noise=False so Dirichlet / forced
+		  playouts / Gumbel are all OFF by construction;
+		- moves are SAMPLED from the tempered policy (np.random.choice), not
+		  argmax'ed: argmax was the A4 bug (temperature silently cancelled,
+		  effective N collapsed by duplicate games).
+
+		Reminder: at arenaCompare=30 this is a coarse filter (~±130 Elo). Its job
+		is to gate obvious regressions, not to measure progress.
+		"""
+		nmcts = MCTS(self.game, self.nnet, self.args)
+		pmcts = MCTS(self.game, self.pnet, self.args)
+
+		def gate_player(mcts):
+			def play(x, n):
+				probs = mcts.getActionProb(x, temp=self.temp_for_game(n), force_full_search=True)[0]
+				return int(np.random.choice(len(probs), p=probs))
+			return play
+
+		arena = Arena(gate_player(nmcts), gate_player(pmcts), self.game)
+		nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
+
+		if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
+			self.consecutive_failures += 1
+			log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED ({self.consecutive_failures})')
+			if self.consecutive_failures >= self.args.stop_after_N_fail and i < self.args.numIters:
+				log.error('Exceeded threshold number of consecutive fails, stopping process')
+				exit()
+			self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
+		else:
+			log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
 			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
-			# 'best.pt' is reserved for post-hoc selection (the last checkpoint is rarely the best).
-			# Write 'latest.pt' as the convenience "most recent" pointer instead.
+			# Legacy semantics: in gate mode 'best.pt' = last ACCEPTED checkpoint
+			# (pit.py resolves folders to best.pt first). This is NOT the post-hoc
+			# best of the run; keep selecting decision checkpoints post-hoc.
+			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
 			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='latest.pt', additional_keys=vars(self.args))
 			self.consecutive_failures = 0
 

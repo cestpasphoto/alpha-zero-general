@@ -69,6 +69,15 @@ class MCTS():
         self.max_current_depth = 0
         self.sum_new_nodes_depth = 0
 
+        # Gumbel root Sequential Halving (training-only, replaces the whole root
+        # machinery below: Dirichlet noise, forced playouts, PTP and visit-count
+        # targets). Gated on self.dirichlet_noise so that pit/arena/pnet MCTS
+        # instances (dirichlet_noise=False) are never affected, and on
+        # is_full_search so that PCR fast searches keep the cheap PUCT path.
+        # getattr: robust to eval-side dotdict args that lack the 'gumbel' key.
+        if getattr(self.args, 'gumbel', False) and is_full_search and self.dirichlet_noise:
+            return self._gumbel_root_search(canonicalBoard, nb_MCTS_sims, initial_nodes_count)
+
         for self.step in range(nb_MCTS_sims):
             self.random_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
             dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
@@ -146,7 +155,126 @@ class MCTS():
         probs = [x / counts_sum for x in counts]
         return probs, q, is_full_search, metrics
 
-    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False, depth=0):
+    def _gumbel_root_search(self, canonicalBoard, nb_MCTS_sims, initial_nodes_count):
+        """
+        Gumbel AlphaZero root procedure (Danihelka et al. 2022, "Policy improvement
+        by planning with Gumbel"): Sequential Halving with Gumbel over the top-m
+        root actions, then a completed-Q improved policy as training target.
+
+        Root-only hybrid: non-root selection stays standard PUCT (the usual
+        pragmatic setup, e.g. in mctx-based reimplementations). At the root this
+        REPLACES Dirichlet noise, forced playouts, PTP and visit-count targets.
+
+        Returns the same 4-tuple as getActionProb, plus metrics['gumbel_action']:
+        the Sequential Halving winner, which the Coach must PLAY as-is.
+        Exploration comes from the Gumbel noise (resampled at every move), not
+        from temperature sampling of the returned policy.
+
+        Approximation vs the paper: unvisited actions are completed with the root
+        running-mean value instead of the exact v_mix interpolation. The running
+        mean already blends the raw net value (its initialisation) with search
+        returns, which is the same intent.
+        """
+        action_size = self.game.getActionSize()
+        c_visit = float(self.args.gumbel_cvisit)
+        c_scale = float(self.args.gumbel_cscale)
+
+        # --- Expand the root if needed; this consumes one simulation (honest budget) ---
+        s = self.game.stringRepresentation(canonicalBoard)
+        sims_done = 0
+        if self.nodes_data.get(s, (None,)*7)[2] is None:
+            self.step = 0
+            self.random_seed = magic_seeds[0] if self.args.universes > 0 else -1
+            self.search(canonicalBoard, is_root=True, depth=0)
+            sims_done = 1
+        Es, Vs, Ps, meta_ns_qs, Qsa, Nsa, r = self.nodes_data[s]
+        if Ps is None:
+            raise ValueError('Gumbel root search called on a terminal state')
+
+        valid_idx = np.flatnonzero(np.asarray(Vs))
+        logits = np.log(np.asarray(Ps, dtype=np.float64) + 1e-12)
+
+        # --- Gumbel noise: sampled ONCE per move, shared by candidate selection,
+        #     halving comparisons and the final argmax (required by the theory) ---
+        g = self.rng.gumbel(size=action_size)
+        root_scores = g + logits
+
+        # --- Candidate set: top-m legal actions by g + logits ---
+        m = int(min(max(1, self.args.gumbel_m), len(valid_idx)))
+        cand = valid_idx[np.argsort(root_scores[valid_idx])[::-1][:m]].tolist()
+
+        def q_hat(a):
+            # Backed-up Q if visited (already from the current player's viewpoint,
+            # cf. the np_roll in search), root running-mean value otherwise.
+            return float(Qsa[a]) if Nsa[a] > 0 else float(meta_ns_qs[1][0])
+
+        def sh_score(a):
+            # g(a) + logits(a) + sigma(q_hat(a)), sigma from section 4 of the paper
+            max_visit = int(Nsa[valid_idx].max())
+            return root_scores[a] + (c_visit + max_visit) * c_scale * q_hat(a)
+
+        def one_forced_sim(a):
+            self.step = sims_done  # only feeds the (disabled) FP quota, kept coherent anyway
+            self.random_seed = magic_seeds[sims_done % self.args.universes] if self.args.universes > 0 else -1
+            self.search(canonicalBoard, is_root=True, depth=0, force_action=int(a))
+
+        # --- Sequential Halving over the remaining budget ---
+        n_phases = max(1, int(math.ceil(math.log2(m)))) if m > 1 else 1
+        for phase in range(n_phases):
+            if sims_done >= nb_MCTS_sims or not cand:
+                break
+            m_k = len(cand)
+            phases_left = n_phases - phase
+            per_action = max(1, (nb_MCTS_sims - sims_done) // max(1, phases_left * m_k))
+            for a in cand:
+                for _ in range(per_action):
+                    if sims_done >= nb_MCTS_sims:
+                        break
+                    one_forced_sim(a)
+                    sims_done += 1
+            if phase < n_phases - 1 and len(cand) > 1:
+                cand = sorted(cand, key=sh_score, reverse=True)[:max(1, (len(cand) + 1) // 2)]
+
+        # Leftover budget (integer-division remainders): round-robin on the finalists
+        i = 0
+        while sims_done < nb_MCTS_sims and cand:
+            one_forced_sim(cand[i % len(cand)])
+            sims_done += 1
+            i += 1
+
+        chosen_a = int(max(cand, key=sh_score)) if cand else int(valid_idx[np.argmax(root_scores[valid_idx])])
+
+        # --- Improved policy target: softmax(logits + sigma(completedQ)) on legal actions ---
+        max_visit = int(Nsa[valid_idx].max())
+        v_root = float(meta_ns_qs[1][0])
+        completed_q = np.where(np.asarray(Nsa) > 0, np.asarray(Qsa, dtype=np.float64), v_root)
+        pi_logits = (logits + (c_visit + max_visit) * c_scale * completed_q)[valid_idx]
+        pi_valid = np.exp(pi_logits - pi_logits.max())
+        pi_valid /= pi_valid.sum()
+        probs = np.zeros(action_size, dtype=np.float64)
+        probs[valid_idx] = pi_valid
+
+        # Per-player Q measured directly from backups, same as the standard path
+        q = list(meta_ns_qs[1])
+
+        # Metrics: same keys as the standard path (entropy/confidence computed on
+        # the improved policy; root_coverage is bounded by gumbel_m / nb valids by
+        # design, do not compare it against non-Gumbel runs), plus the SH winner.
+        new_nodes = len(self.nodes_data) - initial_nodes_count
+        total_valid = int(len(valid_idx))
+        visited_at_root = int(np.sum(np.asarray(Nsa)[valid_idx] > 0))
+        metrics = {
+            "max_depth": self.max_current_depth,
+            "avg_new_depth": (self.sum_new_nodes_depth / new_nodes) if new_nodes > 0 else 0.0,
+            "new_nodes": new_nodes,
+            "entropy": float(-np.sum(pi_valid * np.log(pi_valid + 1e-8))),
+            "confidence": float(pi_valid.max()),
+            "root_coverage": (visited_at_root / total_valid) if total_valid > 0 else 0.0,
+            "gumbel_action": chosen_a,
+        }
+        return list(probs), q, True, metrics
+
+    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False, depth=0, force_action=-1):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
@@ -230,6 +358,7 @@ class MCTS():
             self.args.fpu_root,
             self.random_seed,
             self.args.forced_playouts_k,
+            force_action,
         )
 
         v = self.search(next_s, depth=depth+1)
@@ -299,8 +428,13 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_ro
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, is_root, n_iter, fpu, fpu_root, random_seed, k):
-    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_root, n_iter, fpu, fpu_root, k)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, is_root, n_iter, fpu, fpu_root, random_seed, k, forced_action):
+    # forced_action >= 0: Gumbel Sequential Halving dictates the root action,
+    # bypassing PUCT entirely (root only; deeper calls always pass -1)
+    if forced_action >= 0:
+        a = forced_action
+    else:
+        a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_root, n_iter, fpu, fpu_root, k)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)

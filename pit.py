@@ -67,6 +67,7 @@ def create_player(name, args, player_id):
 		'cpuct'           : args.cpuct if args.cpuct else (1.0 if is_daemon else cpuct),
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
+		'gumbel'          : False,  # training-only tool, pinned OFF in eval like FP/Dirichlet (protocol v1.1 §1)
 		'forced_playouts_k': additional_keys.get('forced_playouts_k', 1.5),
 		'no_mem_optim'    : False,
 	})

@@ -177,6 +177,10 @@ def main():
 	parser.add_argument('--fpu-root'               , action='store', default=0.   , type=float, help='Value for FPU at root level (first play urgency, using parent-based reduction)')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--forced-playouts-k', '-k' , action='store', default=1.5  , type=float, help='Multiplier k for forced playouts')
+	parser.add_argument('--gumbel'          , '-G' , action='store_true', help='Gumbel root Sequential Halving on self-play full searches. Supersedes Dirichlet noise, forced playouts, PTP and visit-count policy targets at the root. Designed for LOW sim counts (typically -m 32..200); at -m 800 the expected benefit is small. Eval (pit/arena/pnet) is never affected.')
+	parser.add_argument('--gumbel-m'               , action='store', default=16   , type=int  , help='Gumbel: max number of root actions considered by Sequential Halving (paper/mctx default: 16)')
+	parser.add_argument('--gumbel-cvisit'          , action='store', default=50.0 , type=float, help='Gumbel: c_visit constant of the sigma(Q) transform (paper default: 50)')
+	parser.add_argument('--gumbel-cscale'          , action='store', default=1.0  , type=float, help='Gumbel: c_scale constant of the sigma(Q) transform (paper default: 1.0)')
 
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
@@ -188,6 +192,8 @@ def main():
 	parser.add_argument('--selfPlayRatio'          , action='store', default=80   , type=int  , help='Percentage of pure self-play games (100 = disable league)')
 	parser.add_argument('--leagueSize'             , action='store', default=10   , type=int  , help='Max number of models kept in the league pool')
 	parser.add_argument('--q-weight'        , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
+	parser.add_argument('--arena-gate'      , '-A' , action='store_true', help='Legacy synchronous evaluation mode: after each training iteration, pit the new net against its pre-training snapshot and accept/reject based on --updateThreshold. Disables league sparring. Without this flag (default), checkpoints are saved unconditionally and evaluated asynchronously (pit.py -D), selection is post-hoc.')
+	parser.add_argument('--arenaCompare'           , action='store', default=30   , type=int  , help='Arena gate: number of games against the previous net. 30 is a COARSE filter (~±130 Elo): it gates obvious regressions, it does not measure progress')
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
@@ -204,10 +210,22 @@ def main():
 	parser.add_argument('--no-mem-optim'           , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	
 	args = parser.parse_args()
+	if args.gumbel:
+		if args.forced_playouts:
+			# Keep settings.txt truthful: FP would be dead code on full searches anyway
+			log.warning('Gumbel enabled: forced playouts / PTP are superseded at the root, disabling --forced-playouts')
+			args.forced_playouts = False
+		if args.dirichletAlpha != 0:
+			log.info('Gumbel enabled: Dirichlet noise will NOT be applied on full searches (superseded by Gumbel sampling); dirichletAlpha is kept only as a record')
 	if args.tempThreshold is not None:              # backward-compat: -T overrides temperature[3]
 		args.temperature[3] = float(args.tempThreshold)
 	args.tempThreshold = int(args.temperature[3])   # canonical value, used as-is across Coach
-	args.arenaCompare = 30
+	if args.arena_gate and args.selfPlayRatio < 100:
+		# The two modes answer the same question (which checkpoint to trust) with
+		# incompatible machineries; sparring pool comes from the daemon leaderboard
+		# which does not exist in gate mode.
+		log.warning('Arena gate enabled: league sparring disabled (selfPlayRatio forced to 100)')
+		args.selfPlayRatio = 100
 	args.maxlenOfQueue = int(2.5e6 / ((
 		                                  2 if args.no_compression else 0.5) * args.numItersHistory))  # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
 	if args.stop_after_N_fail < 0:
