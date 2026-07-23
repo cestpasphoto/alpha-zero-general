@@ -47,6 +47,36 @@ def create_player(name, args, player_id):
 	cpuct = additional_keys.get('cpuct')
 	cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
 	is_daemon = getattr(args, 'daemon', False)
+	strict = getattr(args, 'strict', False)
+
+	if strict:
+		# Protocol v1.1 §1: a single EVAL profile, pinned, applied to BOTH players,
+		# NEVER inherited from the checkpoint. Any inheritance re-opens the
+		# 3200-vs-800 trap and conflates net strength with search hyperparameters.
+		if not args.numMCTSSims:
+			raise SystemExit('[FATAL] --strict requires an explicit -m/--numMCTSSims (protocol v1.1 §1)')
+		mcts_args = dotdict({
+			'numMCTSSims'      : args.numMCTSSims,
+			'cpuct'            : args.cpuct if args.cpuct else 1.0,
+			'fpu'              : args.fpu if getattr(args, 'fpu', None) is not None else 0.1,
+			'fpu_root'         : 0.0,
+			'universes'        : args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1),
+			'prob_fullMCTS'    : 1.,      # PCR off in eval
+			'forced_playouts'  : False,   # training tool
+			'gumbel'           : False,   # training tool
+			'forced_playouts_k': 1.5,
+			'no_mem_optim'     : False,
+		})
+		mcts = MCTS(game, net, mcts_args)
+
+		def temp_for_game(n):
+			# Explicit eval temperature: 0.5 -> 0, half-life 4 plies (protocol v1.1 §1)
+			return 0.5 * (0.5 ** (n / 4.0))
+
+		def player(x, n):
+			probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
+			return int(np.random.choice(len(probs), p=probs))
+		return player, mcts_args
 
 	# Defect 5: detect a silent fallback to the default sim count (the 3200-vs-800 trap)
 	sims_from_ckpt = additional_keys.get('numMCTSSims', None)
@@ -100,6 +130,55 @@ def _resolve_player_path(p):
 	return p
 
 
+def _report_decision(result, args, p1_name, p2_name):
+	"""
+	Decision-grade report (protocol v1.1 §2/§4). Prints the score, its z-score,
+	the Elo point estimate and its 95% CI, and the verdict phrased so that a
+	null result is reported as 'not detectable at the sprint resolution',
+	never as 'no effect'.
+	"""
+	import math
+	oneWon, twoWon, draws = result
+	n = oneWon + twoWon + draws
+	if n == 0:
+		print('[REPORT] no game played')
+		return
+	s = (oneWon + 0.5 * draws) / n
+	# Sample variance of per-game outcomes in {1, 0.5, 0}, draws counted as 1/2
+	var = (oneWon * (1 - s) ** 2 + draws * (0.5 - s) ** 2 + twoWon * (0 - s) ** 2) / n
+	se = math.sqrt(var / n) if var > 0 else 0.0
+	z = (s - 0.5) / se if se > 0 else 0.0
+
+	def to_elo(x):
+		x = min(max(x, 1e-6), 1 - 1e-6)
+		return 400 * math.log10(x / (1 - x))
+
+	elo = to_elo(s)
+	lo, hi = (to_elo(s - 1.96 * se), to_elo(s + 1.96 * se)) if se > 0 else (float('-nan'), float('nan'))
+
+	print()
+	print('=' * 72)
+	print(f'RESULT  {os.path.basename(os.path.dirname(p1_name))}/{os.path.basename(p1_name)}'
+	      f'  vs  {os.path.basename(os.path.dirname(p2_name))}/{os.path.basename(p2_name)}')
+	print(f'  {oneWon}-{twoWon} ({draws} draws)   n={n}   score={s:.3f}   z={z:+.2f}')
+	print(f'  Elo estimate: {elo:+.0f}   CI95 [{lo:+.0f} ; {hi:+.0f}]')
+	if z >= 1.645:
+		print(f'  VERDICT: P1 > P2 (one-sided, alpha=5%)')
+	elif z <= -1.645:
+		print(f'  VERDICT: P2 > P1 (one-sided, alpha=5%)')
+	else:
+		print(f'  VERDICT: gap NOT DETECTABLE at the sprint resolution (50 Elo).')
+		print(f'           This is not "no effect": the true gap lies within the CI above.')
+	if n < 400:
+		print(f'  [!] n={n} < 400: below the declared decision size (+-34 Elo). '
+		      f'Screening only, do not decide on this alone.')
+	if game is not None and getattr(game, 'num_players', 2) > 2:
+		print(f'  [i] {game.num_players}-player game: P1 holds 1 seat / P2 holds {game.num_players - 1}, '
+		      f'alternated by Arena, so parity = score 0.500. The Elo figure uses the usual '
+		      f'2-player conversion and is a convention here; the score and z are the primary readout.')
+	print('=' * 72)
+
+
 def play(args):
 	players = [_resolve_player_path(p) for p in args.players]
 
@@ -110,9 +189,21 @@ def play(args):
 	if m1 is not None and m2 is not None and m1.numMCTSSims != m2.numMCTSSims:
 		print(f"[EVAL WARNING] sim-count mismatch: P1={m1.numMCTSSims} vs P2={m2.numMCTSSims}. "
 		      f"This pit measures search budget, not network strength. Pin -m for both.")
+	if getattr(args, 'strict', False) and not args.useray and m1 is not None and m2 is not None:
+		# Protocol v1.1 §1: log the profile of BOTH players at the top of the report
+		print(f'EVAL PROFILE p1: {dict(m1)}')
+		print(f'EVAL PROFILE p2: {dict(m2)}')
+		if dict(m1) != dict(m2):
+			raise SystemExit('[FATAL] EVAL profiles differ between players - comparison is not decisional')
+		thr = 0.5 + 1.645 * 0.5 / (args.num_games ** 0.5)
+		print(f'Decision rule (one-sided, draws=1/2): superiority iff score >= {thr:.3f} '
+		      f'({thr * args.num_games:.0f}/{args.num_games}), z >= 1.645')
 	human = 'human' in players
 	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
 	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
+
+	if getattr(args, 'strict', False) and not args.useray:
+		_report_decision(result, args, players[0], players[1])
 
 	if args.useray:
 		##### Write results in a file
@@ -358,6 +449,8 @@ def main():
 	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None, type=int  , help='Number of games moves for MCTS to simulate.')
 	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, help='cpuct value')
 	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
+	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile of protocol v1.1 §1 on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet/Gumbel off, explicit eval temperature. Use this for every comparison meant to be decisional.')
+	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , help='Override universes for both players (default: value stored in checkpoint)')
 
 	parser.add_argument('game'                        , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')

@@ -67,7 +67,7 @@ class Coach():
 		episodeStep = 0
 		episode_metrics = {"max_depth": [], "avg_new_depth": [], "new_nodes": [], "entropy": [], "confidence": [], "root_coverage": []}
 		opening_sequence = []
-		DEPTH_OPENING = 2 * self.args.tempThreshold
+		DEPTH_OPENING = 2 * abs(self.args.tempThreshold)  # abs: robust to step-mode (negative) tempThreshold, else opening capture is disabled and uniq reads a false 0%
 
 		while True:
 			episodeStep += 1
