@@ -1366,7 +1366,8 @@ class Board():
 		self.visible_deck[0:index, 6] += 1
 		# Draw a new people for last combination
 		avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
-		if avail_people_id.size == 0:
+		# Both pools must be non-empty: the draw takes a modulo on EACH size.
+		if avail_people_id.size == 0 or avail_power_id.size == 0:
 			chosen_ppl, chosen_power, nb_of_ppl = NOPPL, NOPOWER, 0
 		else:
 			if random_seed == 0:
@@ -1409,7 +1410,7 @@ class Board():
 
 		# Draw people if needed
 		avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
-		if avail_people_id.size > 0:
+		if avail_people_id.size > 0 and avail_power_id.size > 0:
 			for i in range(DECK_SIZE):
 				if self.visible_deck[i, 0] == NOPPL:
 					if random_seed == 0:
@@ -1427,6 +1428,10 @@ class Board():
 					self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]
 					available_people[chosen_ppl], available_power[chosen_power] = False, False
 					avail_people_id, avail_power_id = np.flatnonzero(available_people), np.flatnonzero(available_power)
+					# Both pools shrink on every pass: stop refilling as soon as
+					# either is empty, otherwise the next modulo divides by zero
+					if avail_people_id.size == 0 or avail_power_id.size == 0:
+						break
 
 		self.invisible_deck[0:2] = my_packbits(available_people)
 		self.invisible_deck[2:5] = my_packbits(available_power)
