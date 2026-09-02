@@ -24,6 +24,7 @@ torch.set_num_threads(1) # PyTorch more efficient this way
 class GenericNNetWrapper(NeuralNet):
 	def __init__(self, game, nn_args):
 		self.args = nn_args
+		self.game = game   # kept so a refused tolerant load can be rolled back cleanly
 		self.device = {
 			'training' : 'cpu', #'cuda' if torch.cuda.is_available() else 'cpu',
 			'inference': 'onnx',
@@ -229,6 +230,9 @@ class GenericNNetWrapper(NeuralNet):
 			# Explicit version key: version check no longer relies solely on the
 			# pickled full_model object (which can be corrupted by cross-arch transfer).
 			'nn_version': self.nnet.version,
+			# Inference-semantics flag, stored PER CHECKPOINT so that two copies
+			# of the same weights can be evaluated against each other.
+			'unsigned_bits': getattr(self.nnet, 'unsigned_bits', False),
 		}
 		data.update(additional_keys)
 		torch.save(data, filepath)
@@ -283,6 +287,9 @@ class GenericNNetWrapper(NeuralNet):
 		# Prefer the explicit 'nn_version' key (written since the fix); fall back to
 		# full_model.version for legacy checkpoints that pre-date this key.
 		ckpt_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
+		if 'unsigned_bits' in checkpoint and hasattr(self.nnet, 'stem'):
+			self.nnet.unsigned_bits = bool(checkpoint['unsigned_bits'])
+			self.nnet.stem.unsigned_bits = self.nnet.unsigned_bits
 
 
 		if strict and (ckpt_version != self.args['nn_version']):
@@ -294,6 +301,13 @@ class GenericNNetWrapper(NeuralNet):
 			self.nnet.load_state_dict(checkpoint['state_dict'])
 			self.nnet.version = ckpt_version
 		except:
+			# Same architecture version, but checkpoint written BEFORE some purely
+			# ADDITIVE, zero-initialised tensors existed. Accept it if and only if
+			# nothing else differs -- the loaded net then computes exactly the
+			# function the checkpoint encoded. Any other case falls through to the
+			# pre-existing behaviour below.
+			if self._load_additive_compatible(checkpoint['state_dict'], ckpt_version):
+				return
 			if strict:
 				print('Cant load NN', ckpt_version, 'in checkpoint, so initiate knowledge transfer')
 				self.requestKnowledgeTransfer = True
@@ -309,7 +323,7 @@ class GenericNNetWrapper(NeuralNet):
 						# all subsequent saves: full_model.version becomes the OLD version
 						# and the next strict load wrongly fires the version-mismatch path.
 						if ckpt_version == self.nnet.version:
-							self.nnet = checkpoint['full_model']
+							self.nnet = self._adopt_full_model(checkpoint['full_model'])
 							print('Had to load full model AS IS (V%s), WONT BE UPDATED' % ckpt_version)
 							if input("Continue? [y|n]") != "y":
 								sys.exit()
@@ -319,8 +333,34 @@ class GenericNNetWrapper(NeuralNet):
 				else:
 					# nn_version=-1 (e.g. GenericNNetWrapper.py -i <file> without -V):
 					# accept the full pickled model as-is (diagnostic / standalone use).
-					self.nnet = checkpoint['full_model']
+					self.nnet = self._adopt_full_model(checkpoint['full_model'])
 
+
+	def _adopt_full_model(self, model):
+		# A pickled model carries the __dict__ it had when it was SAVED, but its
+		# methods come from the CURRENT class. If the game's net grew submodules
+		# since, ask it to repair itself before we use it.
+		if hasattr(model, 'upgrade_legacy'):
+			model.upgrade_legacy()
+		return model
+
+	def _load_additive_compatible(self, state_dict, ckpt_version):
+		prefixes = getattr(self.nnet, 'additive_param_prefixes', ())
+		if not prefixes or ckpt_version != self.nnet.version:
+			return False
+		try:
+			result = self.nnet.load_state_dict(state_dict, strict=False)  # raises on shape mismatch
+		except Exception as e:
+			print(f'additive-compatible load refused (shape mismatch): {e}')
+			self.init_nnet(self.game, self.args)   # no half-loaded net
+			return False
+		if result.unexpected_keys or not all(k.startswith(prefixes) for k in result.missing_keys):
+			print(f'additive-compatible load refused: unexpected={result.unexpected_keys} missing={result.missing_keys}')
+			self.init_nnet(self.game, self.args)
+			return False
+		self.nnet.version = ckpt_version
+		print(f'Loaded V{ckpt_version} checkpoint; {len(result.missing_keys)} additive tensors kept at zero-init:', result.missing_keys)
+		return True
 
 	def switch_target(self, mode):
 		target_device = self.device[mode]
