@@ -236,33 +236,243 @@ def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redepl
 def move_to_str(move, player=0):
 	if   move < NB_AREAS:
 		area = move
-		return f'Abandon {area}'
+		return f'Abandon area {area}'
 	elif move < 2*NB_AREAS:
 		area = move - NB_AREAS
-		return f'Attack {area}'
+		return f'Attack area {area}'
 	elif move < 3*NB_AREAS:
 		area = move - 2*NB_AREAS
-		return f'Special ppl move {area}'
+		return f'People capacity on area {area}'
 	elif move < 4*NB_AREAS:
 		area = move - 3*NB_AREAS
-		return f'Special power {area}'
+		return f'Power capacity on area {area}'
 	elif move < 5*NB_AREAS+MAX_REDEPLOY:
 		param = move - 4*NB_AREAS
 		if param == 0:
-			return f'skip redeploy'
+			return f'Skip redeploy'
 		elif param < MAX_REDEPLOY:
-			return f'Redeploy {param}ppl on each area'
+			return f'Redeploy {param}ppl on EACH of your areas'
 		else:
 			return f'Redeploy 1ppl on area {param-MAX_REDEPLOY}'
 	elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE:
-		area = move - 5*NB_AREAS-MAX_REDEPLOY
-		return f'Choose people {area}'
+		slot = move - 5*NB_AREAS-MAX_REDEPLOY
+		return f'Choose deck slot {slot}'
 	elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+1:
 		return f'Decline'
 	elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
-		return f'Is done'
+		return f'End turn'
 	else:
-		print(f'Unknown move {move}')
-		breakpoint()
+		return f'Unknown move {move}'
+
+
+############################# MOVE LIST FOR A HUMAN ###########################
+#
+# describe_moves(state, valids) turns the raw action indices into a grouped,
+# annotated list. Display only: it never mutates the state and is never called
+# by the engine, so a wrong hint costs a confused human, never a wrong game.
+#
+# The attack-cost hint MIRRORS Board._minimum_ppl_for_attack(); if that method
+# changes, this must be updated too (it is marked with ~ so it reads as an
+# estimate). Everything else is read straight from the state array.
+
+terrain_long_str = ['forest', 'farmland', 'hill', 'swamp', 'mountain', 'water']
+
+# Powers that expose a "power capacity" action, and what it does on an area.
+_PWR_ACTION_STR = {
+	BIVOUACKING : 'place a campment (+1 def)',
+	FORTIFIED   : 'place a fortress (+1 def, +1 pt)',
+	HEROIC      : 'place a hero (full immunity)',
+	DIPLOMAT    : 'make peace with the people there',
+	DRAGONMASTER: 'dragon attack (auto-win, full immunity)',
+}
+
+
+def split_state(state):
+	"""Views on a raw (nb_vect, 8) state array. Mirrors Board.copy_state()."""
+	A, P = NB_AREAS, NUMBER_PLAYERS
+	territories  = state[0                : A]
+	peoples      = state[A                : A+3*P].reshape((P, 3, 8))
+	visible_deck = state[A+3*P            : A+3*P+DECK_SIZE]
+	round_status = state[A+3*P+DECK_SIZE  : A+4*P+DECK_SIZE]
+	game_status  = state[A+4*P+DECK_SIZE  : A+5*P+DECK_SIZE]
+	return territories, peoples, visible_deck, round_status, game_status
+
+
+def _area_str(territories, area):
+	"""Who holds this area and how well it is defended."""
+	nb, ppl, pwr, owner = territories[area, 0], territories[area, 1], territories[area, 2], territories[area, 7]
+	terrain = terrain_long_str[descr[area][0]]
+	extra = ''.join(s for flag, s in [(CAVERN, ' cavern'), (MAGIC, ' magic'), (MINE, ' mine')] if descr[area][flag])
+	if ppl == NOPPL:
+		who = 'empty'
+	elif ppl == LOST_TRIBE:
+		who = f'lost tribe x{nb}'
+	else:
+		name = ppl_long_str[abs(ppl)].lower()
+		decl = '' if ppl > 0 else ' (declined)'
+		pwr_s = f'+{power_long_str[abs(pwr)].lower()}' if pwr != NOPOWER else ''
+		who = f'P{owner} {name}{pwr_s} x{nb}{decl}'
+	return f'{terrain:8}{extra:<14} {who:<38} def {territories[area, 5]}'
+
+
+def _attack_cost(territories, area, current_ppl):
+	"""Mirror of Board._minimum_ppl_for_attack(). Display hint only."""
+	cost = int(territories[area, 5]) + 2
+	ppl, pwr = current_ppl[1], current_ppl[2]
+	neighbours = connexity_matrix[area].astype(bool)
+	borders = lambda terrain: bool((descr[neighbours, 0] == terrain).any())
+	if ppl == TRITON and borders(WATER):
+		cost -= 1
+	if ppl == GIANT and borders(MOUNTAIN):
+		cost -= 1
+	if pwr == COMMANDO:
+		cost -= 1
+	if pwr == MOUNTED and descr[area][0] in [HILLT, FARMLAND]:
+		cost -= 1
+	if pwr == UNDERWORLD and descr[area][CAVERN]:
+		cost -= 1
+	return max(cost, 1)
+
+
+def state_to_str(state):
+	"""Render a raw (nb_vect, 8) state array.
+
+	print_board() takes a Board object, keeps a module-level cache of the
+	previous position to skip redundant frames, and deepcopy()s that Board --
+	which fails on a numba jitclass. This renders straight from the array:
+	no cache, no Board, no deepcopy, so it is safe to call on any stored state
+	in any order (log replay, diagnostics).
+	"""
+	territories, peoples, visible_deck, round_status, game_status = split_state(state)
+	display_matrix = generate_background()
+	display_matrix = add_text(display_matrix, territories)
+	display_matrix = add_legend(display_matrix, peoples)
+	display_matrix = add_deck(display_matrix, visible_deck)
+	display_matrix = add_players_status(display_matrix, peoples, round_status, game_status)
+	return disp_to_str(display_matrix)
+
+
+def move_detail(state, move):
+	"""One-line rich description of a single move, for ranking tables.
+	Shares _area_str / _attack_cost with describe_moves(), so the parts that
+	encode a rule live in exactly one place."""
+	territories, peoples, visible_deck, round_status, game_status = split_state(state)
+	A, MR = NB_AREAS, MAX_REDEPLOY
+	current_id = int(game_status[0, 4])
+	if current_id < 0:
+		current_id = ACTIVE
+	current_ppl = peoples[0, current_id, :]
+
+	if move < A:
+		return f'Abandon  area {move:2}  {_area_str(territories, move)}'
+	if move < 2*A:
+		area = move - A
+		return (f'Attack   area {area:2}  {_area_str(territories, area)}'
+		        f'   cost ~{_attack_cost(territories, area, current_ppl)}')
+	if move < 3*A:
+		area = move - 2*A
+		return f'PplCap   area {area:2}  {_area_str(territories, area)}'
+	if move < 4*A:
+		area = move - 3*A
+		return f'PwrCap   area {area:2}  {_area_str(territories, area)}'
+	if move < 5*A + MR:
+		param = move - 4*A
+		if param == 0:
+			return 'Redeploy skip (leave your people where they are)'
+		if param < MR:
+			return f'Redeploy {param} more ppl on EACH area you own'
+		area = param - MR
+		return f'Redeploy 1 ppl on area {area:2}  {_area_str(territories, area)}'
+	if move < 5*A + MR + DECK_SIZE:
+		slot = move - (5*A + MR)
+		nb, ppl, pwr, coins = (int(visible_deck[slot, i]) for i in (0, 1, 2, 6))
+		combo = f'{nb:2}x{ppl_long_str[ppl].lower()}+{power_long_str[pwr].lower()}'
+		return f'Choose   slot {slot}  {combo:<34}pay {slot}, get {coins}  -> score {coins - slot:+d}'
+	if move == 5*A + MR + DECK_SIZE:
+		return 'DECLINE your active people'
+	if move == 5*A + MR + DECK_SIZE + 1:
+		return 'END your turn'
+	return f'Unknown move {move}'
+
+
+def describe_moves(state, valids):
+	"""Returns a list of printable lines describing every legal move."""
+	territories, peoples, visible_deck, round_status, game_status = split_state(state)
+	A, MR = NB_AREAS, MAX_REDEPLOY
+	current_id = int(game_status[0, 4])
+	if current_id < 0:
+		current_id = ACTIVE
+	current_ppl = peoples[0, current_id, :]
+	in_hand = int(current_ppl[0])
+	score = int(game_status[0, 6]) + SCORE_OFFSET
+	legal = [int(a) for a in np.flatnonzero(valids)]
+
+	ppl_name = ppl_long_str[abs(current_ppl[1])].lower() if current_ppl[1] != NOPPL else 'no people'
+	pwr_name = power_long_str[abs(current_ppl[2])].lower() if current_ppl[2] != NOPOWER else ''
+	head = f'you are P0: {ppl_name}{"+" + pwr_name if pwr_name else ""}'
+	head += f' [{ac_or_dec_str[current_id]}], {in_hand} ppl in hand, score {score}'
+	lines = [head, '']
+
+	def block(title, items):
+		if items:
+			lines.append(title)
+			lines.extend(items)
+			lines.append('')
+
+	choose = []
+	for a in legal:
+		if not (5*A+MR <= a < 5*A+MR+DECK_SIZE):
+			continue
+		slot = a - (5*A + MR)
+		nb, ppl, pwr, coins = (int(visible_deck[slot, i]) for i in (0, 1, 2, 6))
+		combo = f'{nb:2}x{ppl_long_str[ppl].lower()}+{power_long_str[pwr].lower()}'
+		choose.append(f'  {a:4}  slot {slot}  {combo:<34}'
+		              f'pay {slot}, get {coins}  -> score {coins - slot:+d}')
+	block('CHOOSE a new people (you pay the slot number, you collect the coins on it):', choose)
+
+	block(f'ATTACK  (you have {in_hand} ppl in hand; cost ~= defense + 2, minus your bonuses):', [
+		f'  {a:4}  area {a-A:2}  {_area_str(territories, a-A)}'
+		f'   cost ~{_attack_cost(territories, a-A, current_ppl)}'
+		for a in legal if A <= a < 2*A])
+
+	block('ABANDON one of your areas:', [
+		f'  {a:4}  area {a:2}  {_area_str(territories, a)}'
+		for a in legal if a < A])
+
+	if any(2*A <= a < 3*A for a in legal):
+		what = 'replace the lone enemy token there by one of yours' if current_ppl[1] == SORCERER else 'people capacity'
+		block(f'PEOPLE CAPACITY ({ppl_name}): {what}', [
+			f'  {a:4}  area {a-2*A:2}  {_area_str(territories, a-2*A)}'
+			for a in legal if 2*A <= a < 3*A])
+
+	if any(3*A <= a < 4*A for a in legal):
+		what = _PWR_ACTION_STR.get(abs(int(current_ppl[2])), 'power capacity')
+		block(f'POWER CAPACITY ({pwr_name}): {what}', [
+			f'  {a:4}  area {a-3*A:2}  {_area_str(territories, a-3*A)}'
+			for a in legal if 3*A <= a < 4*A])
+
+	redeploy = []
+	for a in legal:
+		if not (4*A <= a < 5*A+MR):
+			continue
+		param = a - 4*A
+		if param == 0:
+			redeploy.append(f'  {a:4}  skip redeploy (leave your people where they are)')
+		elif param < MR:
+			redeploy.append(f'  {a:4}  put {param} more ppl on EACH area you own')
+		else:
+			area = param - MR
+			redeploy.append(f'  {a:4}  put 1 ppl on area {area:2}  {_area_str(territories, area)}')
+	block('REDEPLOY your people at the end of the turn:', redeploy)
+
+	other = []
+	for a in legal:
+		if a == 5*A+MR+DECK_SIZE:
+			other.append(f'  {a:4}  DECLINE your active people (they stop conquering, keep scoring)')
+		elif a == 5*A+MR+DECK_SIZE+1:
+			other.append(f'  {a:4}  END your turn')
+	block('OTHER:', other)
+
+	return lines
 
 
