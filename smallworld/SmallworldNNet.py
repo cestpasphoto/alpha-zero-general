@@ -272,6 +272,7 @@ class ActionSlicerHead(nn.Module):
 
 class SmallworldNNet(nn.Module):
 	unsigned_bits = False   # class-level defaults, see InputStem and upgrade_legacy()
+	use_features = False
 	use_adj_bias = True
 	additive_param_prefixes = ()
 
@@ -331,26 +332,29 @@ class SmallworldNNet(nn.Module):
 
 		# ARCHITECTURE V42 : Full Self-Attention Transformer
 		elif self.version == 42:
-			D = 64
+			# d_model / n_heads / trunk_layers are overridable so a capacity probe
+			# can widen the net WITHOUT a new version number. Defaults reproduce
+			# the historical architecture exactly, bit for bit.
+			D = int(self.args.get('d_model', 64))
 			self.stem = InputStem(d_model=D, unsigned_bits=self.unsigned_bits)
 			self.head = ActionSlicerHead(d_model=D, action_size=self.action_size, num_players=self.num_players)
 
 			encoder_layer = nn.TransformerEncoderLayer(
-				d_model=D, nhead=4, dim_feedforward=D*4, 
+				d_model=D, nhead=int(self.args.get('n_heads', 4)), dim_feedforward=D*4, 
 				dropout=self.args.get('dropout', 0.1), batch_first=True
 			)
-			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=3)
+			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=int(self.args.get('trunk_layers', 3)))
 
 		elif self.version == 62: # same as 42 but even SMALLER
-			D = 48
+			D = int(self.args.get('d_model', 48))
 			self.stem = InputStem(d_model=D, unsigned_bits=self.unsigned_bits)
 			self.head = ActionSlicerHead(d_model=D, action_size=self.action_size, num_players=self.num_players)
 			
 			encoder_layer = nn.TransformerEncoderLayer(
-				d_model=D, nhead=3, dim_feedforward=D*4, 
+				d_model=D, nhead=int(self.args.get('n_heads', 3)), dim_feedforward=D*4, 
 				dropout=self.args.get('dropout', 0.1), batch_first=True
 			)
-			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=3)
+			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=int(self.args.get('trunk_layers', 3)))
 
 		# else:
 		# 	raise Exception(f'Unsupported NN version {self.version}')
@@ -360,11 +364,21 @@ class SmallworldNNet(nn.Module):
 			# Additive and zero-initialised: see StaticMapEmbedding docstring.
 			self.map_emb = StaticMapEmbedding(D, self.nb_vect, self.head.nb_areas)
 			self.use_adj_bias = bool(self.args.get('adj_bias', True))
+			# Rules-derived per-area features (conquest cost, points if conquered,
+			# frontier degree...). Deterministic function of the SAME 8-column
+			# state, so examples and checkpoints stay valid. Off by default;
+			# projection is zero-init, so enabling it does not change the
+			# function at step 0 either.
+			self.use_features = bool(self.args.get('map_features', False))
+			if self.use_features:
+				from .SmallworldFeatures import MapFeatureBlock
+				self.feat = MapFeatureBlock(self.num_players)
+				self.feat_proj = nn.Linear(MapFeatureBlock.K, D, bias=False)
 			# Tensors that may legitimately be MISSING from an older checkpoint.
 			# GenericNNetWrapper.load_network accepts a checkpoint whose missing
 			# keys ALL start with one of these prefixes (and which has no
 			# unexpected key and no shape mismatch); anything else is refused.
-			self.additive_param_prefixes = ('map_emb.', 'head.choose_head.')
+			self.additive_param_prefixes = ('map_emb.', 'head.choose_head.', 'feat_proj.')
 
 		self.apply(self._init_weights)
 
@@ -373,6 +387,8 @@ class SmallworldNNet(nn.Module):
 		if self.version in [42, 62]:
 			self.map_emb.zero_init()
 			self.head.zero_init_additive()
+			if self.use_features:
+				nn.init.zeros_(self.feat_proj.weight)
 
 	def _init_weights(self, m):
 		if isinstance(m, nn.Linear):
@@ -405,7 +421,9 @@ class SmallworldNNet(nn.Module):
 			self.map_emb = StaticMapEmbedding(D, self.nb_vect, self.head.nb_areas).to(device)
 			self.map_emb.zero_init()
 		self.use_adj_bias = bool(self.args.get('adj_bias', True))
-		self.additive_param_prefixes = ('map_emb.', 'head.choose_head.')
+		if not hasattr(self, 'use_features'):
+			self.use_features = False
+		self.additive_param_prefixes = ('map_emb.', 'head.choose_head.', 'feat_proj.')
 		return self
 
 	def forward(self, input_data, valid_actions):
@@ -419,9 +437,15 @@ class SmallworldNNet(nn.Module):
 
 		elif self.version in [42, 62]:
 			x = input_data.view(-1, self.nb_vect, self.vect_dim)
+			raw = x
 			x = self.stem(x)
 			# Token identity + terrain, added AFTER the stem LayerNorm (zero at init)
 			x = x + self.map_emb().unsqueeze(0)
+			if self.use_features:
+				# Rules-derived features on AREA tokens only (zero at init)
+				A = self.head.nb_areas
+				f = self.feat_proj(self.feat(raw))
+				x = x + F.pad(f, (0, 0, 0, self.nb_vect - A))
 			
 			# Run trunk with optional dropout if needed
 			if self.training and self.args.get('dropout', 0) > 0 and self.version != 42:
