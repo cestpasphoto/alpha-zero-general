@@ -288,9 +288,12 @@ class GenericNNetWrapper(NeuralNet):
 		# full_model.version for legacy checkpoints that pre-date this key.
 		ckpt_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
 		if 'unsigned_bits' in checkpoint and hasattr(self.nnet, 'stem'):
-			self.nnet.unsigned_bits = bool(checkpoint['unsigned_bits'])
-			self.nnet.stem.unsigned_bits = self.nnet.unsigned_bits
-
+		    self.nnet.unsigned_bits = bool(checkpoint['unsigned_bits'])
+		    self.nnet.stem.unsigned_bits = self.nnet.unsigned_bits
+		    # Keep args in sync: Coach rebuilds the competitor net from nnet.args
+		    # (Coach.py l.30), so an attribute-only update leaves pnet on the old
+		    # semantics until its first load_checkpoint().
+		    self.nnet.args['unsigned_bits'] = self.nnet.unsigned_bits
 
 		if strict and (ckpt_version != self.args['nn_version']):
 			print('Checkpoint includes NN version', ckpt_version, ', but you ask version', self.args['nn_version'], ' so not loading it and initiate knowledge transfer')
@@ -412,6 +415,80 @@ class GenericNNetWrapper(NeuralNet):
 		opts.intra_op_num_threads, opts.inter_op_num_threads, opts.inter_op_num_threads = 1, 1, ort.ExecutionMode.ORT_SEQUENTIAL
 		self.ort_session = ort.InferenceSession(temporary_file, sess_options=opts, providers=['CPUExecutionProvider'])
 		os.remove(temporary_file)
+		# GUARDRAIL: the function that PLAYS must be the function that was TRAINED.
+		# Single choke point: every ONNX session (self-play, arena, daemon, pit) is born here.
+		if os.environ.get('SKIP_ONNX_PARITY') != '1':
+			self._assert_onnx_parity(verbose=(os.environ.get('ONNX_PARITY_VERBOSE') == '1'))
+
+
+	def _assert_onnx_parity(self, n_synth=256, batch_size=8, tol_pi=1e-4, tol_v=1e-5,
+	                        seed=0, verbose=False, raise_on_fail=True):
+		"""
+		Compare the torch module and the freshly exported ONNX session on the SAME
+		inputs. Raises RuntimeError on mismatch. Cost ~0.2 s per export.
+
+		Why synthetic boards over the full int8 range rather than real positions:
+		the known failure mode (integer floor-div lowered to a truncating cast in
+		ONNX) only shows on NEGATIVE values, and a sample of "realistic" boards may
+		not exercise the column that carries them. Random boards are not legal game
+		states -- that is fine, we are comparing two implementations of the same
+		function, not playing.
+
+		Batch 8 and batch 1 are both tested: the graph is exported at batch 1 with
+		dynamic axes, but predict_server() runs it batched.
+
+		Tolerances: on a healthy net the measured gap is ~4e-6 on log-probs and
+		~5e-7 on v, so 1e-4 / 1e-5 leave >20x of headroom, while a single wrong bit
+		moves logits by ~4e-2.
+		"""
+		import numpy as _np
+		rng = _np.random.default_rng(seed)
+		boards = rng.integers(-128, 128, size=(n_synth,) + tuple(self.board_size)).astype(_np.float32)
+		boards[:n_synth // 2] = _np.abs(boards[:n_synth // 2])   # half with NO negative value,
+		valids = rng.random((n_synth, self.action_size)) > 0.5    # so the diagnostic below can
+		valids[:, 0] = True                      # never an all-illegal row; separate the two groups
+
+		was_training = self.nnet.training
+		self.nnet.eval()
+		with torch.no_grad():
+			pi_t, v_t = self.nnet(torch.from_numpy(boards), torch.from_numpy(valids))
+		pi_t, v_t = pi_t.numpy(), v_t.numpy()
+		if was_training:
+			self.nnet.train()
+
+		failures = []
+		for bs in (batch_size, 1):
+			pi_o, v_o = _np.empty_like(pi_t), _np.empty_like(v_t)
+			for s in range(0, n_synth, bs):
+				e = min(s + bs, n_synth)
+				out = self.ort_session.run(None, {'board': boards[s:e], 'valid_actions': valids[s:e]})
+				pi_o[s:e], v_o[s:e] = out[0], out[1]
+			dpi = float(_np.abs(pi_t - pi_o)[valids].max())      # legal actions only
+			dv = float(_np.abs(v_t - v_o).max())
+			ok = (dpi <= tol_pi) and (dv <= tol_v)
+			if verbose or not ok:
+				print(f'[onnx-parity] n={n_synth} bs={bs}  max|dpi|={dpi:.3e} (tol {tol_pi:.0e})  '
+				      f'max|dv|={dv:.3e} (tol {tol_v:.0e})  {"OK" if ok else "*** MISMATCH ***"}')
+			if not ok:
+				over = _np.where(valids, _np.abs(pi_t - pi_o), 0.).max(axis=1) > tol_pi
+				has_neg = (boards < 0).any(axis=(1, 2))
+				print(f'[onnx-parity] {over.mean():.0%} of boards over tolerance; among them '
+				      f'{has_neg[over].mean():.0%} contain a negative value (vs {has_neg.mean():.0%} '
+				      f'overall). A strong bias toward negatives points at an integer op.')
+				failures.append(bs)
+
+		if not failures:
+			return True
+		msg = ('[FATAL] torch/ONNX parity FAILED: the trained function is not the played function. '
+		       'Known cause: integer floor division exported as Cast(float)->Div->Cast(int), which '
+		       'TRUNCATES toward zero instead of flooring, so bits of negative values are wrong. '
+		       'Fix: make the operand non-negative before dividing -- (v %% 256) // 2**i -- or use '
+		       'torch.div(a, b, rounding_mode="floor"). SKIP_ONNX_PARITY=1 bypasses this check.')
+		if raise_on_fail:
+			raise RuntimeError(msg)
+		print(msg)
+		return False
+
 
 	def pick_examples(self, examples, sample_ids):
 		if self.args['no_compression']:
