@@ -23,6 +23,44 @@ game = None
 _lock = multiprocessing.Lock()
 
 
+# ---------------------------------------------------------------------------
+# Per-side EVAL overrides (protocol v1.1 extension).
+#
+# --strict pins ONE profile on both players and refuses any difference: that is
+# what protects a decisional pit from the 3200-vs-800 trap. Some experiments,
+# however, are ABOUT the profile itself (does doubling the sim budget help? does
+# sampling several dice universes help?). Those need a deliberately asymmetric
+# pit, so they are opt-in via --asymmetric and loudly labelled in the report.
+#
+# Usage: -m1/-m2 (sims), -c1/-c2 (cpuct), -f1/-f2 (fpu), -u1/-u2 (universes).
+# A side-specific value overrides the shared one for that side only.
+# ---------------------------------------------------------------------------
+_SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes'}
+
+
+def _per_side(args, player_id, letter, fallback):
+	v = getattr(args, f'{letter}{player_id + 1}', None)
+	return v if v is not None else fallback
+
+
+def _any_per_side(args):
+	return any(getattr(args, f'{l}{i}', None) is not None for l in _SIDE_KEYS for i in (1, 2))
+
+
+def _universes_note(u):
+	# MCTS.py: random_seed = magic_seeds[step % universes] if universes > 0 else -1,
+	# and only random_seed == 0 means true randomness in the game logic.
+	# So u=1 AND u=0 both explore a SINGLE fixed dice realisation (different ones);
+	# only u >= 2 samples several. There are 8 magic seeds, so u > 8 adds nothing.
+	if u is None:
+		return ''
+	if u <= 0:
+		return ' (u=0: ONE fixed dice stream, seed -1 -- not real randomness)'
+	if u == 1:
+		return ' (u=1: ONE fixed dice stream, seed 31416 -- the whole tree plans against a single realisation)'
+	return f' (u={u}: {min(u, 8)} dice realisations cycled across simulations)'
+
+
 def create_player(name, args, player_id):
 	global game
 	global NNet
@@ -53,14 +91,18 @@ def create_player(name, args, player_id):
 		# Protocol v1.1 §1: a single EVAL profile, pinned, applied to BOTH players,
 		# NEVER inherited from the checkpoint. Any inheritance re-opens the
 		# 3200-vs-800 trap and conflates net strength with search hyperparameters.
-		if not args.numMCTSSims:
-			raise SystemExit('[FATAL] --strict requires an explicit -m/--numMCTSSims (protocol v1.1 §1)')
+		# Per-side overrides (-m1/-m2, ...) deliberately break the symmetry; they
+		# require --asymmetric, checked in play().
+		sims = _per_side(args, player_id, 'm', args.numMCTSSims)
+		if not sims:
+			raise SystemExit('[FATAL] --strict requires an explicit -m/--numMCTSSims '
+			                 '(or -m1 and -m2 for an asymmetric pit) (protocol v1.1 §1)')
 		mcts_args = dotdict({
-			'numMCTSSims'      : args.numMCTSSims,
-			'cpuct'            : args.cpuct if args.cpuct else 1.0,
-			'fpu'              : args.fpu if getattr(args, 'fpu', None) is not None else 0.1,
+			'numMCTSSims'      : sims,
+			'cpuct'            : _per_side(args, player_id, 'c', args.cpuct if args.cpuct else 1.0),
+			'fpu'              : _per_side(args, player_id, 'f', args.fpu if getattr(args, 'fpu', None) is not None else 0.1),
 			'fpu_root'         : 0.0,
-			'universes'        : args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1),
+			'universes'        : _per_side(args, player_id, 'u', args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1)),
 			'prob_fullMCTS'    : 1.,      # PCR off in eval
 			'forced_playouts'  : False,   # training tool
 			'gumbel'           : False,   # training tool
@@ -80,21 +122,22 @@ def create_player(name, args, player_id):
 
 	# Defect 5: detect a silent fallback to the default sim count (the 3200-vs-800 trap)
 	sims_from_ckpt = additional_keys.get('numMCTSSims', None)
-	sims = args.numMCTSSims if args.numMCTSSims else (sims_from_ckpt if sims_from_ckpt else 100)
-	if not args.numMCTSSims and sims_from_ckpt is None:
+	sims_cli = _per_side(args, player_id, 'm', args.numMCTSSims)
+	sims = sims_cli if sims_cli else (sims_from_ckpt if sims_from_ckpt else 100)
+	if not sims_cli and sims_from_ckpt is None:
 		print(f"[EVAL WARNING] {name}: numMCTSSims missing from checkpoint, falling back to {sims}. "
 		      f"Pass -m explicitly to avoid a silent sim-count mismatch.")
 
 	# Defect 6: --fpu was parsed but never applied; honour it for both players when given
-	fpu_cli = args.fpu if getattr(args, 'fpu', None) is not None else None
+	fpu_cli = _per_side(args, player_id, 'f', args.fpu if getattr(args, 'fpu', None) is not None else None)
 	fpu_ckpt      = additional_keys.get('fpu')
 	fpu_root_ckpt = additional_keys.get('fpu_root', fpu_ckpt)
 	mcts_args = dotdict({
 		'numMCTSSims'     : sims,
 		'fpu'             : fpu_cli if fpu_cli is not None else (0.1 if fpu_ckpt is None else fpu_ckpt),
 		'fpu_root'        : 0.0 if is_daemon else (fpu_cli if fpu_cli is not None else (0.0 if fpu_root_ckpt is None else fpu_root_ckpt)),
-		'universes'       : additional_keys.get('universes', 1),
-		'cpuct'           : args.cpuct if args.cpuct else (1.0 if is_daemon else cpuct),
+		'universes'       : _per_side(args, player_id, 'u', args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1)),
+		'cpuct'           : _per_side(args, player_id, 'c', args.cpuct if args.cpuct else (1.0 if is_daemon else cpuct)),
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
 		'gumbel'          : False,  # training-only tool, pinned OFF in eval like FP/Dirichlet (protocol v1.1 §1)
@@ -110,7 +153,7 @@ def create_player(name, args, player_id):
 		# for older checkpoints. Was wrongly temperature[2] (softmax temp ~1.1) -> near-greedy
 		# play from move ~5, collapsing opening diversity.
 		t_begin, t_end = 0.5, 0.0
-		half_life = (additional_keys.get('temperature', [])[3:4] or [10])[0]
+		half_life = abs((additional_keys.get('temperature', [])[3:4] or [10])[0])
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
 	
 	def player(x, n):
@@ -130,7 +173,7 @@ def _resolve_player_path(p):
 	return p
 
 
-def _report_decision(result, args, p1_name, p2_name):
+def _report_decision(result, args, p1_name, p2_name, diffs=None):
 	"""
 	Decision-grade report (protocol v1.1 §2/§4). Prints the score, its z-score,
 	the Elo point estimate and its 95% CI, and the verdict phrased so that a
@@ -162,6 +205,15 @@ def _report_decision(result, args, p1_name, p2_name):
 	      f'  vs  {os.path.basename(os.path.dirname(p2_name))}/{os.path.basename(p2_name)}')
 	print(f'  {oneWon}-{twoWon} ({draws} draws)   n={n}   score={s:.3f}   z={z:+.2f}')
 	print(f'  Elo estimate: {elo:+.0f}   CI95 [{lo:+.0f} ; {hi:+.0f}]')
+	if diffs:
+		same_net = os.path.realpath(p1_name) == os.path.realpath(p2_name)
+		keys = ', '.join(f'{k} {v1} vs {v2}' for k, (v1, v2) in sorted(diffs.items()))
+		print(f'  [ASYMMETRIC] the two sides differ by: {keys}')
+		if same_net:
+			print(f'               same checkpoint on both sides: this isolates the search knob.')
+		else:
+			print(f'               [!] DIFFERENT checkpoints AND different profiles: two factors at once, '
+			      f'not attributable.')
 	if z >= 1.645:
 		print(f'  VERDICT: P1 > P2 (one-sided, alpha=5%)')
 	elif z <= -1.645:
@@ -189,12 +241,26 @@ def play(args):
 	if m1 is not None and m2 is not None and m1.numMCTSSims != m2.numMCTSSims:
 		print(f"[EVAL WARNING] sim-count mismatch: P1={m1.numMCTSSims} vs P2={m2.numMCTSSims}. "
 		      f"This pit measures search budget, not network strength. Pin -m for both.")
+	diffs = {}
+	if m1 is not None and m2 is not None:
+		diffs = {k: (m1[k], m2[k]) for k in m1 if k in m2 and m1[k] != m2[k]}
 	if getattr(args, 'strict', False) and not args.useray and m1 is not None and m2 is not None:
 		# Protocol v1.1 §1: log the profile of BOTH players at the top of the report
-		print(f'EVAL PROFILE p1: {dict(m1)}')
-		print(f'EVAL PROFILE p2: {dict(m2)}')
-		if dict(m1) != dict(m2):
-			raise SystemExit('[FATAL] EVAL profiles differ between players - comparison is not decisional')
+		print(f'EVAL PROFILE p1: {dict(m1)}{_universes_note(m1.get("universes"))}')
+		print(f'EVAL PROFILE p2: {dict(m2)}{_universes_note(m2.get("universes"))}')
+		if diffs and not getattr(args, 'asymmetric', False):
+			raise SystemExit('[FATAL] EVAL profiles differ between players - comparison is not decisional.\n'
+			                 f'        differing keys: {diffs}\n'
+			                 '        If the difference IS the experiment (search budget, dice universes),\n'
+			                 '        re-run with --asymmetric to declare it explicitly.')
+		if diffs:
+			print()
+			print('*' * 72)
+			print('ASYMMETRIC PIT - this measures the SEARCH PROFILE, not network strength.')
+			for k, (v1, v2) in sorted(diffs.items()):
+				print(f'   {k}: p1={v1}   p2={v2}')
+			print('Both sides must still be the SAME checkpoint for a clean search experiment.')
+			print('*' * 72)
 		thr = 0.5 + 1.645 * 0.5 / (args.num_games ** 0.5)
 		print(f'Decision rule (one-sided, draws=1/2): superiority iff score >= {thr:.3f} '
 		      f'({thr * args.num_games:.0f}/{args.num_games}), z >= 1.645')
@@ -203,7 +269,7 @@ def play(args):
 	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
 
 	if getattr(args, 'strict', False) and not args.useray:
-		_report_decision(result, args, players[0], players[1])
+		_report_decision(result, args, players[0], players[1], diffs)
 
 	if args.useray:
 		##### Write results in a file
@@ -450,7 +516,21 @@ def main():
 	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, help='cpuct value')
 	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
 	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile of protocol v1.1 §1 on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet/Gumbel off, explicit eval temperature. Use this for every comparison meant to be decisional.')
-	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , help='Override universes for both players (default: value stored in checkpoint)')
+	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , help='Override universes for both players (default: value stored in checkpoint). u<=1 = ONE fixed dice realisation; u>=2 samples several (8 seeds available)')
+
+	# Per-side EVAL overrides: for experiments where the search profile IS the
+	# variable under test. Require --asymmetric so a decisional pit can never
+	# become asymmetric by accident.
+	side = parser.add_argument_group('asymmetric pit (search-profile experiments)')
+	side.add_argument('--asymmetric'    , '-Y' , action='store_true', help='Allow the two sides to run different EVAL profiles. Without it, --strict aborts on any difference.')
+	side.add_argument('--m1'                   , action='store', default=None, type=int  , help='numMCTSSims for player 1 only')
+	side.add_argument('--m2'                   , action='store', default=None, type=int  , help='numMCTSSims for player 2 only')
+	side.add_argument('--c1'                   , action='store', default=None, type=float, help='cpuct for player 1 only')
+	side.add_argument('--c2'                   , action='store', default=None, type=float, help='cpuct for player 2 only')
+	side.add_argument('--f1'                   , action='store', default=None, type=float, help='fpu for player 1 only')
+	side.add_argument('--f2'                   , action='store', default=None, type=float, help='fpu for player 2 only')
+	side.add_argument('--u1'                   , action='store', default=None, type=int  , help='universes for player 1 only')
+	side.add_argument('--u2'                   , action='store', default=None, type=int  , help='universes for player 2 only')
 
 	parser.add_argument('game'                        , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
@@ -467,7 +547,13 @@ def main():
 	parser.add_argument('--daemon-opponents'   , '-O' , action='store', default=3, type=int, help='Nb of opponents per evaluation')
 	parser.add_argument('--league-size'        , '-L' , action='store', default=20, type=int, help='Max number of models kept in the league pool')
 	args = parser.parse_args()
-	
+
+	if _any_per_side(args) and not args.asymmetric:
+		raise SystemExit('[FATAL] per-side overrides (-m1/-m2/-c1/-c2/-f1/-f2/-u1/-u2) given without '
+		                 '--asymmetric.\n        Declare the asymmetry explicitly, or drop them.')
+	if args.asymmetric and not _any_per_side(args):
+		print('[WARNING] --asymmetric given but no per-side override: the pit is symmetric.')
+
 	if args.daemon:
 		run_daemon(args)
 	elif args.profile:
