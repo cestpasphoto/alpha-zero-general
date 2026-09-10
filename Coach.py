@@ -349,8 +349,16 @@ class Coach():
 		Reminder: at arenaCompare=30 this is a coarse filter (~±130 Elo). Its job
 		is to gate obvious regressions, not to measure progress.
 		"""
-		nmcts = MCTS(self.game, self.nnet, self.args)
-		pmcts = MCTS(self.game, self.pnet, self.args)
+		# The gate may run at a different sim count than self-play: its job is to
+		# RANK two nets, and cost is ~linear in sims, so spending the same wall
+		# clock on more games at fewer sims buys resolution. Both sides always
+		# share the exact same profile -- that is what forbids the 3200-vs-800 trap.
+		import copy
+		gate_args = copy.copy(self.args)
+		if getattr(self.args, 'arena_sims', None):
+			gate_args.numMCTSSims = self.args.arena_sims
+		nmcts = MCTS(self.game, self.nnet, gate_args)
+		pmcts = MCTS(self.game, self.pnet, gate_args)
 
 		def gate_player(mcts):
 			def play(x, n):

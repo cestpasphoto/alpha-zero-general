@@ -384,7 +384,7 @@ class GenericNNetWrapper(NeuralNet):
 			self.init_nnet(self.game, self.args)
 			return False
 		self.nnet.version = ckpt_version
-		print(f'Loaded V{ckpt_version} checkpoint; {len(result.missing_keys)} additive tensors kept at zero-init:', result.missing_keys)
+		# print(f'Loaded V{ckpt_version} checkpoint; {len(result.missing_keys)} additive tensors kept at zero-init:', result.missing_keys)
 		return True
 
 	def switch_target(self, mode):
