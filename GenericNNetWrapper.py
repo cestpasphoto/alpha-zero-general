@@ -216,6 +216,33 @@ class GenericNNetWrapper(NeuralNet):
 		targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
 		return torch.sum((targets - outputs) ** 2) / (targets_V.size()[0] * targets_V.size()[-1]) # Normalize by batch size * nb of players
 
+	# Computed once per process. A checkpoint must be able to say WHICH code and
+	# WHICH toolchain produced it: F4 could not be dated because nothing recorded
+	# the torch/onnxruntime versions, and settings.txt only covers CLI args.
+	_provenance_cache = None
+
+	@classmethod
+	def _provenance(cls):
+		if cls._provenance_cache is None:
+			import subprocess, platform
+			def _git(*a):
+				try:
+					return subprocess.check_output(('git',) + a, stderr=subprocess.DEVNULL,
+					                               text=True, timeout=5).strip()
+				except Exception:
+					return None
+			cls._provenance_cache = {
+				'saved_at'   : time.strftime('%Y-%m-%dT%H:%M:%S'),
+				'git_commit' : _git('rev-parse', 'HEAD'),
+				'git_dirty'  : bool(_git('status', '--porcelain')),
+				'torch'      : torch.__version__,
+				'onnx'       : onnx.__version__,
+				'onnxruntime': ort.__version__,
+				'numpy'      : np.__version__,
+				'python'     : platform.python_version(),
+			}
+		return cls._provenance_cache
+
 	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', additional_keys={}):
 		filepath = os.path.join(folder, filename)
 		if not os.path.exists(folder):
@@ -230,9 +257,11 @@ class GenericNNetWrapper(NeuralNet):
 			# Explicit version key: version check no longer relies solely on the
 			# pickled full_model object (which can be corrupted by cross-arch transfer).
 			'nn_version': self.nnet.version,
-			# Inference-semantics flag, stored PER CHECKPOINT so that two copies
-			# of the same weights can be evaluated against each other.
-			'unsigned_bits': getattr(self.nnet, 'unsigned_bits', False),
+			# Toolchain + code identity, and whether the torch/ONNX parity guardrail
+			# was active (it raises on failure, so False here means the checkpoint
+			# was produced without the check).
+			'provenance': self._provenance(),
+			'onnx_parity_skipped': os.environ.get('SKIP_ONNX_PARITY') == '1',
 		}
 		data.update(additional_keys)
 		torch.save(data, filepath)
@@ -287,13 +316,6 @@ class GenericNNetWrapper(NeuralNet):
 		# Prefer the explicit 'nn_version' key (written since the fix); fall back to
 		# full_model.version for legacy checkpoints that pre-date this key.
 		ckpt_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
-		if 'unsigned_bits' in checkpoint and hasattr(self.nnet, 'stem'):
-		    self.nnet.unsigned_bits = bool(checkpoint['unsigned_bits'])
-		    self.nnet.stem.unsigned_bits = self.nnet.unsigned_bits
-		    # Keep args in sync: Coach rebuilds the competitor net from nnet.args
-		    # (Coach.py l.30), so an attribute-only update leaves pnet on the old
-		    # semantics until its first load_checkpoint().
-		    self.nnet.args['unsigned_bits'] = self.nnet.unsigned_bits
 
 		if strict and (ckpt_version != self.args['nn_version']):
 			print('Checkpoint includes NN version', ckpt_version, ', but you ask version', self.args['nn_version'], ' so not loading it and initiate knowledge transfer')

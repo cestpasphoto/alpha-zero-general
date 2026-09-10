@@ -88,12 +88,8 @@ class InputStem(nn.Module):
 	Parses the heterogeneous (N, 8) input into clean tokens of size D.
 	Handles explicitly the offset of negative declined values and bitfield extraction.
 	"""
-	unsigned_bits = False   # class-level default: legacy unpickled instances find it here
-
-	def __init__(self, d_model, unsigned_bits=False):
+	def __init__(self, d_model):
 		super().__init__()
-		# unsigned_bits: see forward(). False = legacy behaviour (default).
-		self.unsigned_bits = unsigned_bits
 		# Embeddings for categorical features
 		self.emb_ppl    = nn.Embedding(31, d_model)  # Types from -15 to +15
 		self.emb_pwr    = nn.Embedding(41, d_model)  # Powers from -20 to +20
@@ -133,12 +129,8 @@ class InputStem(nn.Module):
 		# (used by MCTS at play time) computes different bits than training does.
 		# Taking % 256 first makes the operand non-negative, where floor == trunc:
 		# identical torch output, ONNX finally agreeing with it.
-		if self.unsigned_bits:
-			bitfield3 = (x[..., 3].long() % 256).unsqueeze(-1)
-			bitfield4 = (x[..., 4].long() % 256).unsqueeze(-1)
-		else:
-			bitfield3 = x[..., 3].long().unsqueeze(-1)
-			bitfield4 = x[..., 4].long().unsqueeze(-1)
+		bitfield3 = (x[..., 3].long() % 256).unsqueeze(-1)
+		bitfield4 = (x[..., 4].long() % 256).unsqueeze(-1)
 		
 		# Division entière par les puissances de 2, puis modulo 2
 		bits3 = (bitfield3 // self.powers_of_2) % 2
@@ -271,8 +263,6 @@ class ActionSlicerHead(nn.Module):
 		return pi, v
 
 class SmallworldNNet(nn.Module):
-	unsigned_bits = False   # class-level defaults, see InputStem and upgrade_legacy()
-	use_features = False
 	use_adj_bias = True
 	additive_param_prefixes = ()
 
@@ -283,9 +273,6 @@ class SmallworldNNet(nn.Module):
 		self.num_players = game.num_players
 		self.args = args
 		self.version = args['nn_version']
-		# Read back from the checkpoint by GenericNNetWrapper.load_network, so
-		# two copies of the SAME weights can be pitted with and without the fix.
-		self.unsigned_bits = bool(args.get('unsigned_bits', False))
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 			
 		if self.version == 31: # Like V21 but in bigger
@@ -336,7 +323,7 @@ class SmallworldNNet(nn.Module):
 			# can widen the net WITHOUT a new version number. Defaults reproduce
 			# the historical architecture exactly, bit for bit.
 			D = int(self.args.get('d_model', 64))
-			self.stem = InputStem(d_model=D, unsigned_bits=self.unsigned_bits)
+			self.stem = InputStem(d_model=D)
 			self.head = ActionSlicerHead(d_model=D, action_size=self.action_size, num_players=self.num_players)
 
 			encoder_layer = nn.TransformerEncoderLayer(
@@ -347,7 +334,7 @@ class SmallworldNNet(nn.Module):
 
 		elif self.version == 62: # same as 42 but even SMALLER
 			D = int(self.args.get('d_model', 48))
-			self.stem = InputStem(d_model=D, unsigned_bits=self.unsigned_bits)
+			self.stem = InputStem(d_model=D)
 			self.head = ActionSlicerHead(d_model=D, action_size=self.action_size, num_players=self.num_players)
 			
 			encoder_layer = nn.TransformerEncoderLayer(
@@ -364,16 +351,6 @@ class SmallworldNNet(nn.Module):
 			# Additive and zero-initialised: see StaticMapEmbedding docstring.
 			self.map_emb = StaticMapEmbedding(D, self.nb_vect, self.head.nb_areas)
 			self.use_adj_bias = bool(self.args.get('adj_bias', True))
-			# Rules-derived per-area features (conquest cost, points if conquered,
-			# frontier degree...). Deterministic function of the SAME 8-column
-			# state, so examples and checkpoints stay valid. Off by default;
-			# projection is zero-init, so enabling it does not change the
-			# function at step 0 either.
-			self.use_features = bool(self.args.get('map_features', False))
-			if self.use_features:
-				from .SmallworldFeatures import MapFeatureBlock
-				self.feat = MapFeatureBlock(self.num_players)
-				self.feat_proj = nn.Linear(MapFeatureBlock.K, D, bias=False)
 			# Tensors that may legitimately be MISSING from an older checkpoint.
 			# GenericNNetWrapper.load_network accepts a checkpoint whose missing
 			# keys ALL start with one of these prefixes (and which has no
@@ -387,8 +364,6 @@ class SmallworldNNet(nn.Module):
 		if self.version in [42, 62]:
 			self.map_emb.zero_init()
 			self.head.zero_init_additive()
-			if self.use_features:
-				nn.init.zeros_(self.feat_proj.weight)
 
 	def _init_weights(self, m):
 		if isinstance(m, nn.Linear):
@@ -410,8 +385,6 @@ class SmallworldNNet(nn.Module):
 			return self
 		device = next(self.parameters()).device
 		D = self.stem.out_proj.out_features
-		if not hasattr(self.stem, 'unsigned_bits'):
-			self.stem.unsigned_bits = self.unsigned_bits
 		if not hasattr(self.head, 'choose_head'):
 			self.head.deck_start = 3 * self.num_players
 			self.head.deck_size = 6
@@ -421,8 +394,6 @@ class SmallworldNNet(nn.Module):
 			self.map_emb = StaticMapEmbedding(D, self.nb_vect, self.head.nb_areas).to(device)
 			self.map_emb.zero_init()
 		self.use_adj_bias = bool(self.args.get('adj_bias', True))
-		if not hasattr(self, 'use_features'):
-			self.use_features = False
 		self.additive_param_prefixes = ('map_emb.', 'head.choose_head.', 'feat_proj.')
 		return self
 
@@ -441,11 +412,6 @@ class SmallworldNNet(nn.Module):
 			x = self.stem(x)
 			# Token identity + terrain, added AFTER the stem LayerNorm (zero at init)
 			x = x + self.map_emb().unsqueeze(0)
-			if self.use_features:
-				# Rules-derived features on AREA tokens only (zero at init)
-				A = self.head.nb_areas
-				f = self.feat_proj(self.feat(raw))
-				x = x + F.pad(f, (0, 0, 0, self.nb_vect - A))
 			
 			# Run trunk with optional dropout if needed
 			if self.training and self.args.get('dropout', 0) > 0 and self.version != 42:

@@ -89,7 +89,7 @@ def run(args):
 	if not args.useray:
 		# Backup code used for this run
 		subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
-		subprocess.run(f'cp *py santorini/*py "{args.checkpoint}/"', shell=True)
+		subprocess.run(f'cp *py "{args.game}"/*py "{args.checkpoint}/"', shell=True)
 		subprocess.run(
 			f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"',
 			shell=True)
@@ -104,6 +104,7 @@ def compare_settings(args):
 
 	# Load settings
 	if not os.path.isfile(settings_file):
+		log.warning('No settings.txt next to the loaded checkpoint: cannot diff the run settings')
 		return
 	with open(settings_file, 'r') as f:
 		previous_args = f.read()
@@ -112,7 +113,7 @@ def compare_settings(args):
 	previous_args_dict, current_args_dict = vars(eval('argparse.' + previous_args)), vars(args)
 	changed_keys = set([k for k in set(list(previous_args_dict.keys()) + list(current_args_dict.keys())) if
 	                    previous_args_dict.get(k) != current_args_dict.get(k)])
-	for key in ['load_folder_file', 'checkpoint', 'numIters', 'arenaCompare', 'maxlenOfQueue', 'load_model']:
+	for key in ['load_folder_file', 'checkpoint', 'numIters', 'maxlenOfQueue', 'load_model']:
 		changed_keys.discard(key)
 
 	if changed_keys:
@@ -201,7 +202,7 @@ def main():
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
 	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int, help='')
-	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-1   , type=float, help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory)')
+	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-2   , type=float, help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory). Default raised from 5 to 10: under strict parity a 17%% accept rate makes P(5 consecutive rejects)=0.39, so 5 kills healthy runs by luck alone')
 	parser.add_argument('--profile'                , action='store_true', help='profiler')
 	parser.add_argument('--debug'                  , action='store_true', help='Disable all optimisations to allow easier debugging')
 	parser.add_argument('--useray'                 , action='store_true', help='Mode for "ray", disable some messages')
