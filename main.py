@@ -31,6 +31,23 @@ def run(args):
 		no_compression=args.no_compression,
 		q_weight=args.q_weight,
 	)
+	for kv in args.nn_opt:
+		key, sep, raw = kv.partition('=')
+		if not sep:
+			raise SystemExit(f'[FATAL] --nn-opt expects KEY=VALUE, got "{kv}"')
+		key, raw = key.strip(), raw.strip()
+		if raw.lower() in ('true', 'false'):
+			value = (raw.lower() == 'true')
+		else:
+			try:
+				value = int(raw)
+			except ValueError:
+				try:
+					value = float(raw)
+				except ValueError:
+					value = raw
+		nn_args[key] = value
+		#log.info('nn_args[%s] = %r (from --nn-opt)', key, value)
 	nnet = NNet(g, nn_args)
 
 	if args.load_model:
@@ -182,6 +199,7 @@ def main():
 	parser.add_argument('--gumbel-m'               , action='store', default=16   , type=int  , help='Gumbel: max number of root actions considered by Sequential Halving (paper/mctx default: 16)')
 	parser.add_argument('--gumbel-cvisit'          , action='store', default=50.0 , type=float, help='Gumbel: c_visit constant of the sigma(Q) transform (paper default: 50)')
 	parser.add_argument('--gumbel-cscale'          , action='store', default=1.0  , type=float, help='Gumbel: c_scale constant of the sigma(Q) transform (paper default: 1.0)')
+	parser.add_argument('--nn-opt'                 , action='append', default=[], metavar='KEY=VALUE', help='Extra key passed to the net constructor (nn_args). Repeatable. Used for function-preserving growth modules: area_value, attn_pool, graph_mix, graph_layers, extra_layer.')
 
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')

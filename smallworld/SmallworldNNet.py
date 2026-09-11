@@ -203,6 +203,116 @@ class StaticMapEmbedding(nn.Module):
 		return self.adj_alpha * self.adj_bias
 
 
+class GraphMixer(nn.Module):
+	"""
+	GROWTH MODULE 1 -- adjacency, done properly this time.
+
+	The scalar `StaticMapEmbedding.adj_alpha` never left zero (6.9e-03 even at
+	lr x30): ONE parameter shared by 3 layers x 3 heads receives gradients whose
+	sign disagrees between heads, and they cancel. That is a design flaw of the
+	patch, not evidence that adjacency is useless.
+
+	Here each message-passing step has its own D x D matrices, so the gradient is
+	a matrix, not a single averaged scalar. Message passing runs on AREA tokens
+	only, before the trunk, as a residual branch:
+	    area <- area + out(relu(ln(self(area) + neigh(A_hat @ area))))
+	`out` is zero-initialised, so the branch contributes exactly nothing at step
+	0 and the champion's function is preserved. `self`/`neigh` are randomly
+	initialised, so `out` sees a non-zero input and receives gradient from the
+	very first batch (the usual ReZero / LoRA-B ordering: the gate opens first,
+	the inner weights follow).
+
+	Cost at D=48, A=30, 2 layers: ~0.36 MFLOPs against ~4.3 for the trunk (+8%).
+	"""
+	def __init__(self, d_model, nb_areas, n_layers=2):
+		super().__init__()
+		from .SmallworldMaps import connexity_matrix
+		assert connexity_matrix.shape == (nb_areas, nb_areas)
+		a = torch.as_tensor(connexity_matrix).float() + torch.eye(nb_areas)
+		deg = a.sum(-1).clamp(min=1.0).pow(-0.5)
+		self.register_buffer('adj_norm', deg.unsqueeze(1) * a * deg.unsqueeze(0), persistent=False)
+
+		self.nb_areas = nb_areas
+		self.self_proj  = nn.ModuleList(nn.Linear(d_model, d_model, bias=False) for _ in range(n_layers))
+		self.neigh_proj = nn.ModuleList(nn.Linear(d_model, d_model, bias=False) for _ in range(n_layers))
+		self.ln         = nn.ModuleList(nn.LayerNorm(d_model) for _ in range(n_layers))
+		self.out_proj   = nn.ModuleList(nn.Linear(d_model, d_model, bias=False) for _ in range(n_layers))
+		self.zero_init()
+
+	def zero_init(self):
+		# ONLY the output gate. Zeroing the inner layers too would starve the gate
+		# of gradient (its own gradient is proportional to the branch activation).
+		for m in self.out_proj:
+			nn.init.zeros_(m.weight)
+
+	def forward(self, area):
+		# area: (B, A, D) -- returns the same shape, identity at init.
+		for s_, n_, ln_, o_ in zip(self.self_proj, self.neigh_proj, self.ln, self.out_proj):
+			neigh = torch.einsum('ij,bjd->bid', self.adj_norm, area)
+			area = area + o_(F.relu(ln_(s_(area) + n_(neigh))))
+		return area
+
+
+class AttentionPool(nn.Module):
+	"""
+	GROWTH MODULE 2 -- replace mean() pooling by a learned weighted pooling,
+	starting from EXACTLY the mean.
+
+	`ActionSlicerHead` reads the value and all global actions from
+	`global_tokens.mean(dim=1)`: 22 heterogeneous rows in 3 players (9 peoples,
+	6 deck, 3 round_status, 3 game_status, 1 invisible_deck) averaged into one
+	vector, which is also the reason the Choose logits could not see slot
+	identity (F3). A mean cannot down-weight an irrelevant row.
+
+	Attention logits are  (W_k(tokens) . q) / sqrt(D)  with the query q
+	initialised to ZERO: every logit is 0, softmax is uniform, the output is the
+	mean, bit for bit. q receives gradient immediately (W_k(tokens) != 0); W_k
+	follows once q has moved. No value projection, so the pooled vector stays in
+	the space value_head/global_head already read.
+	"""
+	def __init__(self, d_model):
+		super().__init__()
+		self.scale = d_model ** -0.5
+		self.key   = nn.Linear(d_model, d_model)
+		self.query = nn.Parameter(torch.zeros(d_model))
+		self.zero_init()
+
+	def zero_init(self):
+		nn.init.zeros_(self.query)
+
+	def forward(self, tokens):
+		# tokens: (B, G, D) -> (B, D). BIT-EXACTLY tokens.mean(1) while query == 0.
+		# Written as mean + deviation on purpose: a plain weighted sum with
+		# uniform weights differs from mean() by float rounding (~1e-7), which
+		# would break the "same function at step 0" guarantee for no reason.
+		# With zero logits softmax returns exactly 1/G, so the deviation is
+		# exactly 0 and the correction term vanishes.
+		logits = (self.key(tokens) @ self.query) * self.scale       # (B, G)
+		w = torch.softmax(logits, dim=1) - 1.0 / tokens.size(1)     # (B, G)
+		return tokens.mean(dim=1) + (w.unsqueeze(-1) * tokens).sum(dim=1)
+
+
+def _make_identity_layer(d_model, nhead, dropout):
+	"""
+	GROWTH MODULE 3 -- a 4th transformer layer that is the IDENTITY at init.
+
+	PRE-norm is mandatory here. The trunk's layers are post-norm
+	(x <- LayerNorm(x + sublayer(x))), so zeroing the sublayers still leaves a
+	LayerNorm on the residual stream: NOT identity. With norm_first=True the
+	block is x <- x + sublayer(norm(x)), so zeroing the two output projections
+	(attention out_proj and the second FF linear) makes it exactly identity.
+	The extra layer being pre-norm while the trunk is post-norm is fine: it is a
+	residual block appended after the trunk, not inserted inside it.
+	"""
+	layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=d_model * 4,
+	                                   dropout=dropout, batch_first=True, norm_first=True)
+	nn.init.zeros_(layer.self_attn.out_proj.weight)
+	nn.init.zeros_(layer.self_attn.out_proj.bias)
+	nn.init.zeros_(layer.linear2.weight)
+	nn.init.zeros_(layer.linear2.bias)
+	return layer
+
+
 class ActionSlicerHead(nn.Module):
 	"""
 	Reconstructs the 1D action vector without Flattening, maintaining spatial 
@@ -227,10 +337,17 @@ class ActionSlicerHead(nn.Module):
 		# combo" -- it only sees the multiset of the 6 combos. This head adds a
 		# per-slot term on top of the existing pooled logit.
 		self.choose_head = nn.Linear(d_model, 1)
+		# Optional: learned pooling instead of mean(). Identical to mean at init.
+		self.pool = None
+
+	def enable_attention_pool(self, d_model):
+		self.pool = AttentionPool(d_model)
 
 	def zero_init_additive(self):
 		nn.init.zeros_(self.choose_head.weight)
 		nn.init.zeros_(self.choose_head.bias)
+		if getattr(self, 'pool', None) is not None:
+			self.pool.zero_init()
 
 	def forward(self, tokens):
 		# tokens: (Batch, nb_vect, D)
@@ -242,7 +359,8 @@ class ActionSlicerHead(nn.Module):
 		l_logits = self.local_head(local_tokens)
 		
 		# Global context & logits: (Batch, 16)
-		g_ctx = global_tokens.mean(dim=1)
+		pool = getattr(self, 'pool', None)
+		g_ctx = pool(global_tokens) if pool is not None else global_tokens.mean(dim=1)
 		g_logits = self.global_head(g_ctx)
 		choose = g_logits[:, 8:14] + self.choose_head(deck_tokens).squeeze(-1)   # (Batch, 6)
 		
@@ -263,6 +381,10 @@ class ActionSlicerHead(nn.Module):
 		return pi, v
 
 class SmallworldNNet(nn.Module):
+	# Input-encoding contract, checked by GenericNNetWrapper.load_network: weights
+	# trained before the % 256 fix encode a different function (see F4).
+	bit_semantics = 'unsigned'
+	use_features = False
 	use_adj_bias = True
 	additive_param_prefixes = ()
 
@@ -319,29 +441,26 @@ class SmallworldNNet(nn.Module):
 
 		# ARCHITECTURE V42 : Full Self-Attention Transformer
 		elif self.version == 42:
-			# d_model / n_heads / trunk_layers are overridable so a capacity probe
-			# can widen the net WITHOUT a new version number. Defaults reproduce
-			# the historical architecture exactly, bit for bit.
-			D = int(self.args.get('d_model', 64))
+			D = 64
 			self.stem = InputStem(d_model=D)
 			self.head = ActionSlicerHead(d_model=D, action_size=self.action_size, num_players=self.num_players)
 
 			encoder_layer = nn.TransformerEncoderLayer(
-				d_model=D, nhead=int(self.args.get('n_heads', 4)), dim_feedforward=D*4, 
+				d_model=D, nhead=4, dim_feedforward=D*4, 
 				dropout=self.args.get('dropout', 0.1), batch_first=True
 			)
-			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=int(self.args.get('trunk_layers', 3)))
+			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=3)
 
 		elif self.version == 62: # same as 42 but even SMALLER
-			D = int(self.args.get('d_model', 48))
+			D = 48
 			self.stem = InputStem(d_model=D)
 			self.head = ActionSlicerHead(d_model=D, action_size=self.action_size, num_players=self.num_players)
 			
 			encoder_layer = nn.TransformerEncoderLayer(
-				d_model=D, nhead=int(self.args.get('n_heads', 3)), dim_feedforward=D*4, 
+				d_model=D, nhead=3, dim_feedforward=D*4, 
 				dropout=self.args.get('dropout', 0.1), batch_first=True
 			)
-			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=int(self.args.get('trunk_layers', 3)))
+			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=3)
 
 		# else:
 		# 	raise Exception(f'Unsupported NN version {self.version}')
@@ -351,11 +470,57 @@ class SmallworldNNet(nn.Module):
 			# Additive and zero-initialised: see StaticMapEmbedding docstring.
 			self.map_emb = StaticMapEmbedding(D, self.nb_vect, self.head.nb_areas)
 			self.use_adj_bias = bool(self.args.get('adj_bias', True))
+			# Rules-derived per-area features (conquest cost, points if conquered,
+			# frontier degree...). Deterministic function of the SAME 8-column
+			# state, so examples and checkpoints stay valid. Off by default;
+			# projection is zero-init, so enabling it does not change the
+			# function at step 0 either.
+			self.use_features = bool(self.args.get('map_features', False))
+			if self.use_features:
+				from .SmallworldFeatures import MapFeatureBlock
+				self.feat = MapFeatureBlock(self.num_players)
+				self.feat_proj = nn.Linear(MapFeatureBlock.K, D, bias=False)
 			# Tensors that may legitimately be MISSING from an older checkpoint.
 			# GenericNNetWrapper.load_network accepts a checkpoint whose missing
 			# keys ALL start with one of these prefixes (and which has no
 			# unexpected key and no shape mismatch); anything else is refused.
-			self.additive_param_prefixes = ('map_emb.', 'head.choose_head.', 'feat_proj.')
+			# ---- growth modules (all OFF by default, all function-preserving) ----
+			# Each one is a strict addition whose output gate starts at zero, so a
+			# net warm-started from a checkpoint that lacks them computes exactly
+			# the same function at step 0. Enable ONE per experimental arm.
+			self.use_graph_mix = bool(self.args.get('graph_mix', False))
+			if self.use_graph_mix:
+				self.graph_mix = GraphMixer(D, self.head.nb_areas,
+				                            n_layers=int(self.args.get('graph_layers', 2)))
+			self.use_attn_pool = bool(self.args.get('attn_pool', False))
+			if self.use_attn_pool:
+				self.head.enable_attention_pool(D)
+			# GROWTH MODULE 4 -- give the VALUE head access to the AREA tokens.
+			# Measured motivation: on a clean by-game held-out, a linear probe on
+			# g_ctx explains ~5% of the outcome over rounds 1-4 (42% of positions)
+			# and the champion's OWN value head scores the same (VE_champ ~= the
+			# probe). The head is already saturated on its input, so more head
+			# capacity cannot help -- but its input is the 22 pooled GLOBAL rows
+			# only, while the early-game decision state IS the map. This adds a
+			# pooled read of the 30 area tokens, zero-gated, so v is unchanged at
+			# step 0. If rounds 1-4 do not move, the map is not the missing input.
+			self.use_area_value = bool(self.args.get('area_value', False))
+			if self.use_area_value:
+				self.area_pool = AttentionPool(D)
+				self.area_value = nn.Sequential(nn.Linear(D, D), nn.ReLU(),
+				                                nn.Linear(D, self.num_players))
+			self.use_extra_layer = bool(self.args.get('extra_layer', False))
+			if self.use_extra_layer:
+				self.extra_layer = _make_identity_layer(D, 3 if self.version == 62 else 4,
+				                                        self.args.get('dropout', 0.1))
+
+			# Tensors that may legitimately be MISSING from an older checkpoint.
+			# GenericNNetWrapper.load_network accepts a checkpoint whose missing
+			# keys ALL start with one of these prefixes (and which has no
+			# unexpected key and no shape mismatch); anything else is refused.
+			self.additive_param_prefixes = ('map_emb.', 'head.choose_head.', 'feat_proj.',
+			                                'graph_mix.', 'head.pool.', 'extra_layer.',
+			                                'area_pool.', 'area_value.')
 
 		self.apply(self._init_weights)
 
@@ -364,6 +529,22 @@ class SmallworldNNet(nn.Module):
 		if self.version in [42, 62]:
 			self.map_emb.zero_init()
 			self.head.zero_init_additive()
+			if self.use_features:
+				nn.init.zeros_(self.feat_proj.weight)
+			if self.use_graph_mix:
+				self.graph_mix.zero_init()
+			if self.use_area_value:
+				# Only the LAST linear: zeroing the first one too would starve the
+				# gate of gradient. The pooling query follows once the gate opens.
+				self.area_pool.zero_init()
+				nn.init.zeros_(self.area_value[-1].weight)
+				nn.init.zeros_(self.area_value[-1].bias)
+			if self.use_extra_layer:
+				# _make_identity_layer already zeroed them; apply() re-randomised.
+				nn.init.zeros_(self.extra_layer.self_attn.out_proj.weight)
+				nn.init.zeros_(self.extra_layer.self_attn.out_proj.bias)
+				nn.init.zeros_(self.extra_layer.linear2.weight)
+				nn.init.zeros_(self.extra_layer.linear2.bias)
 
 	def _init_weights(self, m):
 		if isinstance(m, nn.Linear):
@@ -385,6 +566,13 @@ class SmallworldNNet(nn.Module):
 			return self
 		device = next(self.parameters()).device
 		D = self.stem.out_proj.out_features
+		if not hasattr(self.head, 'pool'):
+			self.head.pool = None
+		for flag in ('use_graph_mix', 'use_attn_pool', 'use_extra_layer', 'use_area_value'):
+			if not hasattr(self, flag):
+				setattr(self, flag, False)
+		if not hasattr(self, 'use_features'):
+			self.use_features = False
 		if not hasattr(self.head, 'choose_head'):
 			self.head.deck_start = 3 * self.num_players
 			self.head.deck_size = 6
@@ -394,7 +582,9 @@ class SmallworldNNet(nn.Module):
 			self.map_emb = StaticMapEmbedding(D, self.nb_vect, self.head.nb_areas).to(device)
 			self.map_emb.zero_init()
 		self.use_adj_bias = bool(self.args.get('adj_bias', True))
-		self.additive_param_prefixes = ('map_emb.', 'head.choose_head.', 'feat_proj.')
+		self.additive_param_prefixes = ('map_emb.', 'head.choose_head.', 'feat_proj.',
+		                                'graph_mix.', 'head.pool.', 'extra_layer.',
+		                                'area_pool.', 'area_value.')
 		return self
 
 	def forward(self, input_data, valid_actions):
@@ -412,6 +602,15 @@ class SmallworldNNet(nn.Module):
 			x = self.stem(x)
 			# Token identity + terrain, added AFTER the stem LayerNorm (zero at init)
 			x = x + self.map_emb().unsqueeze(0)
+			if self.use_features:
+				# Rules-derived features on AREA tokens only (zero at init)
+				A = self.head.nb_areas
+				f = self.feat_proj(self.feat(raw))
+				x = x + F.pad(f, (0, 0, 0, self.nb_vect - A))
+			if self.use_graph_mix:
+				# Message passing on AREA tokens only (identity at init)
+				A = self.head.nb_areas
+				x = torch.cat([self.graph_mix(x[:, :A]), x[:, A:]], dim=1)
 			
 			# Run trunk with optional dropout if needed
 			if self.training and self.args.get('dropout', 0) > 0 and self.version != 42:
@@ -421,7 +620,14 @@ class SmallworldNNet(nn.Module):
 			# (float mask = added to the attention logits; all-zero at init)
 			attn_bias = self.map_emb.attention_bias() if self.use_adj_bias else None
 			x = self.trunk(x, mask=attn_bias)
+			if self.use_extra_layer:
+				x = self.extra_layer(x, src_mask=attn_bias)
 			pi, v = self.head(x)
+			if getattr(self, 'use_area_value', False):
+				# Pooled read of the AREA tokens, added BEFORE the tanh so the
+				# module is exactly the identity while its gate is zero.
+				A = self.head.nb_areas
+				v = v + self.area_value(self.area_pool(x[:, :A]))
 			
 			# Mask invalid actions
 			pi = torch.where(valid_actions, pi, self.lowvalue)
