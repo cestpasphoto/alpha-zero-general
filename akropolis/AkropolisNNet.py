@@ -1,10 +1,11 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models._utils import _make_divisible
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
 
-from .AkropolisConstants import N_COLORS, CITY_SIZE, CITY_AREA, CONSTR_SITE_SIZE, CODES_LIST
+from .AkropolisConstants import N_COLORS, CITY_SIZE, CITY_AREA, CONSTR_SITE_SIZE, CODES_LIST, NEIGHBORS
 
 # --- HELPER CLASSES FOR NEW ARCHITECTURES ---
 
@@ -52,6 +53,10 @@ class GlobalContextMLP(nn.Module):
 		return self.mlp(x), c_emb
 
 class AkropolisNNet(nn.Module):
+	# Tensors that may legitimately be MISSING from an older checkpoint: they are
+	# zero-gated, so a checkpoint without them yields exactly the same function.
+	additive_param_prefixes = ()
+
 	def __init__(self, game, args):	
 		self.board_size = game.getBoardSize()
 		self.action_size = game.getActionSize()
@@ -144,6 +149,52 @@ class AkropolisNNet(nn.Module):
 				nn.BatchNorm1d(r),
 				nn.Hardswish(),
 			)
+
+			# ---------------- function-preserving growth modules ----------------
+			prefixes = []
+
+			# (a) TRUE HEX ADJACENCY.
+			# The city is stored in odd-r offset coordinates, so the 6 hex
+			# neighbours of (r,q) depend on the parity of r. A 3x3 Conv2d is
+			# translation-invariant: it sees 8 cells, 2 of which are NOT
+			# neighbours, and WHICH ones changes with the row -- something it
+			# cannot represent. Yet markets (isolated), temples (surrounded),
+			# barracks (on the outskirts) and houses (longest chain) are all
+			# DEFINED by exact adjacency, which _update_districts computes and
+			# the policy has to guess. This branch feeds the conv stack the exact
+			# 1-hop and 2-hop neighbour sums, gathered through NEIGHBORS.
+			self.use_hex_adj = bool(self.args.get('hex_adj', False))
+			if self.use_hex_adj:
+				nei = np.asarray(NEIGHBORS)
+				assert nei.shape[0] == CITY_AREA, f'NEIGHBORS rows {nei.shape[0]} != CITY_AREA {CITY_AREA}'
+				# out-of-board neighbours (-1) are routed to a zero pad slot
+				self.register_buffer('nei_idx',
+				                     torch.as_tensor(np.where(nei < 0, CITY_AREA, nei)).long(),
+				                     persistent=False)
+				# 1x1 convs: the spatial mixing is already done by the gather
+				self.hex_branch = nn.Sequential(
+					nn.Conv2d(3 * (D + 2), B, kernel_size=1),
+					nn.Hardswish(),
+					nn.Conv2d(B, B, kernel_size=1),   # GATE, zero-initialised
+				)
+				prefixes.append('hex_branch.')
+
+			# (b) THE VALUE HEAD NEVER SEES THE CITIES.
+			# v = final_layers_V(fused_3d) with fused_3d = [construction site,
+			# scores, globals]: the value reads the CURRENT score decomposition
+			# but nothing about the boards -- free space, quarries left to cover,
+			# temples one hex short of being surrounded, house connectivity. This
+			# adds a pooled board summary to the value logits.
+			self.use_board_value = bool(self.args.get('board_value', False))
+			if self.use_board_value:
+				self.value_board = nn.Sequential(
+					nn.Linear(2 * self.num_players * B, r),
+					nn.Hardswish(),
+					nn.Linear(r, self.num_players),   # GATE, zero-initialised
+				)
+				prefixes.append('value_board.')
+
+			self.additive_param_prefixes = tuple(prefixes)
 
 		# =====================================================================
 		# V40: FiLM-Conditioned MobileNet (Attention Contextuelle)
@@ -363,6 +414,8 @@ class AkropolisNNet(nn.Module):
 
 
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
+		self._zero_init_growth()
+
 		def _init(m):
 			if type(m) == nn.Linear:
 				nn.init.kaiming_uniform_(m.weight)
@@ -373,6 +426,30 @@ class AkropolisNNet(nn.Module):
 		for _, layer in self.__dict__.items():
 			if isinstance(layer, nn.Module):
 				layer.apply(_init)
+
+		# MUST come last: any re-initialisation pass above would otherwise break
+		# the "same function as the champion at step 0" guarantee.
+		self._zero_init_growth()
+
+	def _zero_init_growth(self):
+		# Only the OUTPUT gate of each branch is zeroed, never the inner layers:
+		# with everything at zero the gate itself would receive no gradient (its
+		# gradient is proportional to the branch activation). ReZero / LoRA-B
+		# ordering: the gate opens first, the inner weights follow.
+		if getattr(self, 'use_hex_adj', False):
+			nn.init.zeros_(self.hex_branch[-1].weight)
+			nn.init.zeros_(self.hex_branch[-1].bias)
+		if getattr(self, 'use_board_value', False):
+			nn.init.zeros_(self.value_board[-1].weight)
+			nn.init.zeros_(self.value_board[-1].bias)
+
+	def _hex_aggregate(self, feat):
+		# feat: (N, C, CITY_SIZE, CITY_SIZE) -> sum over the 6 TRUE hex neighbours
+		N, C, H, W = feat.shape
+		flat = feat.reshape(N, C, H * W)
+		pad = torch.zeros(N, C, 1, dtype=flat.dtype, device=flat.device)
+		flat = torch.cat([flat, pad], dim=-1)          # index CITY_AREA -> 0
+		return flat[:, :, self.nei_idx].sum(-1).reshape(N, C, H, W)
 
 	def forward(self, input_data, valid_actions):
 		x = input_data.permute(0, 3, 1, 2)
@@ -579,8 +656,15 @@ class AkropolisNNet(nn.Module):
 			boards_descr_long = boards_descr.clamp(min=0., max=len(CODES_LIST)-1).long()
 			boards_descr_embed = self.embed(boards_descr_long) # N,2,12,12,D
 			boards = torch.cat([boards_descr_embed, boards_height.unsqueeze(-1), boards_tileID.unsqueeze(-1)], dim=-1) # N,2,12,12,D+2
-			boards_4d = [boards[:,i,:,:,:].permute(0,3,1,2) for i in range(self.num_players)] # N,D+2,12,12 (num_players times)
-			boards_4d = [self.conv2d_boards(boards_4d[i]) for i in range(self.num_players)] # N,B,12,12 (num_players times)
+			boards_in = [boards[:,i,:,:,:].permute(0,3,1,2) for i in range(self.num_players)] # N,D+2,12,12 (num_players times)
+			boards_4d = [self.conv2d_boards(boards_in[i]) for i in range(self.num_players)] # N,B,12,12 (num_players times)
+
+			# (a) exact hex adjacency, additive and zero-gated at init
+			if self.use_hex_adj:
+				for i in range(self.num_players):
+					hop1 = self._hex_aggregate(boards_in[i])
+					hop2 = self._hex_aggregate(hop1)
+					boards_4d[i] = boards_4d[i] + self.hex_branch(torch.cat([boards_in[i], hop1, hop2], dim=1))
 
 			# Merge boards + scores + global data to a 4D vector
 			scores_4d = s1.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, CITY_SIZE, CITY_SIZE) # N, S, 12, 12
@@ -616,6 +700,12 @@ class AkropolisNNet(nn.Module):
 
 			# Compute value
 			v = self.final_layers_V(fused_3d)
+
+			# (b) let the value head see the cities, additive and zero-gated at init
+			if self.use_board_value:
+				pooled = torch.cat([b.mean(dim=(2, 3)) for b in boards_4d]
+				                   + [b.amax(dim=(2, 3)) for b in boards_4d], dim=1)
+				v = v + self.value_board(pooled)
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
 
