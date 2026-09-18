@@ -10,6 +10,7 @@ class_names_dict = {
     'thelittleprince': 'TLP',
     'akropolis': 'Akropolis',
     'abalone': 'Abalone',
+    'catan': 'Catan',
 }
 
 def import_game(pkg_name):
