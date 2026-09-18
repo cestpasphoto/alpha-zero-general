@@ -123,19 +123,13 @@ class GenericNNetWrapper(NeuralNet):
 	def predict_client(self, board, valid_actions, batch_info):
 		if self.current_mode != 'onnx':
 			raise Exception('Batch prediction only in ONNX mode')
-		
-		# Legacy compatibility 
-		if len(batch_info) == 5:
-			i_thread, i_result, shared_memory, locks, network_id = batch_info
-		else:
-			i_thread, i_result, shared_memory, locks = batch_info
-			network_id = 0
+
+		i_thread, i_result, shared_memory, locks = batch_info
 
 		# Store inputs in shared memory
 		shared_memory[i_thread] = (
 			np.expand_dims(board.astype(np.float32), 0),
 			np.expand_dims(np.array(valid_actions).astype(np.bool_), 0),
-			network_id
 		)
 		# Unblock next thread (= next MCTS or server), and wait for our turn
 		locks[i_thread+1].release()
@@ -147,39 +141,19 @@ class GenericNNetWrapper(NeuralNet):
 
 		return pi, v
 
-	def predict_server(self, nb_threads, shared_memory, locks, pnet=None):
+	def predict_server(self, nb_threads, shared_memory, locks):
 		self.switch_target('inference')
-		if pnet is not None:
-			pnet.switch_target('inference')
 		locks[0].release()
 
 		while shared_memory[-1] <= 1:
 			locks[-1].acquire() # Wait for all inputs
 
-			reqs_0 = [i for i in range(nb_threads) if len(shared_memory[i]) > 2 and shared_memory[i][2] == 0]
-			reqs_1 = [i for i in range(nb_threads) if len(shared_memory[i]) > 2 and shared_memory[i][2] == 1]
-			
-			# Fallback if network_id not provided
-			if not reqs_0 and not reqs_1:
-				reqs_0 = list(range(nb_threads))
-
-			# inference batch for current network (nnet)
-			if reqs_0:
-				ort_outs_0 = self.ort_session.run(None, {
-					'board'        : np.concatenate([shared_memory[i][0] for i in reqs_0]),
-					'valid_actions': np.concatenate([shared_memory[i][1] for i in reqs_0]),
-				})
-				for j, idx in enumerate(reqs_0):
-					shared_memory[idx+nb_threads] = (ort_outs_0[0][j], ort_outs_0[1][j])
-
-			# inference batch for the sparring partner (pnet)
-			if reqs_1 and pnet is not None and pnet.ort_session is not None:
-				ort_outs_1 = pnet.ort_session.run(None, {
-					'board'        : np.concatenate([shared_memory[i][0] for i in reqs_1]),
-					'valid_actions': np.concatenate([shared_memory[i][1] for i in reqs_1]),
-				})
-				for j, idx in enumerate(reqs_1):
-					shared_memory[idx+nb_threads] = (ort_outs_1[0][j], ort_outs_1[1][j])
+			ort_outs = self.ort_session.run(None, {
+				'board'        : np.concatenate([shared_memory[i][0] for i in range(nb_threads)]),
+				'valid_actions': np.concatenate([shared_memory[i][1] for i in range(nb_threads)]),
+			})
+			for i in range(nb_threads):
+				shared_memory[i+nb_threads] = (ort_outs[0][i], ort_outs[1][i])
 
 			locks[0].release() # Unblock 1st thread
 
@@ -216,33 +190,6 @@ class GenericNNetWrapper(NeuralNet):
 		targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
 		return torch.sum((targets - outputs) ** 2) / (targets_V.size()[0] * targets_V.size()[-1]) # Normalize by batch size * nb of players
 
-	# Computed once per process. A checkpoint must be able to say WHICH code and
-	# WHICH toolchain produced it: F4 could not be dated because nothing recorded
-	# the torch/onnxruntime versions, and settings.txt only covers CLI args.
-	_provenance_cache = None
-
-	@classmethod
-	def _provenance(cls):
-		if cls._provenance_cache is None:
-			import subprocess, platform
-			def _git(*a):
-				try:
-					return subprocess.check_output(('git',) + a, stderr=subprocess.DEVNULL,
-					                               text=True, timeout=5).strip()
-				except Exception:
-					return None
-			cls._provenance_cache = {
-				'saved_at'   : time.strftime('%Y-%m-%dT%H:%M:%S'),
-				'git_commit' : _git('rev-parse', 'HEAD'),
-				'git_dirty'  : bool(_git('status', '--porcelain')),
-				'torch'      : torch.__version__,
-				'onnx'       : onnx.__version__,
-				'onnxruntime': ort.__version__,
-				'numpy'      : np.__version__,
-				'python'     : platform.python_version(),
-			}
-		return cls._provenance_cache
-
 	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', additional_keys={}):
 		filepath = os.path.join(folder, filename)
 		if not os.path.exists(folder):
@@ -257,10 +204,6 @@ class GenericNNetWrapper(NeuralNet):
 			# Explicit version key: version check no longer relies solely on the
 			# pickled full_model object (which can be corrupted by cross-arch transfer).
 			'nn_version': self.nnet.version,
-			# Toolchain + code identity, and whether the torch/ONNX parity guardrail
-			# was active (it raises on failure, so False here means the checkpoint
-			# was produced without the check).
-			'provenance': self._provenance(),
 			'onnx_parity_skipped': os.environ.get('SKIP_ONNX_PARITY') == '1',
 		}
 		data.update(additional_keys)

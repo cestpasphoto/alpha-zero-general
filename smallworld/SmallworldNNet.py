@@ -163,7 +163,7 @@ class StaticMapEmbedding(nn.Module):
 	def __init__(self, d_model, nb_vect, nb_areas):
 		super().__init__()
 		# Import here: NUMBER_PLAYERS must be resolved when the net is built,
-		# not at module import time (same reason as in SmallworldNNet_graph.py).
+		# not at module import time.
 		from .SmallworldMaps import connexity_matrix, descr
 		assert descr.shape[0] == nb_areas, f'descr rows {descr.shape[0]} != nb_areas {nb_areas}'
 		assert connexity_matrix.shape == (nb_areas, nb_areas)

@@ -54,43 +54,6 @@ def run(args):
 		log.info('Loading checkpoint "%s"...', args.load_folder_file)
 		nnet.load_checkpoint(os.path.dirname(args.load_folder_file), os.path.basename(args.load_folder_file))
 
-		if os.path.abspath(args.checkpoint) != os.path.abspath(os.path.dirname(args.load_folder_file)):
-			import shutil, json
-			os.makedirs(args.checkpoint, exist_ok=True)
-			
-			new_leaderboard_path = os.path.join(args.checkpoint, 'leaderboard.json')
-			old_dir = os.path.dirname(args.load_folder_file)
-			old_lb_path = os.path.join(old_dir, 'leaderboard.json')
-
-			if not os.path.exists(new_leaderboard_path):
-				new_leaderboard = {}
-				if os.path.exists(old_lb_path):
-					try:
-						with open(old_lb_path, 'r') as f:
-							old_lb = json.load(f)
-						# Nettoyage préventif des clés de l'ancien leaderboard
-						valid_old = {m: v for m, v in old_lb.items() if isinstance(v, (int, float)) and not m.startswith('_')}
-						top_models = sorted(valid_old, key=valid_old.get, reverse=True)[:3]
-						
-						for rank, old_name in enumerate(top_models, start=1):
-							old_file_path = os.path.join(old_dir, old_name)
-							if os.path.exists(old_file_path):
-								new_name = f'parent_rank_{rank}.pt'
-								shutil.copy(old_file_path, os.path.join(args.checkpoint, new_name))
-								new_leaderboard[new_name] = valid_old[old_name]
-								log.info(f"Imported {old_name} as {new_name} (Elo: {int(valid_old[old_name])})")
-					except Exception as e:
-						log.warning(f"Failed to import Elite Vanguard: {e}")
-
-				if not new_leaderboard:
-					new_name = 'parent_baseline.pt'
-					shutil.copy(args.load_folder_file, os.path.join(args.checkpoint, new_name))
-					new_leaderboard[new_name] = 1200.0
-					log.info(f"Fallback: League initialized with single {new_name}")
-
-				with open(new_leaderboard_path, 'w') as f:
-					json.dump(new_leaderboard, f, indent=2)
-
 		if not args.useray:
 			compare_settings(args)
 	# else:
@@ -195,10 +158,6 @@ def main():
 	parser.add_argument('--fpu-root'               , action='store', default=0.   , type=float, help='Value for FPU at root level (first play urgency, using parent-based reduction)')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--forced-playouts-k', '-k' , action='store', default=1.5  , type=float, help='Multiplier k for forced playouts')
-	parser.add_argument('--gumbel'          , '-G' , action='store_true', help='Gumbel root Sequential Halving on self-play full searches. Supersedes Dirichlet noise, forced playouts, PTP and visit-count policy targets at the root. Designed for LOW sim counts (typically -m 32..200); at -m 800 the expected benefit is small. Eval (pit/arena/pnet) is never affected.')
-	parser.add_argument('--gumbel-m'               , action='store', default=16   , type=int  , help='Gumbel: max number of root actions considered by Sequential Halving (paper/mctx default: 16)')
-	parser.add_argument('--gumbel-cvisit'          , action='store', default=50.0 , type=float, help='Gumbel: c_visit constant of the sigma(Q) transform (paper default: 50)')
-	parser.add_argument('--gumbel-cscale'          , action='store', default=1.0  , type=float, help='Gumbel: c_scale constant of the sigma(Q) transform (paper default: 1.0)')
 	parser.add_argument('--nn-opt'                 , action='append', default=[], metavar='KEY=VALUE', help='Extra key passed to the net constructor (nn_args). Repeatable. Used for function-preserving growth modules: area_value, attn_pool, graph_mix, graph_layers, extra_layer.')
 
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
@@ -208,10 +167,8 @@ def main():
 	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
 
 	### Advanced params ###
-	parser.add_argument('--selfPlayRatio'          , action='store', default=80   , type=int  , help='Percentage of pure self-play games (100 = disable league)')
-	parser.add_argument('--leagueSize'             , action='store', default=10   , type=int  , help='Max number of models kept in the league pool')
 	parser.add_argument('--q-weight'        , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
-	parser.add_argument('--arena-gate'      , '-A' , action='store_true', help='Legacy synchronous evaluation mode: after each training iteration, pit the new net against its pre-training snapshot and accept/reject based on --updateThreshold. Disables league sparring. Without this flag (default), checkpoints are saved unconditionally and evaluated asynchronously (pit.py -D), selection is post-hoc.')
+	parser.add_argument('--arena-gate'      , '-A' , action='store_true', help='Synchronous evaluation mode: after each training iteration, pit the new net against its pre-training snapshot and accept/reject based on --updateThreshold. Without this flag (default), checkpoints are saved unconditionally, selection is post-hoc via pit.py.')
 	parser.add_argument('--arenaCompare'           , action='store', default=30   , type=int  , help='Arena gate: number of games against the previous net. 30 is a COARSE filter (~±130 Elo): it gates obvious regressions, it does not measure progress')
 	parser.add_argument('--arena-sims'             , action='store', default=None , type=int  , help='Arena gate: numMCTSSims used by BOTH sides of the gate (default: --numMCTSSims). Gate cost is ~linear in sims, so lowering it buys games: e.g. 100 games at 400 sims costs about the same wall clock as 30 games at 1200, and resolves ~2x better. Never affects self-play nor pit.py.')
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
@@ -230,22 +187,9 @@ def main():
 	parser.add_argument('--no-mem-optim'           , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	
 	args = parser.parse_args()
-	if args.gumbel:
-		if args.forced_playouts:
-			# Keep settings.txt truthful: FP would be dead code on full searches anyway
-			log.warning('Gumbel enabled: forced playouts / PTP are superseded at the root, disabling --forced-playouts')
-			args.forced_playouts = False
-		if args.dirichletAlpha != 0:
-			log.info('Gumbel enabled: Dirichlet noise will NOT be applied on full searches (superseded by Gumbel sampling); dirichletAlpha is kept only as a record')
 	if args.tempThreshold is not None:              # backward-compat: -T overrides temperature[3]
 		args.temperature[3] = float(args.tempThreshold)
 	args.tempThreshold = int(args.temperature[3])   # canonical value, used as-is across Coach
-	if args.arena_gate and args.selfPlayRatio < 100:
-		# The two modes answer the same question (which checkpoint to trust) with
-		# incompatible machineries; sparring pool comes from the daemon leaderboard
-		# which does not exist in gate mode.
-		log.warning('Arena gate enabled: league sparring disabled (selfPlayRatio forced to 100)')
-		args.selfPlayRatio = 100
 	args.maxlenOfQueue = int(2.5e6 / ((
 		                                  2 if args.no_compression else 0.5) * args.numItersHistory))  # at most 2GB per process, with each example weighing 2kB (or 0.5kB)
 	if args.stop_after_N_fail < 0:

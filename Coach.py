@@ -27,11 +27,9 @@ class Coach():
 	def __init__(self, game, nnet, args):
 		self.game = game
 		self.nnet = nnet
-		self.pnet = self.nnet.__class__(self.game, self.nnet.args)  # the competitor network
+		self.pnet = self.nnet.__class__(self.game, self.nnet.args)  # snapshot used by the arena gate (-A)
 		self.args = args
-		# dirichlet_noise doubles as the "training exploration" marker in MCTS;
-		# Gumbel needs it set too (it then supersedes the actual Dirichlet noise)
-		self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0 or self.args.gumbel))
+		self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
 		self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
 		self.skipFirstSelfPlay = nnet.requestKnowledgeTransfer  # can be overriden in loadTrainExamples()
 		self.consecutive_failures = 0
@@ -57,7 +55,18 @@ class Coach():
 		if my_game is None: my_game = self.game
 		if mcts_list is None: 
 			if my_mcts is None: my_mcts = getattr(self, 'mcts', None)
-			mcts_list = [my_mcts] * my_game.num_players
+			if hasattr(my_game, 'getObservation'):
+				# One tree per seat for hidden-info games (C5): a single shared
+				# tree would pool Nsa/Q across seats holding DIFFERENT hidden
+				# hands within the same game. Seat 0 reuses the MCTS the caller
+				# already built; the others get fresh siblings (same net/args).
+				mcts_list = [my_mcts] + [
+					MCTS(my_game, my_mcts.nnet, my_mcts.args, dirichlet_noise=my_mcts.dirichlet_noise,
+					     batch_info=my_mcts.batch_info)
+					for _ in range(my_game.num_players - 1)]
+			else:
+				mcts_list = [my_mcts] * my_game.num_players
+
 		if players_to_save is None: 
 			players_to_save = list(range(my_game.num_players))
 
@@ -76,20 +85,12 @@ class Coach():
 			my_mcts = mcts_list[curPlayer]
 			is_saving = (curPlayer in players_to_save)
 			
-			# pnet joue sans exploration (temp=0.0) et en full_search
+			# pnet (opponents in the arena gate) plays greedily (temp=0.0), full search
 			temp = 1.0 if is_saving else 0.0
 			force_full = False
 			
 			pi, q, is_full_search, metrics = my_mcts.getActionProb(canonicalBoard, temp=temp, force_full_search=force_full)
-			# Gumbel mode: pi is the improved-policy TRAINING TARGET, not a sampling
-			# law. The move to play is the Sequential Halving winner (exploration is
-			# provided by the Gumbel noise, resampled each move), so the temperature
-			# schedule does not apply. pop() keeps episode_metrics aggregation clean.
-			gumbel_action = metrics.pop('gumbel_action', -1)
-			if gumbel_action >= 0:
-				action = int(gumbel_action)
-			else:
-				action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep) if is_saving else 0.0)
+			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep) if is_saving else 0.0)
 			
 			if episodeStep <= DEPTH_OPENING:
 				opening_sequence.append(action)
@@ -98,7 +99,16 @@ class Coach():
 				for k, v in metrics.items():
 					episode_metrics[k].append(v)
 				valids = my_game.getValidMoves(canonicalBoard, 0)
-				sym = my_game.getSymmetries(canonicalBoard, pi, valids)
+				# Hidden-info games: train on what the network will actually see
+				# at inference (own hand + public totals only), never the raw
+				# ground truth. MCTS.getActionProb() already never feeds the true
+				# opponent hands to the net either (it determinizes per universe
+				# instead) -- storing canonicalBoard as-is here would train the
+				# net on information it will never have again at search time.
+				# getValidMoves is unaffected (C6: legality only reads the
+				# actor's own hand + public state, which get_observation keeps).
+				board_for_training = my_game.getObservation(canonicalBoard, 0) if hasattr(my_game, 'getObservation') else canonicalBoard
+				sym = my_game.getSymmetries(board_for_training, pi, valids)
 				for b, p, v in sym:
 					trainExamples.append([b, p, curPlayer, v, q])
 
@@ -125,33 +135,21 @@ class Coach():
 		# then server runs inferences on batch.
 		# Each thread loops until receiving a signal to stop
 		locks[i_thread].acquire()
-		batch_info_nnet = (i_thread, i_thread+self.nb_threads, shared_memory, locks, 0)
-		batch_info_pnet = (i_thread, i_thread+self.nb_threads, shared_memory, locks, 1)
+		batch_info_nnet = (i_thread, i_thread+self.nb_threads, shared_memory, locks)
 
 		while shared_memory[-1] == 0: # Signal 0 means to continue computing
 			my_game = self.game.__class__()
 			my_game.getInitBoard()
-			
-			# Tire les dés pour ce match précis
-			is_asymmetric = (np.random.rand() >= (self.args.selfPlayRatio / 100.0)) and getattr(self, 'pnet_loaded', False) and my_game.num_players > 1
 			players_to_save = list(range(my_game.num_players))
-			
-			if is_asymmetric:
-				pnet_player = np.random.randint(my_game.num_players)
-				players_to_save.remove(pnet_player)
-				from copy import deepcopy
-				pnet_args = deepcopy(self.args)
-				pnet_args.forced_playouts = False # Désactive l'exploration forcée pour l'évaluateur
-				pnet_args.gumbel = False          # L'évaluateur joue en PUCT pur (déjà garanti par dirichlet_noise=False, ceinture et bretelles)
-				
-				mcts_list = []
-				for p in range(my_game.num_players):
-					if p == pnet_player:
-						mcts_list.append(MCTS(my_game, self.pnet, pnet_args, dirichlet_noise=False, batch_info=batch_info_pnet))
-					else:
-						mcts_list.append(MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0 or self.args.gumbel), batch_info=batch_info_nnet))
+
+			mcts_nnet = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info_nnet)
+			if hasattr(my_game, 'getObservation'):
+				# see executeEpisode's own default branch for why (C5)
+				mcts_list = [mcts_nnet] + [
+					MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0),
+					     batch_info=batch_info_nnet)
+					for _ in range(my_game.num_players - 1)]
 			else:
-				mcts_nnet = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0 or self.args.gumbel), batch_info=batch_info_nnet)
 				mcts_list = [mcts_nnet] * my_game.num_players
 
 			episode_examples, episode_metrics = self.executeEpisode(my_game=my_game, mcts_list=mcts_list, players_to_save=players_to_save)
@@ -165,7 +163,6 @@ class Coach():
 	def executeEpisodes(self):
 		iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 		if self.nb_threads == 1:
-			total_metrics = {"max_depth": 0, "avg_new_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0, "root_coverage": 0}
 			completed_episodes = 0
 			unique_openings = set()
 			t = trange(self.args.numEps, desc="Self Play", ncols=120)
@@ -173,21 +170,9 @@ class Coach():
 				episode_examples, episode_metrics = self.executeEpisode()
 				iterationTrainExamples += episode_examples
 				completed_episodes += 1
-				# log.info({k:v/completed_episodes for k,v in total_metrics.items()})
-				for k in total_metrics:
-					total_metrics[k] += episode_metrics[k]
 				unique_openings.add(episode_metrics["opening"])
-				t.set_postfix(
-					d_max=f"{total_metrics['max_depth']/completed_episodes:.1f}",
-					d_avg=f"{total_metrics['avg_new_depth']/completed_episodes:.1f}",
-					# n=f"{total_metrics['new_nodes']/completed_episodes:.0f}",
-					ent=f"{total_metrics['entropy']/completed_episodes:.2f}",
-					conf=f"{total_metrics['confidence']/completed_episodes:.2f}",
-					cov=f"{total_metrics['root_coverage']/completed_episodes:.0%}",
-					uniq=f"{len(unique_openings)/completed_episodes:.0%}",
-					refresh=False
-				)
-				self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0 or self.args.gumbel))
+				t.set_postfix(uniq=f"{len(unique_openings)/completed_episodes:.0%}", refresh=False)
+				self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
 				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
 					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
 					break
@@ -201,13 +186,11 @@ class Coach():
 			self.examplesQueue = SimpleQueue()
 			[l.acquire() for l in locks]
 			threads_list = [Thread(target=self.executeEpisodes_batch, args=(i_thread, shared_memory, locks)) for i_thread in range(self.nb_threads)]
-			pnet_to_pass = self.pnet if getattr(self, 'pnet_loaded', False) else None
-			threads_list.append(Thread(target=self.nnet.predict_server, args=(self.nb_threads, shared_memory, locks, pnet_to_pass)))
+			threads_list.append(Thread(target=self.nnet.predict_server, args=(self.nb_threads, shared_memory, locks)))
 			[t.start() for t in threads_list]
 
 			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=None)
 			nb_examples, max_nb_episodes = 0, self.args.numEps
-			total_metrics = {"max_depth": 0, "avg_new_depth": 0, "new_nodes": 0, "entropy": 0, "confidence": 0, "root_coverage": 0}
 			unique_openings = set()
 			while True:
 				sleep(1)
@@ -215,19 +198,8 @@ class Coach():
 					episode_examples, episode_metrics = self.examplesQueue.get_nowait()
 					iterationTrainExamples += episode_examples
 					nb_examples += 1
-					for k in total_metrics:
-						total_metrics[k] += episode_metrics[k]
 					unique_openings.add(episode_metrics["opening"])
-					progress.set_postfix(
-						d_max=f"{total_metrics['max_depth']/nb_examples:.1f}",
-						d_avg=f"{total_metrics['avg_new_depth']/nb_examples:.1f}",
-						# n=f"{total_metrics['new_nodes']/nb_examples:.0f}",
-						ent=f"{total_metrics['entropy']/nb_examples:.2f}",
-						conf=f"{total_metrics['confidence']/nb_examples:.2f}",
-						cov=f"{total_metrics['root_coverage']/nb_examples:.0%}",
-						uniq=f"{len(unique_openings)/nb_examples:.0%}",
-						refresh=False
-					)
+					progress.set_postfix(uniq=f"{len(unique_openings)/nb_examples:.0%}", refresh=False)
 					progress.update()
 				# Check if we have collected enough samples
 				if nb_examples >= self.args.numEps - self.nb_threads:
@@ -254,38 +226,8 @@ class Coach():
 		"""
 
 		for i in range(1, self.args.numIters + 1):
-			# Stagnation flag written by the async evaluator daemon: only meaningful
-			# outside gate mode (in gate mode a leftover flag from a previous run
-			# would silently kill the training)
-			stop_file = os.path.join(self.args.checkpoint, 'STOP_TRAINING.flag')
-			if not self.args.arena_gate and os.path.exists(stop_file):
-				log.warning("Stop signal received from Evaluator (Stagnation). Halting training gracefully.")
-				break
 
-			# 1. Sélectionne le sparring partner de l'itération si la ligue est activée
-			# (jamais en mode arena-gate : le pool vient du leaderboard du daemon,
-			# qui n'existe pas dans ce mode)
-			self.pnet_loaded = False
-			if not self.args.arena_gate and self.args.selfPlayRatio < 100:
-				leaderboard_file = os.path.join(self.args.checkpoint, 'leaderboard.json')
-				if os.path.exists(leaderboard_file):
-					try:
-						import json
-						with open(leaderboard_file, 'r') as f:
-							leaderboard = json.load(f)
-						if leaderboard:
-							# FILTRE SÉCURISÉ : On ignore "skipped" et les métadonnées internes (_stagnation_counter)
-							valid_models = {m: v for m, v in leaderboard.items() if isinstance(v, (int, float)) and not m.startswith('_')}
-							if valid_models:
-								# Trie par Elo décroissant et garde les meilleurs selon le paramètre fourni
-								top_models = sorted(valid_models, key=valid_models.get, reverse=True)[:self.args.leagueSize]
-								selected = np.random.choice(top_models)
-								self.pnet.load_checkpoint(folder=self.args.checkpoint, filename=selected)
-								self.pnet_loaded = True
-								log.info(f"League Active: Loaded {selected} (Elo: {int(valid_models[selected])}) as sparring partner.")
-					except Exception as e:
-						log.warning(f"Could not load {leaderboard_file}: {e}")
-			# 2. Génération des exemples (Mélange 80% self-play / 20% ligue géré en interne)
+			# Generate self-play examples for this iteration
 			if not self.skipFirstSelfPlay or i > 1:
 				iterationTrainExamples = self.executeEpisodes()
 				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
@@ -312,19 +254,18 @@ class Coach():
 				trainExamples.extend(e)
 			shuffle(trainExamples)
 
-			# 3. Entraînement du modèle courant (mode gate : snapshot du réseau
-			# AVANT training, il servira de référence au match d'acceptation)
+			# Train the current model (gate mode: snapshot the network BEFORE
+			# training, it will be the reference for the acceptance match)
 			if self.args.arena_gate:
 				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt', additional_keys=vars(self.args))
 				self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
 			self.nnet.train(trainExamples)
 
 			if self.args.arena_gate:
-				# 4a. Mode historique restauré : gate synchrone contre le snapshot
 				self.arena_gate_step(i)
 			else:
-				# 4b. Sauvegarde finale Asynchrone (pas de match Arena synchrone :
-				# évaluation par le daemon pit.py -D, sélection post-hoc)
+				# No synchronous gate: save every checkpoint unconditionally,
+				# selection is done later by hand with pit.py.
 				log.info(f'Iter #{i} - Training completed. Saving Checkpoint.')
 				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
 				# 'best.pt' is reserved for post-hoc selection (the last checkpoint is rarely the best).
@@ -334,14 +275,13 @@ class Coach():
 
 	def arena_gate_step(self, i):
 		"""
-		Legacy synchronous gate (the pre-league mode, restored): pit the freshly
-		trained net against its pre-training snapshot (temp.pt, already loaded in
-		pnet) and keep it only if it clears args.updateThreshold.
+		Pit the freshly trained net against its pre-training snapshot (temp.pt,
+		already loaded in pnet) and keep it only if it clears args.updateThreshold.
 
-		Eval hygiene inherited from the recent fixes:
+		Eval hygiene:
 		- both players share the exact same search profile (same args object),
 		  full search forced, dirichlet_noise=False so Dirichlet / forced
-		  playouts / Gumbel are all OFF by construction;
+		  playouts are OFF by construction;
 		- moves are SAMPLED from the tempered policy (np.random.choice), not
 		  argmax'ed: argmax was the A4 bug (temperature silently cancelled,
 		  effective N collapsed by duplicate games).
@@ -357,16 +297,22 @@ class Coach():
 		gate_args = copy.copy(self.args)
 		if getattr(self.args, 'arena_sims', None):
 			gate_args.numMCTSSims = self.args.arena_sims
-		nmcts = MCTS(self.game, self.nnet, gate_args)
-		pmcts = MCTS(self.game, self.pnet, gate_args)
+		# Arena now takes a FACTORY per side (fresh MCTS instance per call) so
+		# it can give hidden-info games one tree per SEAT instead of one tree
+		# shared by every seat that side occupies (see Arena.py's diff). A
+		# plain shared `nmcts`/`pmcts` closure, as before, is exactly the
+		# per-seat leak that fix targets, so the factory must build a NEW MCTS
+		# each time, not close over one instance built here.
+		def make_gate_player(net):
+			def factory():
+				mcts = MCTS(self.game, net, gate_args)
+				def play(x, n):
+					probs = mcts.getActionProb(x, temp=self.temp_for_game(n), force_full_search=True)[0]
+					return int(np.random.choice(len(probs), p=probs))
+				return play
+			return factory
 
-		def gate_player(mcts):
-			def play(x, n):
-				probs = mcts.getActionProb(x, temp=self.temp_for_game(n), force_full_search=True)[0]
-				return int(np.random.choice(len(probs), p=probs))
-			return play
-
-		arena = Arena(gate_player(nmcts), gate_player(pmcts), self.game)
+		arena = Arena(make_gate_player(self.nnet), make_gate_player(self.pnet), self.game)
 		nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
 
 		if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:

@@ -68,13 +68,18 @@ def create_player(name, args, player_id):
 	if game is None:
 		Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
 		game = Game()
+	# All create_player() branches now return a FACTORY (a zero-arg callable
+	# that returns a fresh player function), not the player function itself.
+	# Arena calls the factory once per seat that role occupies: once for
+	# perfect-info games (unchanged behaviour), once PER SEAT for hidden-info
+	# games so seats never share one MCTS tree/hand (see Arena.py's diff).
 	# all players
 	if name == 'random':
-		return players.RandomPlayer(game).play, None
+		return (lambda: players.RandomPlayer(game).play), None
 	if name == 'greedy':
-		return players.GreedyPlayer(game).play, None
+		return (lambda: players.GreedyPlayer(game).play), None
 	if name == 'human':
-		return players.HumanPlayer(game).play, None
+		return (lambda: players.HumanPlayer(game).play), None
 
 	# set default values but will be overloaded when loading checkpoint
 	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1)
@@ -84,7 +89,6 @@ def create_player(name, args, player_id):
 
 	cpuct = additional_keys.get('cpuct')
 	cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
-	is_daemon = getattr(args, 'daemon', False)
 	strict = getattr(args, 'strict', False)
 
 	if strict:
@@ -105,20 +109,20 @@ def create_player(name, args, player_id):
 			'universes'        : _per_side(args, player_id, 'u', args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1)),
 			'prob_fullMCTS'    : 1.,      # PCR off in eval
 			'forced_playouts'  : False,   # training tool
-			'gumbel'           : False,   # training tool
 			'forced_playouts_k': 1.5,
 			'no_mem_optim'     : False,
 		})
-		mcts = MCTS(game, net, mcts_args)
-
 		def temp_for_game(n):
 			# Explicit eval temperature: 0.5 -> 0, half-life 4 plies (protocol v1.1 §1)
 			return 0.5 * (0.5 ** (n / 4.0))
 
-		def player(x, n):
-			probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
-			return int(np.random.choice(len(probs), p=probs))
-		return player, mcts_args
+		def make_player():
+			mcts = MCTS(game, net, mcts_args)   # fresh tree per call, net weights shared
+			def player(x, n):
+				probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
+				return int(np.random.choice(len(probs), p=probs))
+			return player
+		return make_player, mcts_args
 
 	# Defect 5: detect a silent fallback to the default sim count (the 3200-vs-800 trap)
 	sims_from_ckpt = additional_keys.get('numMCTSSims', None)
@@ -135,32 +139,30 @@ def create_player(name, args, player_id):
 	mcts_args = dotdict({
 		'numMCTSSims'     : sims,
 		'fpu'             : fpu_cli if fpu_cli is not None else (0.1 if fpu_ckpt is None else fpu_ckpt),
-		'fpu_root'        : 0.0 if is_daemon else (fpu_cli if fpu_cli is not None else (0.0 if fpu_root_ckpt is None else fpu_root_ckpt)),
+		'fpu_root'        : fpu_cli if fpu_cli is not None else (0.0 if fpu_root_ckpt is None else fpu_root_ckpt),
 		'universes'       : _per_side(args, player_id, 'u', args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1)),
-		'cpuct'           : _per_side(args, player_id, 'c', args.cpuct if args.cpuct else (1.0 if is_daemon else cpuct)),
+		'cpuct'           : _per_side(args, player_id, 'c', args.cpuct if args.cpuct else cpuct),
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
-		'gumbel'          : False,  # training-only tool, pinned OFF in eval like FP/Dirichlet (protocol v1.1 §1)
 		'forced_playouts_k': additional_keys.get('forced_playouts_k', 1.5),
 		'no_mem_optim'    : False,
 	})
 
-	mcts = MCTS(game, net, mcts_args)
 	def temp_for_game(n):
-		if is_daemon:
-			return 0.2 if n <= 20 else 0.0
 		# Defect 3: half-life read from temperature[3] (merged --tempThreshold), fallback 10
 		# for older checkpoints. Was wrongly temperature[2] (softmax temp ~1.1) -> near-greedy
 		# play from move ~5, collapsing opening diversity.
 		t_begin, t_end = 0.5, 0.0
 		half_life = abs((additional_keys.get('temperature', [])[3:4] or [10])[0])
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
-	
-	def player(x, n):
-		probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
-		return int(np.random.choice(len(probs), p=probs))
-	return player, mcts_args
 
+	def make_player():
+		mcts = MCTS(game, net, mcts_args)   # fresh tree per call, net weights shared
+		def player(x, n):
+			probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
+			return int(np.random.choice(len(probs), p=probs))
+		return player
+	return make_player, mcts_args
 
 def _resolve_player_path(p):
 	# Prefer best.pt (post-hoc selected); fall back to latest.pt (most recent checkpoint).
@@ -361,98 +363,6 @@ def update_ratings(p1, p2, game_results, args):
 		# for p, pname in [(player1, p1), (player2, p2)]:
 		# 	print(f'{pname[-20:].rjust(20)} rating={int(p.rating)}±{int(p.rd)}, vol={p.vol:.3e}')
 
-def run_daemon(args):
-	import time, glob, json, re, math
-	leaderboard_file = os.path.join(args.compare, 'leaderboard.json')
-	
-	print(f"Starting Asynchronous Evaluator in {args.compare}...")
-	while True:
-		leaderboard = json.load(open(leaderboard_file)) if os.path.exists(leaderboard_file) else {}
-		
-		# Récupère les checkpoints qui finissent par un chiffre
-		cpts = [f for f in glob.glob(os.path.join(args.compare, 'checkpoint_*.pt')) if re.search(r'checkpoint_\d+\.pt$', f)]
-		cpts = sorted(cpts, key=os.path.getmtime)
-		new_cpts = [c for c in cpts if os.path.basename(c) not in leaderboard]
-		
-		if not new_cpts:
-			time.sleep(30)
-			continue
-			
-		for skipped_cpt in new_cpts[:-1]:
-			leaderboard[os.path.basename(skipped_cpt)] = "skipped"
-		
-		# On ne garde que le tout dernier checkpoint généré
-		cpt = new_cpts[-1] 
-		cpt_name = os.path.basename(cpt)
-		print(f"\n--- Evaluating {cpt_name} ---")
-		cpt_elo = leaderboard.get(cpt_name, 1200.0)
-		
-		# FILTRE SÉCURISÉ : On isole uniquement les vrais modèles avec un Elo numérique
-		valid_models = {m: v for m, v in leaderboard.items() if isinstance(v, (int, float)) and not m.startswith('_')}
-		
-		# Construit le pool des adversaires avec les modèles valides
-		league_pool = [m for m in sorted(valid_models, key=valid_models.get, reverse=True) if valid_models[m] >= 1200.0][:args.league_size]
-		candidates = [p for p in league_pool if p != cpt_name]
-		
-		opponents = list(np.random.choice(candidates, min(args.daemon_opponents, len(candidates)), replace=False)) if candidates else []
-		
-		# Fallback de sécurité si le pool est vide
-		if not opponents and valid_models:
-			best_old = max(valid_models, key=valid_models.get)
-			if best_old != cpt_name: opponents = [best_old]
-		
-		# Defect 7: frozen anchors + direct Elo from aggregate score (no K=32 compression).
-		# A 30-50 game match is information worth tens of Elo; the old K=32 update moved the
-		# rating by only a few points AND mutated the opponents, making the whole board drift.
-		elo_estimates = []
-		for opp in opponents:
-			opp_elo = leaderboard.get(opp, 1200.0)
-			print(f"Match: {cpt_name} vs {opp} (anchor Elo: {int(opp_elo)})")
-
-			args.players = [cpt, os.path.join(args.compare, opp)]
-			oneWon, twoWon, draws = play(args)
-
-			total_games = oneWon + twoWon + draws
-			if total_games == 0: continue
-			actual_score = (oneWon + draws * 0.5) / total_games
-			# Continuity correction to avoid +/-inf at score 0 or 1
-			eps = 0.5 / total_games
-			s = min(max(actual_score, eps), 1 - eps)
-			# Anchor is frozen: estimate the candidate's Elo, never touch the opponent's
-			elo_estimates.append(opp_elo + 400 * math.log10(s / (1 - s)))
-
-		if elo_estimates:
-			cpt_elo = sum(elo_estimates) / len(elo_estimates)
-		leaderboard[cpt_name] = cpt_elo
-
-		print(f"Current Elo of {cpt_name}: {int(cpt_elo)}")
-			
-		# --- STAGNATION (EARLY STOPPING) ---
-		# Defect 8: compare to the best *candidate* so far (frozen anchors sit high and would
-		# trip the counter instantly), with a noise-aware margin (~one CI half-width at ~100
-		# games) so the counter tracks real progress, not measurement noise.
-		STAGNATION_MARGIN = 50.0
-		best_cpt_elo = leaderboard.get("_best_cpt_elo", cpt_elo)
-		if cpt_elo >= best_cpt_elo - STAGNATION_MARGIN:
-			leaderboard["_stagnation_counter"] = 0
-			leaderboard["_best_cpt_elo"] = max(best_cpt_elo, cpt_elo)
-		else:
-			current_count = leaderboard.get("_stagnation_counter", 0) + 1
-			leaderboard["_stagnation_counter"] = current_count
-			print(f"Stagnation warning: {current_count}/15 checkpoints without progress "
-			      f"(best candidate {int(best_cpt_elo)}, this one {int(cpt_elo)}).")
-
-			if current_count >= 15:
-				stop_file = os.path.join(args.compare, 'STOP_TRAINING.flag')
-				with open(stop_file, 'w') as f:
-					f.write("Stagnation threshold reached.")
-				print(">>> STAGNATION LIMIT REACHED. STOP SIGNAL SENT TO COACH. <<<")
-				with open(leaderboard_file, 'w') as f: json.dump(leaderboard, f, indent=2)
-				exit(0)
-
-		# Sauvegarde l'état unique complet (incluant le compteur de stagnation)
-		with open(leaderboard_file, 'w') as f: json.dump(leaderboard, f, indent=2)
-		
 def play_several_files(args):
 	players = args.players[:]  # Copy, because it will be overwritten by plays()
 	list_tasks = []
@@ -515,7 +425,7 @@ def main():
 	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None, type=int  , help='Number of games moves for MCTS to simulate.')
 	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, help='cpuct value')
 	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
-	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile of protocol v1.1 §1 on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet/Gumbel off, explicit eval temperature. Use this for every comparison meant to be decisional.')
+	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile of protocol v1.1 §1 on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet off, explicit eval temperature. Use this for every comparison meant to be decisional.')
 	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , help='Override universes for both players (default: value stored in checkpoint). u<=1 = ONE fixed dice realisation; u>=2 samples several (8 seeds available)')
 
 	# Per-side EVAL overrides: for experiments where the search profile IS the
@@ -543,9 +453,6 @@ def main():
 	parser.add_argument('--compare-age'        , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
 	parser.add_argument('--max-compare-threads', '-T' , action='store', default=1           , help='No of threads to run comparison on', type=int)
 
-	parser.add_argument('--daemon'             , '-D' , action='store_true', help='Run as asynchronous evaluator')	
-	parser.add_argument('--daemon-opponents'   , '-O' , action='store', default=3, type=int, help='Nb of opponents per evaluation')
-	parser.add_argument('--league-size'        , '-L' , action='store', default=20, type=int, help='Max number of models kept in the league pool')
 	args = parser.parse_args()
 
 	if _any_per_side(args) and not args.asymmetric:
@@ -554,9 +461,7 @@ def main():
 	if args.asymmetric and not _any_per_side(args):
 		print('[WARNING] --asymmetric given but no per-side override: the pit is symmetric.')
 
-	if args.daemon:
-		run_daemon(args)
-	elif args.profile:
+	if args.profile:
 		profiling(args)
 	elif args.compare_age:
 		play_age(args)

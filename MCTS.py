@@ -47,6 +47,12 @@ class MCTS():
         self.max_current_depth = 0
         self.sum_new_nodes_depth = 0
 
+        # Hidden-info games (Catan) opt in by exposing Game.getObservation /
+        # Game.sampleWorld. Every other game leaves this False and every line
+        # below that checks it is a no-op: zero behaviour change elsewhere.
+        self.hidden_info = hasattr(self.game, 'getObservation')
+        self._fp_warned = False
+
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
         This function performs numMCTSSims simulations of MCTS starting from
@@ -69,51 +75,110 @@ class MCTS():
         self.max_current_depth = 0
         self.sum_new_nodes_depth = 0
 
-        # Gumbel root Sequential Halving (training-only, replaces the whole root
-        # machinery below: Dirichlet noise, forced playouts, PTP and visit-count
-        # targets). Gated on self.dirichlet_noise so that pit/arena/pnet MCTS
-        # instances (dirichlet_noise=False) are never affected, and on
-        # is_full_search so that PCR fast searches keep the cheap PUCT path.
-        # getattr: robust to eval-side dotdict args that lack the 'gumbel' key.
-        if getattr(self.args, 'gumbel', False) and is_full_search and self.dirichlet_noise:
-            return self._gumbel_root_search(canonicalBoard, nb_MCTS_sims, initial_nodes_count)
+        # --- Hidden-info games: determinize ONCE PER UNIVERSE, not per node/visit ---
+        # `obs` masks every player but the root's own (get_observation keeps my
+        # own hand, totals for everyone, zeroes opponents' detail). Each distinct
+        # `random_seed` (= one of the `universes` dice/card streams already used
+        # for chance events) gets exactly ONE invented, fully-resolved world,
+        # built once here and then searched with the UNCHANGED perfect-info
+        # search() below -- Es/Vs/Nsa are computed on that concrete board, so the
+        # tree key (its bytes) determines them completely, same invariant as
+        # every other game. Different universes land on different keys by
+        # construction (their invented bytes differ), so nothing pools across
+        # worlds that shouldn't; the SAME universe reused across many
+        # simulations does pool correctly within itself, exactly like tree
+        # reuse in a perfect-info game.
+        universe_roots = {}
+        if self.hidden_info:
+            obs = self.game.getObservation(canonicalBoard, 0)
 
         for self.step in range(nb_MCTS_sims):
             self.random_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
-            dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
-            self.search(canonicalBoard, dirichlet_noise=dir_noise, forced_playouts=forced_playouts, is_root=True, depth=0)
+            if self.hidden_info:
+                is_new_universe = self.random_seed not in universe_roots
+                if is_new_universe:
+                    universe_roots[self.random_seed] = self.game.sampleWorld(obs, self.random_seed)
+                root_board = universe_roots[self.random_seed]
+                dir_noise = (is_new_universe and is_full_search and self.dirichlet_noise)
+            else:
+                root_board = canonicalBoard
+                dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
+            self.search(root_board, dirichlet_noise=dir_noise, forced_playouts=forced_playouts and not self.hidden_info, is_root=True, depth=0)
 
-        s = self.game.stringRepresentation(canonicalBoard)
-        counts = [self.nodes_data[s][5][a] for a in range(self.game.getActionSize())] # Nsa
-
-        # Per-player Q measured directly from backups (no zero-sum assumption)
-        q = list(self.nodes_data[s][3][1])
-
-        # Policy target pruning: subtract up to n_forced playouts from each non-best child,
-        # but stop before PUCT(a) would reach PUCT(best) (holding final utilities constant).
-        if forced_playouts:
-            Ps_root  = self.nodes_data[s][2]
-            Qsa_root = self.nodes_data[s][4]
-            S = float(sum(counts))
-            best_a = int(np.argmax(counts))
-            best_count = counts[best_a]
-            puct_best = Qsa_root[best_a] + self.args.cpuct * Ps_root[best_a] * math.sqrt(S) / (1 + best_count)
-            adjusted_counts = list(counts)
-            for a in range(len(counts)):
-                n = counts[a]
-                if n == 0 or a == best_a:
+        action_size = self.game.getActionSize()
+        if self.hidden_info:
+            # Aggregate Nsa/Q across every universe's own root node -- there is
+            # no single "the" root node anymore (F2-style determinized roots,
+            # sharing storage instead of separate trees). A universe whose root
+            # turned out immediately terminal in its invented world contributes
+            # nothing (meta_ns_qs is None for terminal nodes) -- this is the
+            # scenario that used to corrupt Es/Nsa for OTHER universes; here it
+            # just means one fewer root to average over.
+            counts = [0] * action_size
+            q_acc, n_roots = None, 0
+            for root_board in universe_roots.values():
+                rs = self.game.stringRepresentation(root_board)
+                node = self.nodes_data.get(rs)
+                if node is None or node[3] is None:
                     continue
-                n_forced = int(math.sqrt(self.args.forced_playouts_k * Ps_root[a] * S))
-                gap = puct_best - Qsa_root[a]
-                if gap <= 0:
-                    continue   # already at least as urgent as best: subtract nothing
-                n_min = math.ceil(self.args.cpuct * Ps_root[a] * math.sqrt(S) / gap - 1)
-                new_n = max(n - n_forced, int(n_min), 0)
-                adjusted_counts[a] = new_n
-            adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
-            counts = adjusted_counts
+                for a in range(action_size):
+                    counts[a] += int(node[5][a])
+                q_this = node[3][1]
+                q_acc = q_this.copy() if q_acc is None else q_acc + q_this
+                n_roots += 1
+            if n_roots > 0:
+                q = list(q_acc / n_roots)
+            else:
+                # every universe's invented root was immediately terminal:
+                # fall back to a direct, uninformed network query on the
+                # player's own masked view rather than crash or return zeros.
+                valids_fallback = self.game.getValidMoves(canonicalBoard, 0)
+                Ps_fb, v_fb = self.nnet.predict(obs, valids_fallback)
+                counts = [int(valids_fallback[a]) for a in range(action_size)]
+                q = list(v_fb)
+            valid_moves_mask = self.game.getValidMoves(canonicalBoard, 0)  # actor-only info (C6): same in every universe
+            if forced_playouts and not self._fp_warned:
+                log.warning('forced_playouts/PTP are not applied for hidden-info games (no single root Ps/Qsa '
+                            'to prune against multiple determinized roots); ignoring -F for this game.')
+                self._fp_warned = True
+        else:
+            s = self.game.stringRepresentation(canonicalBoard)
+            counts = [self.nodes_data[s][5][a] for a in range(action_size)] # Nsa
 
-        probs = np.array(counts)
+            # Per-player Q measured directly from backups (no zero-sum assumption)
+            q = list(self.nodes_data[s][3][1])
+
+            # Policy target pruning: subtract up to n_forced playouts from each non-best child,
+            # but stop before PUCT(a) would reach PUCT(best) (holding final utilities constant).
+            if forced_playouts:
+                Ps_root  = self.nodes_data[s][2]
+                Qsa_root = self.nodes_data[s][4]
+                S = float(sum(counts))
+                best_a = int(np.argmax(counts))
+                best_count = counts[best_a]
+                puct_best = Qsa_root[best_a] + self.args.cpuct * Ps_root[best_a] * math.sqrt(S) / (1 + best_count)
+                adjusted_counts = list(counts)
+                for a in range(len(counts)):
+                    n = counts[a]
+                    if n == 0 or a == best_a:
+                        continue
+                    n_forced = int(math.sqrt(self.args.forced_playouts_k * Ps_root[a] * S))
+                    gap = puct_best - Qsa_root[a]
+                    if gap <= 0:
+                        continue   # already at least as urgent as best: subtract nothing
+                    n_min = math.ceil(self.args.cpuct * Ps_root[a] * math.sqrt(S) / gap - 1)
+                    new_n = max(n - n_forced, int(n_min), 0)
+                    adjusted_counts[a] = new_n
+                adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
+                counts = adjusted_counts
+            valid_moves_mask = self.nodes_data[s][1] # Vs from root node
+
+        probs = np.array(counts, dtype=np.float64)
+        if probs.sum() <= 0:
+            # Defensive only (should not happen outside the hidden_info all-terminal
+            # fallback above, which already produces a valid mask): spread over
+            # legal moves rather than divide by zero.
+            probs = np.asarray(valid_moves_mask, dtype=np.float64)
         probs = probs / probs.sum()
 
         # Metrics
@@ -121,9 +186,8 @@ class MCTS():
         entropy = -np.sum(probs * np.log(probs + 1e-8)) # 1e-8 to avoid log(0)
         confidence = float(np.max(probs))
         avg_new_depth = (self.sum_new_nodes_depth / new_nodes) if new_nodes > 0 else 0.0
-        valid_moves_mask = self.nodes_data[s][1] # Vs from root node
         total_valid_moves = np.sum(valid_moves_mask)
-        visited_at_root = sum(1 for a in range(self.game.getActionSize()) if valid_moves_mask[a] and counts[a] > 0)
+        visited_at_root = sum(1 for a in range(action_size) if valid_moves_mask[a] and counts[a] > 0)
         root_coverage = (visited_at_root / total_valid_moves) if total_valid_moves > 0 else 0.0
 
         metrics = {
@@ -155,126 +219,7 @@ class MCTS():
         probs = [x / counts_sum for x in counts]
         return probs, q, is_full_search, metrics
 
-    def _gumbel_root_search(self, canonicalBoard, nb_MCTS_sims, initial_nodes_count):
-        """
-        Gumbel AlphaZero root procedure (Danihelka et al. 2022, "Policy improvement
-        by planning with Gumbel"): Sequential Halving with Gumbel over the top-m
-        root actions, then a completed-Q improved policy as training target.
-
-        Root-only hybrid: non-root selection stays standard PUCT (the usual
-        pragmatic setup, e.g. in mctx-based reimplementations). At the root this
-        REPLACES Dirichlet noise, forced playouts, PTP and visit-count targets.
-
-        Returns the same 4-tuple as getActionProb, plus metrics['gumbel_action']:
-        the Sequential Halving winner, which the Coach must PLAY as-is.
-        Exploration comes from the Gumbel noise (resampled at every move), not
-        from temperature sampling of the returned policy.
-
-        Approximation vs the paper: unvisited actions are completed with the root
-        running-mean value instead of the exact v_mix interpolation. The running
-        mean already blends the raw net value (its initialisation) with search
-        returns, which is the same intent.
-        """
-        action_size = self.game.getActionSize()
-        c_visit = float(self.args.gumbel_cvisit)
-        c_scale = float(self.args.gumbel_cscale)
-
-        # --- Expand the root if needed; this consumes one simulation (honest budget) ---
-        s = self.game.stringRepresentation(canonicalBoard)
-        sims_done = 0
-        if self.nodes_data.get(s, (None,)*7)[2] is None:
-            self.step = 0
-            self.random_seed = magic_seeds[0] if self.args.universes > 0 else -1
-            self.search(canonicalBoard, is_root=True, depth=0)
-            sims_done = 1
-        Es, Vs, Ps, meta_ns_qs, Qsa, Nsa, r = self.nodes_data[s]
-        if Ps is None:
-            raise ValueError('Gumbel root search called on a terminal state')
-
-        valid_idx = np.flatnonzero(np.asarray(Vs))
-        logits = np.log(np.asarray(Ps, dtype=np.float64) + 1e-12)
-
-        # --- Gumbel noise: sampled ONCE per move, shared by candidate selection,
-        #     halving comparisons and the final argmax (required by the theory) ---
-        g = self.rng.gumbel(size=action_size)
-        root_scores = g + logits
-
-        # --- Candidate set: top-m legal actions by g + logits ---
-        m = int(min(max(1, self.args.gumbel_m), len(valid_idx)))
-        cand = valid_idx[np.argsort(root_scores[valid_idx])[::-1][:m]].tolist()
-
-        def q_hat(a):
-            # Backed-up Q if visited (already from the current player's viewpoint,
-            # cf. the np_roll in search), root running-mean value otherwise.
-            return float(Qsa[a]) if Nsa[a] > 0 else float(meta_ns_qs[1][0])
-
-        def sh_score(a):
-            # g(a) + logits(a) + sigma(q_hat(a)), sigma from section 4 of the paper
-            max_visit = int(Nsa[valid_idx].max())
-            return root_scores[a] + (c_visit + max_visit) * c_scale * q_hat(a)
-
-        def one_forced_sim(a):
-            self.step = sims_done  # only feeds the (disabled) FP quota, kept coherent anyway
-            self.random_seed = magic_seeds[sims_done % self.args.universes] if self.args.universes > 0 else -1
-            self.search(canonicalBoard, is_root=True, depth=0, force_action=int(a))
-
-        # --- Sequential Halving over the remaining budget ---
-        n_phases = max(1, int(math.ceil(math.log2(m)))) if m > 1 else 1
-        for phase in range(n_phases):
-            if sims_done >= nb_MCTS_sims or not cand:
-                break
-            m_k = len(cand)
-            phases_left = n_phases - phase
-            per_action = max(1, (nb_MCTS_sims - sims_done) // max(1, phases_left * m_k))
-            for a in cand:
-                for _ in range(per_action):
-                    if sims_done >= nb_MCTS_sims:
-                        break
-                    one_forced_sim(a)
-                    sims_done += 1
-            if phase < n_phases - 1 and len(cand) > 1:
-                cand = sorted(cand, key=sh_score, reverse=True)[:max(1, (len(cand) + 1) // 2)]
-
-        # Leftover budget (integer-division remainders): round-robin on the finalists
-        i = 0
-        while sims_done < nb_MCTS_sims and cand:
-            one_forced_sim(cand[i % len(cand)])
-            sims_done += 1
-            i += 1
-
-        chosen_a = int(max(cand, key=sh_score)) if cand else int(valid_idx[np.argmax(root_scores[valid_idx])])
-
-        # --- Improved policy target: softmax(logits + sigma(completedQ)) on legal actions ---
-        max_visit = int(Nsa[valid_idx].max())
-        v_root = float(meta_ns_qs[1][0])
-        completed_q = np.where(np.asarray(Nsa) > 0, np.asarray(Qsa, dtype=np.float64), v_root)
-        pi_logits = (logits + (c_visit + max_visit) * c_scale * completed_q)[valid_idx]
-        pi_valid = np.exp(pi_logits - pi_logits.max())
-        pi_valid /= pi_valid.sum()
-        probs = np.zeros(action_size, dtype=np.float64)
-        probs[valid_idx] = pi_valid
-
-        # Per-player Q measured directly from backups, same as the standard path
-        q = list(meta_ns_qs[1])
-
-        # Metrics: same keys as the standard path (entropy/confidence computed on
-        # the improved policy; root_coverage is bounded by gumbel_m / nb valids by
-        # design, do not compare it against non-Gumbel runs), plus the SH winner.
-        new_nodes = len(self.nodes_data) - initial_nodes_count
-        total_valid = int(len(valid_idx))
-        visited_at_root = int(np.sum(np.asarray(Nsa)[valid_idx] > 0))
-        metrics = {
-            "max_depth": self.max_current_depth,
-            "avg_new_depth": (self.sum_new_nodes_depth / new_nodes) if new_nodes > 0 else 0.0,
-            "new_nodes": new_nodes,
-            "entropy": float(-np.sum(pi_valid * np.log(pi_valid + 1e-8))),
-            "confidence": float(pi_valid.max()),
-            "root_coverage": (visited_at_root / total_valid) if total_valid > 0 else 0.0,
-            "gumbel_action": chosen_a,
-        }
-        return list(probs), q, True, metrics
-
-    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False, depth=0, force_action=-1):
+    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False, depth=0):
         """
         This function performs one iteration of MCTS. It is recursively called
         till a leaf node is found. The action chosen at each node is one that
@@ -358,7 +303,6 @@ class MCTS():
             self.args.fpu_root,
             self.random_seed,
             self.args.forced_playouts_k,
-            force_action,
         )
 
         v = self.search(next_s, depth=depth+1)
@@ -428,13 +372,8 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_ro
 
 
 @njit(fastmath=True, nogil=True) # no cache because it relies on jitclass which isn't compatible with cache
-def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, is_root, n_iter, fpu, fpu_root, random_seed, k, forced_action):
-    # forced_action >= 0: Gumbel Sequential Halving dictates the root action,
-    # bypassing PUCT entirely (root only; deeper calls always pass -1)
-    if forced_action >= 0:
-        a = forced_action
-    else:
-        a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_root, n_iter, fpu, fpu_root, k)
+def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, gameboard, canonicalBoard, forced_playouts, is_root, n_iter, fpu, fpu_root, random_seed, k):
+    a = pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_root, n_iter, fpu, fpu_root, k)
 
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)

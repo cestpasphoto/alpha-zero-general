@@ -26,11 +26,22 @@ class Arena():
         see othello/OthelloPlayers.py for an example. See pit.py for pitting
         human players/other baselines with each other.
         """
-        self.player1 = player1
-        self.player2 = player2
+        # player1/player2 are FACTORIES (pit.create_player now returns one, see
+        # its diff): calling one returns a fresh, independently-treed player
+        # closure. For perfect-info games we call each factory ONCE and reuse
+        # that single instance for every seat that role occupies, exactly like
+        # before (zero behaviour change). For hidden-info games (Game exposes
+        # getObservation) each seat gets its OWN instance instead: with one
+        # shared MCTS, seat B and seat C (both "player2" in a 3p+ game) would
+        # pool Nsa/Q across two DIFFERENT hidden hands within the same game,
+        # which is a real information leak between seats, not just noise.
         self.game = game
         self.display = display
         self.macos_terminal = (environ.get("TERM_PROGRAM", "") == "Apple_Terminal" and "ITERM_SESSION_ID" not in environ)
+        n_extra = max(game.getNumberOfPlayers() - 1, 1)
+        per_seat = hasattr(game, 'getObservation')
+        self._p1_pool = [player1() for _ in range(n_extra if per_seat else 1)]
+        self._p2_pool = [player2() for _ in range(n_extra if per_seat else 1)]
 
     def playGame(self, initial_state="", verbose=False, other_way=False):
         """
@@ -50,10 +61,11 @@ class Arena():
         #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
         # elif NUMBER_PLAYERS == 5:
         #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
+        n_other = self.game.getNumberOfPlayers() - 1
         if not other_way:
-            players = [self.player1]+[self.player2]*(self.game.getNumberOfPlayers()-1)
+            players = [self._p1_pool[0]] + [self._p2_pool[i % len(self._p2_pool)] for i in range(n_other)]
         else:
-            players = [self.player2]+[self.player1]*(self.game.getNumberOfPlayers()-1)
+            players = [self._p2_pool[0]] + [self._p1_pool[i % len(self._p1_pool)] for i in range(n_other)]
         curPlayer, it = 0, 0
         board = self.game.getInitBoard()
         opening = []  # first plies, for duplicate-game detection (effective-N check)
