@@ -82,7 +82,9 @@ def create_player(name, args, player_id):
 		return (lambda: players.HumanPlayer(game).play), None
 
 	# set default values but will be overloaded when loading checkpoint
-	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=-1)
+	from torch import load as torch_load
+	nn_version = torch_load(name, map_location='cpu', weights_only=False)['nn_version']
+	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=nn_version)
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(name)
 	additional_keys = net.load_checkpoint(cpt_dir, cpt_file)

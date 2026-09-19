@@ -902,9 +902,10 @@ class Board():
 			valids[A_TRADE_NO] = True                       # always available
 			if self._can_pay_recv_of(player, t):
 				valids[A_TRADE_OK] = True
-			for s in range(N_TRADE_SETS):                   # or counter-offer
-				if self._recv_is_legal(player, s):
-					valids[A_TRADE_RECV + s] = True
+			if ENABLE_TRADE_COUNTER:                        # or counter-offer
+				for s in range(N_TRADE_SETS):
+					if self._recv_is_legal(player, s):
+						valids[A_TRADE_RECV + s] = True
 
 		elif phase == PHASE_TRADE_ACCEPT:
 			valids[A_TRADE_ACCEPT + 0] = True               # refuse every counter

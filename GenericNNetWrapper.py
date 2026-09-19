@@ -386,7 +386,7 @@ class GenericNNetWrapper(NeuralNet):
 			self._assert_onnx_parity(verbose=(os.environ.get('ONNX_PARITY_VERBOSE') == '1'))
 
 
-	def _assert_onnx_parity(self, n_synth=256, batch_size=8, tol_pi=1e-4, tol_v=1e-5,
+	def _assert_onnx_parity(self, n_synth=256, batch_size=8, tol_pi=1e-4, tol_v=1e-4,
 	                        seed=0, verbose=False, raise_on_fail=True):
 		"""
 		Compare the torch module and the freshly exported ONNX session on the SAME

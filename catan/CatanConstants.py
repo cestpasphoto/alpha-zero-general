@@ -4,7 +4,20 @@ import numpy as np
 
 N_PLAYERS = 3                  # 2, 3 or 4 -- changes observation_size() and action_size()
 ENABLE_PLAYER_TRADE = True     # player-to-player trade; see the TRADE section below
+# Counter-offers during PHASE_TRADE_ANSWER. Turning them OFF is a MASK
+# restriction only: N_ACTIONS, the state layout and the phase enum are
+# unchanged, so a checkpoint trained with one setting loads with the other.
+# OFF   -> answer is OK / NO, PHASE_TRADE_ACCEPT is unreachable, <= P+1 plies
+# ON    -> answers may counter, offers stack, <= 2P+1 plies
+ENABLE_TRADE_COUNTER = False
 RANDOM_BOARD = True            # shuffle hexes, number tokens and port types at init
+# Symmetry subsampling of near-forced positions. A position with at most
+# SYM_TRIVIAL_MAX_LEGAL legal moves (roll: 2, trade answer without counters: 2)
+# carries almost no policy signal but costs as much to train on as any other;
+# it gets N_SYM_TRIVIAL isometries in the replay buffer instead of 12, which
+# down-weights it 12/N_SYM_TRIVIAL x. N_SYM_TRIVIAL = 12 disables this.
+SYM_TRIVIAL_MAX_LEGAL = 2
+N_SYM_TRIVIAL = 1
 FORBID_ADJACENT_RED = True     # official rule: no two 6/8 on adjacent hexes
 
 ############################## MATERIAL #######################################
