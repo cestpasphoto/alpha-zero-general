@@ -6,11 +6,13 @@ from .CatanConstants import (N_ISOMETRIES, SYM_TRIVIAL_MAX_LEGAL, N_SYM_TRIVIAL,
                              TRADE_SETS, ROW_GLOBAL, ROW_PLAYER, ROWS_PER_PLAYER, GA_PHASE, GB_TURN_PLAYER,
                              PD_TRADE_RECV, PD_TRADE_GIVE, N_RESOURCES, PHASE_MAIN, PHASE_TRADE_OFFER,
                              PHASE_TRADE_ANSWER, PHASE_TRADE_ACCEPT, A_TRADE_RECV, A_TRADE_GIVE, A_TRADE_OK,
-                             A_TRADE_NO, A_TRADE_ACCEPT)
+                             A_TRADE_NO, A_TRADE_ACCEPT, GB_ROUND_LO, GB_ROUND_HI, PA_TOTAL_RES,
+                             MAX_ROUNDS, ACTION_BLOCK_OF, N_BLOCKS)
 from .CatanLogicNumba import Board, observation_size, action_size
 from .CatanDisplay import move_to_str, print_board
 import numpy as np
 import os
+import threading
 
 # Catan games run to ~300-400 decisions on average and up to 4*MAX_ROUNDS=1600
 # in the worst case (the same bound make_move()'s auto-resolve guard and
@@ -47,9 +49,18 @@ class _TradeStats:
 		self.path = os.path.join(out_dir, f'trade_stats_{os.getpid()}.npz')
 		self.set_index = {tuple(int(x) for x in TRADE_SETS[i]): i for i in range(N_TRADE_SETS)}
 		self.n_pos = np.zeros(N_PHASES, np.int64)          # positions seen, per phase
-		self.main = np.zeros(3, np.float64)                # MAIN: [open legal, pi mass on opening, argmax is opening]
+		self.main = np.zeros(5, np.float64)                # MAIN, when opening is legal: [positions, pi mass on opening, argmax is opening, legal opening ids, legal moves]
+		self.legal = np.zeros(N_PHASES, np.float64)        # sum of the legal-move count, per phase
+		self.ent = np.zeros((N_PHASES, 2), np.float64)     # per phase: [sum of pi entropy, sum of max(pi)]
+		self.hand = np.zeros(N_PHASES, np.float64)         # sum of the hand size of the player to move
+		self.round_hist = np.zeros(MAX_ROUNDS + 2, np.int64)   # positions per round -> game length
+		self.played = np.zeros((N_PHASES, N_BLOCKS), np.int64) # the move actually PLAYED, per phase x action block
+		self._armed = {}                                   # thread id -> a target was just recorded
 		self.recv = np.zeros(N_TRADE_SETS, np.float64)     # pi mass per asked set (MAIN openings + counters)
 		self.give = np.zeros(N_TRADE_SETS, np.float64)     # pi mass per offered set (GIVE ply)
+		self.recv_legal = np.zeros(N_TRADE_SETS, np.float64)   # how often each set was LEGAL to ask for
+		self.give_legal = np.zeros(N_TRADE_SETS, np.float64)   # ... and to offer: the mass above is only
+		                                                       # readable against this availability baseline
 		self.pair = np.zeros((N_TRADE_SETS, N_TRADE_SETS), np.float64)   # [asked, offered] mass on the GIVE ply
 		self.answer = np.zeros(3, np.float64)              # trANSWER: [OK, NO, counter] mass
 		self.answer_pair = np.zeros((2, N_TRADE_SETS, N_TRADE_SETS), np.float64)   # [OK/NO][asked][offered]
@@ -67,16 +78,31 @@ class _TradeStats:
 		pi = np.asarray(pi, dtype=np.float64)
 		phase = int(board[ROW_GLOBAL, GA_PHASE])
 		self.n_pos[phase] += 1
+		self.legal[phase] += int(valids.sum())
+		nz = pi[pi > 0]
+		self.ent[phase, 0] += float(-(nz * np.log(nz)).sum())
+		self.ent[phase, 1] += float(pi.max())
+		self.hand[phase] += int(board[ROW_PLAYER, PA_TOTAL_RES])
+		r = int(board[ROW_GLOBAL + 1, GB_ROUND_HI]) * 100 + int(board[ROW_GLOBAL + 1, GB_ROUND_LO])
+		self.round_hist[min(max(r, 0), MAX_ROUNDS + 1)] += 1
+		# getNextState() is called right after, by Coach/Arena only (MCTS goes
+		# straight to the numba make_move), and on the very board this target was
+		# built for: arming here is what tells the two apart, per thread.
+		self._armed[threading.get_ident()] = True
 		if phase == PHASE_MAIN:
 			if valids[A_TRADE_RECV:A_TRADE_RECV + N_TRADE_SETS].any():
 				self.main[0] += 1
 				mass = pi[A_TRADE_RECV:A_TRADE_RECV + N_TRADE_SETS]
 				self.main[1] += mass.sum()
 				self.main[2] += A_TRADE_RECV <= int(pi.argmax()) < A_TRADE_RECV + N_TRADE_SETS
+				self.main[3] += int(valids[A_TRADE_RECV:A_TRADE_RECV + N_TRADE_SETS].sum())
+				self.main[4] += int(valids.sum())
+				self.recv_legal += valids[A_TRADE_RECV:A_TRADE_RECV + N_TRADE_SETS]
 				self.recv += mass
 		elif phase == PHASE_TRADE_OFFER and valids[A_TRADE_GIVE:A_TRADE_GIVE + N_TRADE_SETS].any():
 			mass = pi[A_TRADE_GIVE:A_TRADE_GIVE + N_TRADE_SETS]
 			self.give += mass
+			self.give_legal += valids[A_TRADE_GIVE:A_TRADE_GIVE + N_TRADE_SETS]
 			asked, _ = self._offer_of(board, 0)             # the composer is the player to move
 			if asked >= 0:
 				self.pair[asked] += mass
@@ -96,11 +122,21 @@ class _TradeStats:
 		if self.n % self.flush_every == 0:
 			self.flush()
 
+	def record_played(self, board, action):
+		"""The move Coach actually sampled from the target recorded just above.
+		Unarmed (arena, pit, PCR fast searches) it counts nothing, so `played`
+		and `n_pos` always describe the same positions."""
+		if not self._armed.pop(threading.get_ident(), False):
+			return
+		self.played[int(board[ROW_GLOBAL, GA_PHASE]), int(ACTION_BLOCK_OF[action])] += 1
+
 	def flush(self):
 		if self.n == 0:
 			return
 		np.savez(self.path, n_pos=self.n_pos, main=self.main, recv=self.recv, give=self.give, pair=self.pair,
-		         answer=self.answer, answer_pair=self.answer_pair, accept=self.accept)
+		         answer=self.answer, answer_pair=self.answer_pair, accept=self.accept, legal=self.legal,
+		         ent=self.ent, hand=self.hand, round_hist=self.round_hist, played=self.played,
+		         recv_legal=self.recv_legal, give_legal=self.give_legal)
 
 
 _trade_stats = _TradeStats(os.environ['CATAN_TRADE_STATS']) if os.environ.get('CATAN_TRADE_STATS') else None
@@ -122,6 +158,8 @@ class CatanGame(Game):
 		return action_size()
 
 	def getNextState(self, board, player, action, random_seed=0):
+		if _trade_stats is not None:
+			_trade_stats.record_played(board, action)
 		self.board.copy_state(board, True)
 		next_player = self.board.make_move(action, player, random_seed)
 		return (self.board.get_state(), next_player)
@@ -151,21 +189,17 @@ class CatanGame(Game):
 		return self.board.get_state()
 
 	def getSymmetries(self, board, pi, valid_actions):
-		# Coach calls this once per PLAYED full-search self-play position, with
-		# the MCTS policy -- the one place to see what the search wants to do in
-		# the negotiation without touching the framework. Off unless
-		# CATAN_TRADE_STATS is set, so it costs one `if` in production.
 		if _trade_stats is not None:
 			_trade_stats.record(board, pi, valid_actions)
 		pi = np.array(pi, dtype=np.float32)
-		if N_SYM_TRIVIAL < N_ISOMETRIES and int(valid_actions.sum()) <= SYM_TRIVIAL_MAX_LEGAL:
-			# near-forced position: see SYM_TRIVIAL_MAX_LEGAL in CatanConstants
-			if N_SYM_TRIVIAL <= 1:
-				return [(np.array(board, copy=True), pi, valid_actions.copy())]
-			self.board.copy_state(board, True)
-			return self.board.get_symmetries(pi, valid_actions)[:N_SYM_TRIVIAL]
-		self.board.copy_state(board, True)
-		return self.board.get_symmetries(pi, valid_actions)
+		# The net is equivariant by construction (CatanNNetTest), so the 12 isometries
+		# of a position give the SAME loss and the SAME gradient: 11 of them are dead
+		# weight. Keep one, and keep near-forced positions down-weighted by dropping
+		# them at random instead of by generating fewer copies -- same sampling
+		# weights as N_SYM_TRIVIAL/N_ISOMETRIES, 12x fewer samples.
+		if int(valid_actions.sum()) <= SYM_TRIVIAL_MAX_LEGAL and np.random.random() >= N_SYM_TRIVIAL / N_ISOMETRIES:
+			return []
+		return [(np.array(board, copy=True), pi, valid_actions.copy())]
 
 	def stringRepresentation(self, board):
 		return board.tobytes()
@@ -194,4 +228,12 @@ class CatanGame(Game):
 	def sampleWorld(self, observation, random_seed):
 		self.board.copy_state(observation, True)
 		self.board.sample_world(random_seed)
+		return self.board.get_state()
+
+	# DIAGNOSTIC ONLY (pit.py --peek, see MCTS.py): the opponents' RESOURCES stay
+	# visible, only their dev cards are masked. Feeding this to sampleWorld gives
+	# a world with the true resource hands. Not a legal information set.
+	def getPeekObservation(self, board, viewer):
+		self.board.copy_state(board, True)
+		self.board.get_peek_observation(viewer)
 		return self.board.get_state()

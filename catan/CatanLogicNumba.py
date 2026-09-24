@@ -521,11 +521,23 @@ class Board():
 	# total -- no flag to keep in sync.
 
 	def get_observation(self, viewer):
+		self._mask_hands(viewer, True)
+
+	def get_peek_observation(self, viewer):
+		# DIAGNOSTIC ONLY (pit.py --peek): NOT a legal information set. The
+		# opponents' dev cards are masked as in get_observation, but their
+		# RESOURCES stay visible, so sample_world sees those hands as known
+		# (detail == total) and only deals the dev cards. It measures what the
+		# search would gain from perfect card counting; never train on it.
+		self._mask_hands(viewer, False)
+
+	def _mask_hands(self, viewer, hide_resources):
 		for p in range(self.num_players):
 			if p == viewer:
 				continue
-			for r in range(N_RESOURCES):
-				self.players[4*p, PA_RESOURCES + r] = 0
+			if hide_resources:
+				for r in range(N_RESOURCES):
+					self.players[4*p, PA_RESOURCES + r] = 0
 			for k in range(N_DEV_TYPES):
 				self.players[4*p, PA_DEV_PLAYABLE + k] = 0
 				self.players[4*p + 1, PB_DEV_NEW + k] = 0

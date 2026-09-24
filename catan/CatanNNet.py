@@ -42,6 +42,20 @@ VERSIONS = {
 	13: dict(dim=32, layers=2, edge_rank=16, name='fast', fast=True),
 	14: dict(dim=24, layers=2, edge_rank=12, name='fast24', fast=True),
 	15: dict(dim=32, layers=1, edge_rank=16, name='fast1', fast=True),
+	# CAPACITY probes: same fast architecture as V13, only wider and deeper.
+	# Rationale (measured, see notes): m800 -> m1600 buys ~+12 Elo, doubling the
+	# self-play volume at halved sims is exactly neutral, and a longer history
+	# hurts -- none of the data-side levers move the needle, so capacity is the
+	# remaining suspect. Self-play speed has no measured Elo value any more, so a
+	# 2-3x slower forward pass is affordable. Test them offline on a saved buffer
+	# (validation loss vs V13) BEFORE spending a from-scratch run: the weights are
+	# not checkpoint-compatible with any other version.
+	16: dict(dim=64, layers=3, edge_rank=32, name='fast64', fast=True),
+	17: dict(dim=96, layers=4, edge_rank=32, name='fast96', fast=True),
+	# V18 is a PROBE ONLY: too slow for self-play, it is there to show whether the
+	# validation loss is still falling at that size (capacity really is the limit)
+	# or has flattened between V16 and V17 (it is not).
+	18: dict(dim=128, layers=4, edge_rank=48, name='fast128', fast=True),
 }
 
 N_TOKENS = N_VERTICES + N_HEXES + N_PLAYERS + 1

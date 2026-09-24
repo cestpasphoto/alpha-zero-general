@@ -352,6 +352,15 @@ TRADE_SETS = np.array([
 	[0,0,1,0,2], [0,0,0,3,0], [0,0,0,2,1], [0,0,0,1,2], [0,0,0,0,3],
 ], dtype=np.int8)
 N_TRADE_SETS = TRADE_SETS.shape[0]              # 55
+TRADE_SET_SIZE = TRADE_SETS.sum(1).astype(np.int8)
+
+# How many cards a player may ASK for in one announcement. 3 = no restriction.
+# Mask-only, like ENABLE_TRADE_COUNTER: N_ACTIONS, the state layout and the
+# checkpoints are untouched, so the same net plays both settings. Measured at 3:
+# 61% of the search's mass goes to 3-card asks, which responders accept 22-29% of
+# the time (vs 40-53% for 1-card asks), they leave a single legal giveaway 44% of
+# the time, and they widen the MAIN node from ~11 to ~26 legal moves.
+TRADE_MAX_ASK = 3
 
 A_TRADE_RECV = N_ACTIONS_V1                     # 55 : the multiset I ask FOR
 A_TRADE_GIVE = A_TRADE_RECV + N_TRADE_SETS      # 55 : the multiset I offer in exchange
@@ -379,3 +388,32 @@ for _s in range(N_ISOMETRIES):
 	for _h in range(N_HEXES):
 		for _t in range(N_PLAYERS):
 			ISO_ACTION[_s, A_ROBBER + _h * N_PLAYERS + _t] = A_ROBBER + int(ISO_HEX[_s, _h]) * N_PLAYERS + _t
+
+
+# ---- action blocks -------------------------------------------------------
+# Which KIND of move an action id is, for the trade-usage instrumentation
+# (CatanGame._TradeStats): it reports what the search plays, not just which id.
+ACTION_BLOCKS = (
+	('road',        A_ROAD,           N_EDGES),
+	('settlement',  A_SETTLEMENT,     N_VERTICES),
+	('city',        A_CITY,           N_VERTICES),
+	('buy dev',     A_BUY_DEV,        1),
+	('play dev',    A_PLAY_DEV,       2),
+	('robber',      A_ROBBER,         N_HEXES * N_PLAYERS),
+	('roll',        A_ROLL,           1),
+	('monopoly',    A_MONOPOLY,       N_RESOURCES),
+	('year plenty', A_YEAR_OF_PLENTY, 15),
+	('bank trade',  A_BANK_TRADE,     20),
+	('discard',     A_DISCARD,        N_RESOURCES),
+	('end turn',    A_END_TURN,       1),
+	('ask (open)',  A_TRADE_RECV,     N_TRADE_SETS),
+	('give',        A_TRADE_GIVE,     N_TRADE_SETS),
+	('OK',          A_TRADE_OK,       1),
+	('NO',          A_TRADE_NO,       1),
+	('accept',      A_TRADE_ACCEPT,   N_PLAYERS),
+)
+N_BLOCKS = len(ACTION_BLOCKS)
+assert sum(_k for _, _, _k in ACTION_BLOCKS) == N_ACTIONS, 'ACTION_BLOCKS must tile the action space'
+ACTION_BLOCK_OF = np.zeros(N_ACTIONS, dtype=np.int8)
+for _i, (_name, _a0, _k) in enumerate(ACTION_BLOCKS):
+	ACTION_BLOCK_OF[_a0:_a0 + _k] = _i

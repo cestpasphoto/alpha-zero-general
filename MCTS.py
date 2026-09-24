@@ -7,12 +7,23 @@ from copy import deepcopy
 
 from numba import njit
 
+from Stochastic import hashed_draw
+
 EPS = 1e-8
 NAN = -42.
 MINFLOAT = float('-inf')
 magic_seeds = [31416, 1, 14142, 42, 27183, 2, 16180, 7]
 
 log = logging.getLogger(__name__)
+
+
+def _opt(args, name, default):
+    # args is an argparse.Namespace (Coach) or a dotdict (pit), whose missing
+    # keys raise KeyError rather than AttributeError
+    try:
+        return getattr(args, name)
+    except (AttributeError, KeyError):
+        return default
 
 
 class MCTS():
@@ -52,6 +63,24 @@ class MCTS():
         # below that checks it is a no-op: zero behaviour change elsewhere.
         self.hidden_info = hasattr(self.game, 'getObservation')
         self._fp_warned = False
+        # --nn-obs: query the net on the node's OBSERVATION (the mover's own
+        # information set), which is what Coach trains it on, instead of the
+        # invented world (opponents' hidden cards filled in, `masked` flag off).
+        self.nn_obs = self.hidden_info and bool(_opt(args, 'nn_obs', False))
+        # --chance-per-sim: the universe fixes the world (invented hands) only;
+        # chance events get a fresh stream at every simulation, so the tree
+        # averages over dice / draws / steals instead of planning against one
+        # known future. Default off: one stream per universe, as before.
+        self.chance_per_sim = bool(_opt(args, 'chance_per_sim', False))
+        # --peek (pit.py only, DIAGNOSTIC -- never exposed to main.py): the world
+        # of every universe is dealt from an observation that keeps the opponents'
+        # TRUE resource hands, so the search plays against the real resources and
+        # only their dev cards are invented. The net is queried exactly as before
+        # (see --nn-obs): it gets no extra information. Measures the ceiling of
+        # what card counting could bring to the search.
+        self.peek = self.hidden_info and bool(_opt(args, 'peek', False))
+        if self.peek and not hasattr(self.game, 'getPeekObservation'):
+            raise ValueError('--peek needs Game.getPeekObservation(), which this game does not provide')
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
@@ -89,17 +118,31 @@ class MCTS():
         # simulations does pool correctly within itself, exactly like tree
         # reuse in a perfect-info game.
         universe_roots = {}
+        root_keys = set()   # distinct invented worlds: identical ones share ONE tree
         if self.hidden_info:
             obs = self.game.getObservation(canonicalBoard, 0)
+            # what the invented worlds are dealt from: the observation, or under
+            # --peek the same plus the opponents' true resource hands
+            world_src = self.game.getPeekObservation(canonicalBoard, 0) if self.peek else obs
+        chance_base = int(self.rng.integers(1, 2147483647)) if self.chance_per_sim else 0
 
         for self.step in range(nb_MCTS_sims):
-            self.random_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
+            world_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
+            # never 0: 0 means true randomness in the game logic
+            self.random_seed = (1 + hashed_draw(chance_base, self.step, 2147483646)) if self.chance_per_sim else world_seed
             if self.hidden_info:
-                is_new_universe = self.random_seed not in universe_roots
+                is_new_universe = world_seed not in universe_roots
+                is_new_root = False
                 if is_new_universe:
-                    universe_roots[self.random_seed] = self.game.sampleWorld(obs, self.random_seed)
-                root_board = universe_roots[self.random_seed]
-                dir_noise = (is_new_universe and is_full_search and self.dirichlet_noise)
+                    universe_roots[world_seed] = self.game.sampleWorld(world_src, world_seed)
+                    # two universes may invent the SAME world (small hidden hands):
+                    # the tree key is the board, so they share one root node, which
+                    # must be noised once only
+                    rk = self.game.stringRepresentation(universe_roots[world_seed])
+                    is_new_root = rk not in root_keys
+                    root_keys.add(rk)
+                root_board = universe_roots[world_seed]
+                dir_noise = (is_new_root and is_full_search and self.dirichlet_noise)
             else:
                 root_board = canonicalBoard
                 dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
@@ -116,13 +159,19 @@ class MCTS():
             # just means one fewer root to average over.
             counts = [0] * action_size
             q_acc, n_roots = None, 0
+            counted = set()
             for root_board in universe_roots.values():
                 rs = self.game.stringRepresentation(root_board)
                 node = self.nodes_data.get(rs)
                 if node is None or node[3] is None:
                     continue
-                for a in range(action_size):
-                    counts[a] += int(node[5][a])
+                # A root shared by m identical universes already holds the visits
+                # of all m (m x sims/u): add them ONCE, so its weight is m/u.
+                # Adding them once per universe weighted it m^2 (bias to the modal world).
+                if rs not in counted:
+                    counted.add(rs)
+                    for a in range(action_size):
+                        counts[a] += int(node[5][a])
                 q_this = node[3][1]
                 q_acc = q_this.copy() if q_acc is None else q_acc + q_this
                 n_roots += 1
@@ -260,10 +309,11 @@ class MCTS():
             # First time that we explore state s
             self.sum_new_nodes_depth += depth
             Vs = self.game.getValidMoves(canonicalBoard, 0)
+            nn_board = self.game.getObservation(canonicalBoard, 0) if self.nn_obs else canonicalBoard
             if self.batch_info is None:
-                Ps, v = self.nnet.predict(canonicalBoard, Vs)
+                Ps, v = self.nnet.predict(nn_board, Vs)
             else:
-                Ps, v = self.nnet.predict_client(canonicalBoard, Vs, self.batch_info)
+                Ps, v = self.nnet.predict_client(nn_board, Vs, self.batch_info)
             if dirichlet_noise:
                 Ps = softmax(Ps, self.args.temperature[2])
                 self.applyDirNoise(Ps, Vs)
