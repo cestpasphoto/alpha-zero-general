@@ -1,10 +1,8 @@
 import logging
 import math
-import numpy as np
 import gc
-from random import randrange
-from copy import deepcopy
 
+import numpy as np
 from numba import njit
 
 from Stochastic import hashed_draw
@@ -15,15 +13,6 @@ MINFLOAT = float('-inf')
 magic_seeds = [31416, 1, 14142, 42, 27183, 2, 16180, 7]
 
 log = logging.getLogger(__name__)
-
-
-def _opt(args, name, default):
-    # args is an argparse.Namespace (Coach) or a dotdict (pit), whose missing
-    # keys raise KeyError rather than AttributeError
-    try:
-        return getattr(args, name)
-    except (AttributeError, KeyError):
-        return default
 
 
 class MCTS():
@@ -37,16 +26,12 @@ class MCTS():
         self.args = args
         self.dirichlet_noise = dirichlet_noise
 
-        # Contains tuple of Es, Vs, Ps, Ns, Qsa, Nsa
-        #       Es stores game.getGameEnded ended for board s
-        #       Vs stores game.getValidMoves for board s
-        #       Ps stores initial policy (returned by neural net)    
-        #       Ns stores #times board s was visited
-        #       Qsa stores Q values for s,a (as defined in the paper)
-        #       Nsa stores #times edge s,a was visited
-        #       r stores round number
-        #       Qs stores Q value for s
-        self.nodes_data = {} # stores data for each nodes in a single dictionary
+        # One entry per board s: (Es, Vs, Ps, [Ns, Qs], Qsa, Nsa, r)
+        #   Es  game.getGameEnded(s)          Vs   game.getValidMoves(s)
+        #   Ps  prior returned by the net     Ns   visit count of s
+        #   Qs  per-player value vector of s  Qsa / Nsa  value / visits of edge (s,a)
+        #   r   round number, used to prune old nodes
+        self.nodes_data = {}
         self.Qsa_default = np.full (self.game.getActionSize(), NAN, dtype=np.float32)
         self.Nsa_default = np.zeros(self.game.getActionSize()     , dtype=np.int16)
 
@@ -55,75 +40,44 @@ class MCTS():
         self.last_cleaning = 0
         self.batch_info = batch_info
         self.random_seed = -1
-        self.max_current_depth = 0
-        self.sum_new_nodes_depth = 0
 
-        # Hidden-info games (Catan) opt in by exposing Game.getObservation /
-        # Game.sampleWorld. Every other game leaves this False and every line
-        # below that checks it is a no-op: zero behaviour change elsewhere.
+        # Hidden-information games expose Game.getObservation / Game.sampleWorld.
+        # The net is then always queried on the observation of the player to move,
+        # which is what it is trained on.
         self.hidden_info = hasattr(self.game, 'getObservation')
+        # A game may ask for a fresh chance stream at every simulation: the tree
+        # then averages over dice / draws instead of planning against one known
+        # future, and a universe only fixes the invented hidden information.
+        # Only worth it when chance events have few outcomes, otherwise the tree
+        # fragments into many rarely visited nodes.
+        self.chance_per_sim = bool(getattr(self.game, 'chance_per_sim', False))
         self._fp_warned = False
-        # --nn-obs: query the net on the node's OBSERVATION (the mover's own
-        # information set), which is what Coach trains it on, instead of the
-        # invented world (opponents' hidden cards filled in, `masked` flag off).
-        self.nn_obs = self.hidden_info and bool(_opt(args, 'nn_obs', False))
-        # --chance-per-sim: the universe fixes the world (invented hands) only;
-        # chance events get a fresh stream at every simulation, so the tree
-        # averages over dice / draws / steals instead of planning against one
-        # known future. Default off: one stream per universe, as before.
-        self.chance_per_sim = bool(_opt(args, 'chance_per_sim', False))
-        # --peek (pit.py only, DIAGNOSTIC -- never exposed to main.py): the world
-        # of every universe is dealt from an observation that keeps the opponents'
-        # TRUE resource hands, so the search plays against the real resources and
-        # only their dev cards are invented. The net is queried exactly as before
-        # (see --nn-obs): it gets no extra information. Measures the ceiling of
-        # what card counting could bring to the search.
-        self.peek = self.hidden_info and bool(_opt(args, 'peek', False))
-        if self.peek and not hasattr(self.game, 'getPeekObservation'):
-            raise ValueError('--peek needs Game.getPeekObservation(), which this game does not provide')
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
-        This function performs numMCTSSims simulations of MCTS starting from
-        canonicalBoard.
+        Performs numMCTSSims simulations of MCTS starting from canonicalBoard.
 
         Returns:
-            probs: a policy vector where the probability of the ith action is
-                   proportional to Nsa[(s,a)]**(1./temp)
+            probs: policy vector, proportional to Nsa[(s,a)]**(1./temp)
+            q: per-player value vector at the root
+            is_full_search: False for a Playout Cap Randomization fast search
         """
         is_full_search = force_full_search or (self.rng.random() < self.args.prob_fullMCTS)
         nb_MCTS_sims = self.args.numMCTSSims if is_full_search else self.args.numMCTSSims // self.args.ratio_fullMCTS
         forced_playouts = (is_full_search and self.args.forced_playouts)
-        # KataGo regime: self-play full searches start from a fresh tree so FP/PTP/noise
-        # operate on uncontaminated counts. Tree reuse stays on elsewhere (fast searches,
-        # arena, pit) because self.dirichlet_noise is False there.
+        # Self-play full searches start from a fresh tree so that forced playouts,
+        # policy target pruning and Dirichlet noise act on uncontaminated counts.
         if is_full_search and self.dirichlet_noise:
             self.nodes_data = {}
             self.last_cleaning = 0
-        initial_nodes_count = len(self.nodes_data)
-        self.max_current_depth = 0
-        self.sum_new_nodes_depth = 0
 
-        # --- Hidden-info games: determinize ONCE PER UNIVERSE, not per node/visit ---
-        # `obs` masks every player but the root's own (get_observation keeps my
-        # own hand, totals for everyone, zeroes opponents' detail). Each distinct
-        # `random_seed` (= one of the `universes` dice/card streams already used
-        # for chance events) gets exactly ONE invented, fully-resolved world,
-        # built once here and then searched with the UNCHANGED perfect-info
-        # search() below -- Es/Vs/Nsa are computed on that concrete board, so the
-        # tree key (its bytes) determines them completely, same invariant as
-        # every other game. Different universes land on different keys by
-        # construction (their invented bytes differ), so nothing pools across
-        # worlds that shouldn't; the SAME universe reused across many
-        # simulations does pool correctly within itself, exactly like tree
-        # reuse in a perfect-info game.
+        # Hidden information: one invented world per universe, dealt once from the
+        # observation, then searched as a perfect-information game. The tree key is
+        # the board, so two universes inventing the same world share one root node.
         universe_roots = {}
-        root_keys = set()   # distinct invented worlds: identical ones share ONE tree
+        root_keys = set()
         if self.hidden_info:
             obs = self.game.getObservation(canonicalBoard, 0)
-            # what the invented worlds are dealt from: the observation, or under
-            # --peek the same plus the opponents' true resource hands
-            world_src = self.game.getPeekObservation(canonicalBoard, 0) if self.peek else obs
         chance_base = int(self.rng.integers(1, 2147483647)) if self.chance_per_sim else 0
 
         for self.step in range(nb_MCTS_sims):
@@ -131,32 +85,24 @@ class MCTS():
             # never 0: 0 means true randomness in the game logic
             self.random_seed = (1 + hashed_draw(chance_base, self.step, 2147483646)) if self.chance_per_sim else world_seed
             if self.hidden_info:
-                is_new_universe = world_seed not in universe_roots
                 is_new_root = False
-                if is_new_universe:
-                    universe_roots[world_seed] = self.game.sampleWorld(world_src, world_seed)
-                    # two universes may invent the SAME world (small hidden hands):
-                    # the tree key is the board, so they share one root node, which
-                    # must be noised once only
+                if world_seed not in universe_roots:
+                    universe_roots[world_seed] = self.game.sampleWorld(obs, world_seed)
                     rk = self.game.stringRepresentation(universe_roots[world_seed])
-                    is_new_root = rk not in root_keys
+                    is_new_root = rk not in root_keys   # a shared root is noised once only
                     root_keys.add(rk)
                 root_board = universe_roots[world_seed]
                 dir_noise = (is_new_root and is_full_search and self.dirichlet_noise)
             else:
                 root_board = canonicalBoard
                 dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
-            self.search(root_board, dirichlet_noise=dir_noise, forced_playouts=forced_playouts and not self.hidden_info, is_root=True, depth=0)
+            self.search(root_board, dirichlet_noise=dir_noise, forced_playouts=forced_playouts and not self.hidden_info, is_root=True)
 
         action_size = self.game.getActionSize()
         if self.hidden_info:
-            # Aggregate Nsa/Q across every universe's own root node -- there is
-            # no single "the" root node anymore (F2-style determinized roots,
-            # sharing storage instead of separate trees). A universe whose root
-            # turned out immediately terminal in its invented world contributes
-            # nothing (meta_ns_qs is None for terminal nodes) -- this is the
-            # scenario that used to corrupt Es/Nsa for OTHER universes; here it
-            # just means one fewer root to average over.
+            # Aggregate visits and Q over the distinct roots. A root shared by m
+            # universes already holds their m x sims/u visits, so it is counted
+            # once. A root that is terminal in its invented world contributes nothing.
             counts = [0] * action_size
             q_acc, n_roots = None, 0
             counted = set()
@@ -165,9 +111,6 @@ class MCTS():
                 node = self.nodes_data.get(rs)
                 if node is None or node[3] is None:
                     continue
-                # A root shared by m identical universes already holds the visits
-                # of all m (m x sims/u): add them ONCE, so its weight is m/u.
-                # Adding them once per universe weighted it m^2 (bias to the modal world).
                 if rs not in counted:
                     counted.add(rs)
                     for a in range(action_size):
@@ -178,14 +121,12 @@ class MCTS():
             if n_roots > 0:
                 q = list(q_acc / n_roots)
             else:
-                # every universe's invented root was immediately terminal:
-                # fall back to a direct, uninformed network query on the
-                # player's own masked view rather than crash or return zeros.
+                # every invented root is terminal: fall back on the net's own view
                 valids_fallback = self.game.getValidMoves(canonicalBoard, 0)
                 Ps_fb, v_fb = self.nnet.predict(obs, valids_fallback)
                 counts = [int(valids_fallback[a]) for a in range(action_size)]
                 q = list(v_fb)
-            valid_moves_mask = self.game.getValidMoves(canonicalBoard, 0)  # actor-only info (C6): same in every universe
+            valid_moves_mask = self.game.getValidMoves(canonicalBoard, 0)  # legality reads public info only
             if forced_playouts and not self._fp_warned:
                 log.warning('forced_playouts/PTP are not applied for hidden-info games (no single root Ps/Qsa '
                             'to prune against multiple determinized roots); ignoring -F for this game.')
@@ -222,31 +163,9 @@ class MCTS():
                 counts = adjusted_counts
             valid_moves_mask = self.nodes_data[s][1] # Vs from root node
 
-        probs = np.array(counts, dtype=np.float64)
-        if probs.sum() <= 0:
-            # Defensive only (should not happen outside the hidden_info all-terminal
-            # fallback above, which already produces a valid mask): spread over
-            # legal moves rather than divide by zero.
-            probs = np.asarray(valid_moves_mask, dtype=np.float64)
-        probs = probs / probs.sum()
-
-        # Metrics
-        new_nodes = len(self.nodes_data) - initial_nodes_count
-        entropy = -np.sum(probs * np.log(probs + 1e-8)) # 1e-8 to avoid log(0)
-        confidence = float(np.max(probs))
-        avg_new_depth = (self.sum_new_nodes_depth / new_nodes) if new_nodes > 0 else 0.0
-        total_valid_moves = np.sum(valid_moves_mask)
-        visited_at_root = sum(1 for a in range(action_size) if valid_moves_mask[a] and counts[a] > 0)
-        root_coverage = (visited_at_root / total_valid_moves) if total_valid_moves > 0 else 0.0
-
-        metrics = {
-            "max_depth": self.max_current_depth,
-            "avg_new_depth": avg_new_depth,
-            "new_nodes": new_nodes,
-            "entropy": entropy,
-            "confidence": confidence,
-            "root_coverage": root_coverage,
-        }
+        if sum(counts) <= 0:
+            # defensive only: spread over legal moves rather than divide by zero
+            counts = [int(x) for x in valid_moves_mask]
 
         # Clean search tree from very old moves = less memory footprint and less keys to search into
         if not self.args.no_mem_optim:
@@ -256,40 +175,27 @@ class MCTS():
                     del self.nodes_data[node]
                 self.last_cleaning = int(r)
 
-        if temp <= 0.02: # For temp below this threshold it gives an overflow error in the next power operatio
+        if temp <= 0.02: # below this threshold the power below overflows
             bestAs = np.array(np.argwhere(counts == np.max(counts))).flatten()
             bestA = np.random.choice(bestAs)
             probs = [0] * len(counts)
             probs[bestA] = 1
-            return probs, q, is_full_search, metrics
+            return probs, q, is_full_search
 
         counts = [x ** (1. / temp) for x in counts]
         counts_sum = float(sum(counts))
         probs = [x / counts_sum for x in counts]
-        return probs, q, is_full_search, metrics
+        return probs, q, is_full_search
 
-    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False, depth=0):
+    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False):
         """
-        This function performs one iteration of MCTS. It is recursively called
-        till a leaf node is found. The action chosen at each node is one that
-        has the maximum upper confidence bound as in the paper.
-
-        Once a leaf node is found, the neural network is called to return an
-        initial policy P and a value v for the state. This value is propagated
-        up the search path. In case the leaf node is a terminal state, the
-        outcome is propagated up the search path. The values of Ns, Nsa, Qsa are
-        updated.
-
-        NOTE: the return values are the negative of the value of the current
-        state. This is done since v is in [-1,1] and if v is the value of a
-        state for the current player, then its value is -v for the other player.
+        One simulation: descends by highest UCB until a leaf, expands the leaf with
+        the network (or reads the outcome of a terminal node), and backs the value
+        up the path.
 
         Returns:
-            v: the negative of the value of the current canonicalBoard
+            v: per-player value vector, in the canonical order of canonicalBoard
         """
-        if depth > self.max_current_depth:
-            self.max_current_depth = depth
-
         s = self.game.stringRepresentation(canonicalBoard)
         Es, Vs, Ps, meta_ns_qs, Qsa, Nsa, r = self.nodes_data.get(s, (None, )*7)
         if r is None:
@@ -307,9 +213,8 @@ class MCTS():
 
         if Ps is None:
             # First time that we explore state s
-            self.sum_new_nodes_depth += depth
             Vs = self.game.getValidMoves(canonicalBoard, 0)
-            nn_board = self.game.getObservation(canonicalBoard, 0) if self.nn_obs else canonicalBoard
+            nn_board = self.game.getObservation(canonicalBoard, 0) if self.hidden_info else canonicalBoard
             if self.batch_info is None:
                 Ps, v = self.nnet.predict(nn_board, Vs)
             else:
@@ -320,9 +225,8 @@ class MCTS():
             normalise(Ps)
 
             Qsa, Nsa = self.Qsa_default.copy(), self.Nsa_default.copy()
-            
-            # Mutable [Ns, Q_vector]: keep the full per-player Q (lives in Z-space,
-            # no zero-sum assumption) instead of collapsing to player 0.
+
+            # Mutable [Ns, Q_vector]: keep the full per-player Q (no zero-sum assumption)
             meta_ns_qs = [0, np.array(v, dtype=np.float64)]
             self.nodes_data[s] = (Es, Vs, Ps, meta_ns_qs, Qsa, Nsa, r)
             return v
@@ -355,16 +259,12 @@ class MCTS():
             self.args.forced_playouts_k,
         )
 
-        v = self.search(next_s, depth=depth+1)
+        v = self.search(next_s)
         v = np_roll(v, next_player)
 
         Qsa[a] = (Nsa[a] * Qsa[a] + v[0]) / (Nsa[a] + 1) # if Qsa[a] is NAN, then Nsa is zero
-        
-        # In-place update of the full per-player Q vector
-        # Qs = ((Ns+1) * Qs + v[0]) / (Ns+2)
         meta_ns_qs[1] = ((meta_ns_qs[0]+1) * meta_ns_qs[1] + v) / (meta_ns_qs[0]+2)
         Nsa[a] += 1
-        # Ns += 1
         meta_ns_qs[0] += 1
         return v
 
@@ -387,7 +287,7 @@ class MCTS():
             obj.nodes_data = {}
             obj.last_cleaning = 0
         gc.collect()
-        
+
 @njit(cache=True, fastmath=True, nogil=True)
 def np_roll(arr, n):
     return np.roll(arr, n)
@@ -400,12 +300,12 @@ def pick_highest_UCB(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct, forced_playouts, is_ro
 
     # Apply a specific FPU reduction (usually none) if we are at the root node
     fpu_init = Qs - fpu_root if is_root else Qs - fpu
-    
+
     for a, valid in enumerate(Vs):
         if valid:
             if forced_playouts:
                 if Nsa[a] < int(math.sqrt(k * Ps[a] * n_iter)):
-                    u = 1000000.0 + Ps[a] 
+                    u = 1000000.0 + Ps[a]
                     if u > cur_best:
                         cur_best, best_act = u, a
                     continue
@@ -428,11 +328,9 @@ def get_next_best_action_and_canonical_state(Es, Vs, Ps, Ns, Qsa, Nsa, Qs, cpuct
     # Do action 'a'
     gameboard.copy_state(canonicalBoard, True)
     next_player = gameboard.make_move(a, 0, random_seed=random_seed)
-    # next_s = gameboard.get_state()
 
     # Get canonical form
     if next_player != 0:
-        # gameboard.copy_state(next_s, True)
         gameboard.swap_players(next_player)
     next_s = gameboard.get_state()
 

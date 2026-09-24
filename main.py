@@ -47,7 +47,6 @@ def run(args):
 				except ValueError:
 					value = raw
 		nn_args[key] = value
-		#log.info('nn_args[%s] = %r (from --nn-opt)', key, value)
 	nnet = NNet(g, nn_args)
 
 	if args.load_model:
@@ -56,8 +55,6 @@ def run(args):
 
 		if not args.useray:
 			compare_settings(args)
-	# else:
-	# 	log.warning('Not loading a checkpoint!')
 
 	log.debug('Loading the Coach...')
 	c = Coach(g, nnet, args)
@@ -103,35 +100,19 @@ def compare_settings(args):
 
 
 def profiling(args):
-	import cProfile, pstats
+	import cProfile
 	profiler = cProfile.Profile()
-	# import yappi
 	args.parallel_inferences, args.numIters, args.numEps, args.epochs = 1, 1, 8, 1  # warmup run
 	run(args)
 
 	print('\nstart profiling')
 	args.parallel_inferences, args.numIters, args.numEps, args.epochs = 1, 1, 8, 1
-	# Core of the training
-	# yappi.start()
 	profiler.enable()
 	run(args)
-	# yappi.stop()
 	profiler.disable()
 
-	# debrief
 	profiler.dump_stats('execution.prof')
-	print('check dumped stats in execution.prof')
-	# Sample code:
-	# from pstats import Stats, SortKey
-	# p = Stats('execution.prof')
-	# p.strip_dirs().sort_stats('cumtime').print_stats(20)
-	# p.strip_dirs().sort_stats('tottime').print_stats(10)
-
-	# threads = yappi.get_thread_stats()
-	# for thread in threads:
-	# 	print("Function stats for (%s) (%d)" % (thread.name, thread.id))  # it is the Thread.__class__.__name__
-	# 	yappi.get_func_stats(ctx_id=thread.id).print_all()
-
+	print('check dumped stats in execution.prof')   # e.g. pstats.Stats('execution.prof').sort_stats('cumtime').print_stats(20)
 	breakpoint()
 
 def main():
@@ -144,21 +125,15 @@ def main():
 	parser.add_argument('--numItersHistory' , '-i' , action='store', default=5   , type=int  , help='')
 
 	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=1600 , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')
-	# --tempThreshold is now the 4th value of --temperature (single source of truth).
-	# -T is kept as a DEPRECATED override so existing command lines keep working unchanged.
-	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=None , type=int  , help='DEPRECATED: half-life of temp decay, now temperature[3]. If set, overrides it.')
+	parser.add_argument('--tempThreshold'   , '-T' , action='store', default=None , type=int  , help='Shortcut for temperature[3] (half-life of the temperature decay). If set, overrides it.')
 	parser.add_argument('--temperature'     , '-t' , action='store', default=[1.0, 0.1, 1.1, 10.0], type=float, nargs=4, help='[t_begin, t_end, softmax_temp, half_life]. half_life in moves (neg => step). Self-play only')
 	parser.add_argument('--cpuct'           , '-c' , action='store', default=1.25 , type=float, help='cpuct value')
-	# Replace or add next to --cpuct
-	# parser.add_argument('--cpuct'                  , action='store', default=1.25 , type=float, help='cpuct setting')
-	# parser.add_argument('--cpuct-init'             , action='store', default=19652, type=int  , help='c_init for log-cpuct')	
-	# parser.add_argument('--cpuct-factor'           , action='store', default=1.0. , type=float, help='c_factor for log-cpuct')	
 	parser.add_argument('--dirichletAlpha'  , '-d' , action='store', default=-1   , type=float, help='α=0.3 for chess, scaled in inverse proportion to the approximate number of legal moves in a typical position. 0 to disable. -1 for auto.')
 	parser.add_argument('--fpu'             , '-f' , action='store', default=0.1  , type=float, help='Value for FPU (first play urgency, using parent-based reduction)')
 	parser.add_argument('--fpu-root'               , action='store', default=0.   , type=float, help='Value for FPU at root level (first play urgency, using parent-based reduction)')
 	parser.add_argument('--forced-playouts' , '-F' , action='store_true', help='Enabled forced playouts')
 	parser.add_argument('--forced-playouts-k', '-k' , action='store', default=1.5  , type=float, help='Multiplier k for forced playouts')
-	parser.add_argument('--nn-opt'                 , action='append', default=[], metavar='KEY=VALUE', help='Extra key passed to the net constructor (nn_args). Repeatable. Used for function-preserving growth modules: area_value, attn_pool, graph_mix, graph_layers, extra_layer.')
+	parser.add_argument('--nn-opt'                 , action='append', default=[], metavar='KEY=VALUE', help='Extra key passed to the net constructor (nn_args). Repeatable.')
 
 	parser.add_argument('--learn-rate'      , '-l' , action='store', default=0.0003, type=float, help='')
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
@@ -170,17 +145,15 @@ def main():
 	parser.add_argument('--q-weight'        , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
 	parser.add_argument('--arena-gate'      , '-A' , action='store_true', help='Synchronous evaluation mode: after each training iteration, pit the new net against its pre-training snapshot and accept/reject based on --updateThreshold. Without this flag (default), checkpoints are saved unconditionally, selection is post-hoc via pit.py.')
 	parser.add_argument('--arenaCompare'           , action='store', default=30   , type=int  , help='Arena gate: number of games against the previous net. 30 is a COARSE filter (~±130 Elo): it gates obvious regressions, it does not measure progress')
-	parser.add_argument('--arena-sims'             , action='store', default=None , type=int  , help='Arena gate: numMCTSSims used by BOTH sides of the gate (default: --numMCTSSims). Gate cost is ~linear in sims, so lowering it buys games: e.g. 100 games at 400 sims costs about the same wall clock as 30 games at 1200, and resolves ~2x better. Never affects self-play nor pit.py.')
+	parser.add_argument('--arena-sims'             , action='store', default=None , type=int  , help='Arena gate: numMCTSSims used by BOTH sides of the gate (default: --numMCTSSims). Fewer sims buy more games for the same wall clock. Never affects self-play nor pit.py.')
 	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
-	parser.add_argument('--universes'       , '-u' , action='store', default=1    , type=int  , choices=range(9), help='Number of universes (up to 8); will switch between each of them at each rollout. Set to 0 for a deterministic exploration')
-	parser.add_argument('--nn-obs'                 , action='store_true', help='Hidden-info games: query the net on the node OBSERVATION (what Coach trains it on) instead of the invented world')
-	parser.add_argument('--chance-per-sim'         , action='store_true', help='Chance events (dice, draws, steals) get a fresh stream at every simulation instead of one fixed stream per universe (the universe then only fixes the invented hands)')
+	parser.add_argument('--universes'       , '-u' , action='store', default=1    , type=int  , choices=range(9), help='Number of universes (up to 8): chance streams (and hidden-information worlds) cycled across simulations. Set to 0 for a deterministic exploration')
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
 	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int, help='')
-	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-2   , type=float, help='Number of consecutive failed arenas that will trigger process stop (-N means N*numItersHistory). Default raised from 5 to 10: under strict parity a 17%% accept rate makes P(5 consecutive rejects)=0.39, so 5 kills healthy runs by luck alone')
+	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-2   , type=float, help='Number of consecutive failed arenas that stops the run (-N means N*numItersHistory)')
 	parser.add_argument('--profile'                , action='store_true', help='profiler')
 	parser.add_argument('--debug'                  , action='store_true', help='Disable all optimisations to allow easier debugging')
 	parser.add_argument('--useray'                 , action='store_true', help='Mode for "ray", disable some messages')
@@ -189,7 +162,7 @@ def main():
 	parser.add_argument('--no-mem-optim'           , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
 	
 	args = parser.parse_args()
-	if args.tempThreshold is not None:              # backward-compat: -T overrides temperature[3]
+	if args.tempThreshold is not None:              # -T overrides temperature[3]
 		args.temperature[3] = float(args.tempThreshold)
 	args.tempThreshold = int(args.temperature[3])   # canonical value, used as-is across Coach
 	args.maxlenOfQueue = int(2.5e6 / ((

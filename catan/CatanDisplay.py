@@ -181,7 +181,7 @@ def print_board(board):
 	print(f'turn {rnd}  |  phase {phase_char[g[0, GA_PHASE]]}{traded}  |  '
 	      f'dice {dice if dice else "-"}  |  turn of P{g[1, GB_TURN_PLAYER]}  |  '
 	      f'bank {" ".join(f"{res_short[r]}{g[0, GA_BANK + r]}" for r in range(N_RESOURCES))}  |  '
-	      f'dev deck {sum(g[0, GA_DEV_DECK + k] for k in range(N_DEV_TYPES))}')
+	      f'dev deck {board.dev_deck_size()}')
 	for line in _board_lines(board):
 		print(line)
 	for line in _player_lines(board):

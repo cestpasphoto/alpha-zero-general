@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-import importlib
 import itertools
-import json
-import multiprocessing
 import os.path
 import subprocess
 from math import inf
@@ -20,24 +17,13 @@ any agent.
 """
 
 game = None
-_lock = multiprocessing.Lock()
 
 
-# ---------------------------------------------------------------------------
-# Per-side EVAL overrides (protocol v1.1 extension).
-#
-# --strict pins ONE profile on both players and refuses any difference: that is
-# what protects a decisional pit from the 3200-vs-800 trap. Some experiments,
-# however, are ABOUT the profile itself (does doubling the sim budget help? does
-# sampling several dice universes help?). Those need a deliberately asymmetric
-# pit, so they are opt-in via --asymmetric and loudly labelled in the report.
-#
-# Usage: -m1/-m2 (sims), -c1/-c2 (cpuct), -f1/-f2 (fpu), -u1/-u2 (universes),
-# -o1/-o2 (net queried on the observation), -s1/-s2 (chance re-drawn per simulation),
-# --peek1/--peek2 (diagnostic: the search sees the opponents' true resource hands).
-# A side-specific value overrides the shared one for that side only.
-# ---------------------------------------------------------------------------
-_SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes', 'o': 'nn_obs', 's': 'chance_per_sim', 'peek': 'peek'}
+# Per-side EVAL overrides. --strict pins ONE profile on both players and refuses
+# any difference. Experiments ABOUT the search profile (sims, cpuct, fpu,
+# universes) need a deliberately asymmetric pit: opt-in via --asymmetric,
+# labelled in the report. A side-specific value overrides the shared one.
+_SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes'}
 
 
 def _per_side(args, player_id, letter, fallback):
@@ -50,28 +36,18 @@ def _any_per_side(args):
 
 
 def _universes_note(u):
-	# MCTS.py: random_seed = magic_seeds[step % universes] if universes > 0 else -1,
-	# and only random_seed == 0 means true randomness in the game logic.
-	# So u=1 AND u=0 both explore a SINGLE fixed dice realisation (different ones);
-	# only u >= 2 samples several. There are 8 magic seeds, so u > 8 adds nothing.
+	# u=0 and u=1 both explore a SINGLE fixed chance stream; u>=2 cycles several
+	# (8 seeds exist). Games with chance_per_sim re-draw chance at every
+	# simulation, and u then only fixes the invented hidden information.
 	if u is None:
 		return ''
+	if getattr(game, 'chance_per_sim', False):
+		return f' (chance re-drawn at every simulation; u={u} hidden-information world(s))'
 	if u <= 0:
 		return ' (u=0: ONE fixed dice stream, seed -1 -- not real randomness)'
 	if u == 1:
 		return ' (u=1: ONE fixed dice stream, seed 31416 -- the whole tree plans against a single realisation)'
 	return f' (u={u}: {min(u, 8)} dice realisations cycled across simulations)'
-
-
-def _search_note(m):
-	# with chance re-drawn at every simulation, `universes` only fixes the invented hands
-	if m.get('chance_per_sim'):
-		note = f' (chance re-drawn at every simulation; u={m.get("universes")} only fixes the invented hands)'
-	else:
-		note = _universes_note(m.get('universes'))
-	if m.get('peek'):
-		note += ' [PEEK: the search sees the opponents\' TRUE resource hands -- diagnostic, not a legal player]'
-	return note
 
 
 def create_player(name, args, player_id):
@@ -81,12 +57,9 @@ def create_player(name, args, player_id):
 	if game is None:
 		Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
 		game = Game()
-	# All create_player() branches now return a FACTORY (a zero-arg callable
-	# that returns a fresh player function), not the player function itself.
-	# Arena calls the factory once per seat that role occupies: once for
-	# perfect-info games (unchanged behaviour), once PER SEAT for hidden-info
-	# games so seats never share one MCTS tree/hand (see Arena.py's diff).
-	# all players
+	# Every branch returns a FACTORY (zero-arg callable returning a fresh player
+	# function): Arena calls it once per seat for hidden-info games, so seats
+	# never share one MCTS tree.
 	if name == 'random':
 		return (lambda: players.RandomPlayer(game).play), None
 	if name == 'greedy':
@@ -107,15 +80,13 @@ def create_player(name, args, player_id):
 	strict = getattr(args, 'strict', False)
 
 	if strict:
-		# Protocol v1.1 §1: a single EVAL profile, pinned, applied to BOTH players,
-		# NEVER inherited from the checkpoint. Any inheritance re-opens the
-		# 3200-vs-800 trap and conflates net strength with search hyperparameters.
-		# Per-side overrides (-m1/-m2, ...) deliberately break the symmetry; they
-		# require --asymmetric, checked in play().
+		# A single EVAL profile, applied to BOTH players, never inherited from the
+		# checkpoint: otherwise net strength and search settings get confounded.
+		# Per-side overrides require --asymmetric, checked in play().
 		sims = _per_side(args, player_id, 'm', args.numMCTSSims)
 		if not sims:
 			raise SystemExit('[FATAL] --strict requires an explicit -m/--numMCTSSims '
-			                 '(or -m1 and -m2 for an asymmetric pit) (protocol v1.1 §1)')
+			                 '(or -m1 and -m2 for an asymmetric pit)')
 		mcts_args = dotdict({
 			'numMCTSSims'      : sims,
 			'cpuct'            : _per_side(args, player_id, 'c', args.cpuct if args.cpuct else 1.0),
@@ -124,15 +95,11 @@ def create_player(name, args, player_id):
 			'universes'        : _per_side(args, player_id, 'u', args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1)),
 			'prob_fullMCTS'    : 1.,      # PCR off in eval
 			'forced_playouts'  : False,   # training tool
-			# search semantics, never inherited under --strict: explicit, or off
-			'nn_obs'           : bool(_per_side(args, player_id, 'o', args.nn_obs or 0)),
-			'chance_per_sim'   : bool(_per_side(args, player_id, 's', args.chance_per_sim or 0)),
-			'peek'             : bool(_per_side(args, player_id, 'peek', args.peek or 0)),
 			'forced_playouts_k': 1.5,
 			'no_mem_optim'     : False,
 		})
 		def temp_for_game(n):
-			# Explicit eval temperature: 0.5 -> 0, half-life 4 plies (protocol v1.1 §1)
+			# eval temperature: 0.5 -> 0, half-life 4 plies
 			return 0.5 * (0.5 ** (n / 4.0))
 
 		def make_player():
@@ -143,7 +110,7 @@ def create_player(name, args, player_id):
 			return player
 		return make_player, mcts_args
 
-	# Defect 5: detect a silent fallback to the default sim count (the 3200-vs-800 trap)
+	# warn about a silent fallback to the default sim count
 	sims_from_ckpt = additional_keys.get('numMCTSSims', None)
 	sims_cli = _per_side(args, player_id, 'm', args.numMCTSSims)
 	sims = sims_cli if sims_cli else (sims_from_ckpt if sims_from_ckpt else 100)
@@ -151,7 +118,6 @@ def create_player(name, args, player_id):
 		print(f"[EVAL WARNING] {name}: numMCTSSims missing from checkpoint, falling back to {sims}. "
 		      f"Pass -m explicitly to avoid a silent sim-count mismatch.")
 
-	# Defect 6: --fpu was parsed but never applied; honour it for both players when given
 	fpu_cli = _per_side(args, player_id, 'f', args.fpu if getattr(args, 'fpu', None) is not None else None)
 	fpu_ckpt      = additional_keys.get('fpu')
 	fpu_root_ckpt = additional_keys.get('fpu_root', fpu_ckpt)
@@ -164,17 +130,11 @@ def create_player(name, args, player_id):
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
 		'forced_playouts_k': additional_keys.get('forced_playouts_k', 1.5),
-		'nn_obs'          : bool(_per_side(args, player_id, 'o', args.nn_obs if args.nn_obs is not None else additional_keys.get('nn_obs', False))),
-		'chance_per_sim'  : bool(_per_side(args, player_id, 's', args.chance_per_sim if args.chance_per_sim is not None else additional_keys.get('chance_per_sim', False))),
-		# diagnostic only, so never inherited from a checkpoint (training cannot set it anyway)
-		'peek'            : bool(_per_side(args, player_id, 'peek', args.peek or 0)),
 		'no_mem_optim'    : False,
 	})
 
 	def temp_for_game(n):
-		# Defect 3: half-life read from temperature[3] (merged --tempThreshold), fallback 10
-		# for older checkpoints. Was wrongly temperature[2] (softmax temp ~1.1) -> near-greedy
-		# play from move ~5, collapsing opening diversity.
+		# half-life read from temperature[3], fallback 10 for older checkpoints
 		t_begin, t_end = 0.5, 0.0
 		half_life = abs((additional_keys.get('temperature', [])[3:4] or [10])[0])
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
@@ -200,10 +160,9 @@ def _resolve_player_path(p):
 
 def _report_decision(result, args, p1_name, p2_name, diffs=None):
 	"""
-	Decision-grade report (protocol v1.1 §2/§4). Prints the score, its z-score,
-	the Elo point estimate and its 95% CI, and the verdict phrased so that a
-	null result is reported as 'not detectable at the sprint resolution',
-	never as 'no effect'.
+	Decision-grade report: score, z-score, Elo point estimate and 95% CI. A null
+	result is reported as 'not detectable at the sprint resolution', never as
+	'no effect'.
 	"""
 	import math
 	oneWon, twoWon, draws = result
@@ -261,7 +220,7 @@ def play(args):
 
 	if not args.useray:
 		print(players[0], 'vs', players[1])
-	# Defect 5: create_player now also returns the resolved MCTS args (or None for baselines)
+	# create_player also returns the resolved MCTS args (None for baselines)
 	(player1, m1), (player2, m2) = create_player(players[0], args, 0), create_player(players[1], args, 1)
 	if m1 is not None and m2 is not None and m1.numMCTSSims != m2.numMCTSSims:
 		print(f"[EVAL WARNING] sim-count mismatch: P1={m1.numMCTSSims} vs P2={m2.numMCTSSims}. "
@@ -269,18 +228,14 @@ def play(args):
 	diffs = {}
 	if m1 is not None and m2 is not None:
 		diffs = {k: (m1[k], m2[k]) for k in m1 if k in m2 and m1[k] != m2[k]}
-	for i, m in ((1, m1), (2, m2)):
-		if m is not None and m.get('peek') and not m.get('nn_obs'):
-			print(f'[WARNING] P{i}: --peek without --nn-obs 1: the net itself is queried on the TRUE resource '
-			      f'hands, not only the search. Add --nn-obs 1 to measure the search alone.')
 	if getattr(args, 'strict', False) and not args.useray and m1 is not None and m2 is not None:
-		# Protocol v1.1 §1: log the profile of BOTH players at the top of the report
-		print(f'EVAL PROFILE p1: {dict(m1)}{_search_note(m1)}')
-		print(f'EVAL PROFILE p2: {dict(m2)}{_search_note(m2)}')
+		# log the profile of BOTH players at the top of the report
+		print(f'EVAL PROFILE p1: {dict(m1)}{_universes_note(m1.get("universes"))}')
+		print(f'EVAL PROFILE p2: {dict(m2)}{_universes_note(m2.get("universes"))}')
 		if diffs and not getattr(args, 'asymmetric', False):
 			raise SystemExit('[FATAL] EVAL profiles differ between players - comparison is not decisional.\n'
 			                 f'        differing keys: {diffs}\n'
-			                 '        If the difference IS the experiment (search budget, dice universes),\n'
+			                 '        If the difference IS the experiment (search budget, universes...),\n'
 			                 '        re-run with --asymmetric to declare it explicitly.')
 		if diffs:
 			print()
@@ -359,37 +314,6 @@ def plays(list_tasks, args, callback_results=None):
 				callback_results(p1, p2, game_results, args)
 
 
-def load_rating(player_file):
-	import glicko2
-	basename = os.path.splitext(os.path.basename(player_file))[0]
-	rating_file = os.path.dirname(player_file) + '/rating' + ('' if basename == 'best' else '_' + basename) + '.json'
-	if not os.path.exists(rating_file):
-		return glicko2.Player()
-	r_dict = json.load(open(rating_file, 'r'))
-	return glicko2.Player(rating=r_dict['rating'], rd=r_dict['rd'], vol=r_dict['vol'])
-
-
-def write_rating(rating_object, player_file):
-	basename = os.path.splitext(os.path.basename(player_file))[0]
-	rating_file = os.path.dirname(player_file) + '/rating' + ('' if basename == 'best' else '_' + basename) + '.json'
-	rating_dict = {'rating': rating_object.rating, 'rd': rating_object.rd, 'vol': rating_object.vol}
-	json.dump(rating_dict, open(rating_file, 'w'))
-
-
-def update_ratings(p1, p2, game_results, args):
-	oneWon, twoWon, draws = game_results
-	with _lock:
-		player1, player2 = load_rating(p1), load_rating(p2)
-		p1r, p1rd = player1.rating, player1.rd
-		p2r, p2rd = player2.rating, player2.rd
-		n = oneWon + twoWon + draws
-		player1.update_player([p2r] * n, [p2rd] * n, [1] * oneWon + [0.5] * draws + [0] * twoWon)
-		player2.update_player([p1r] * n, [p1rd] * n, [1] * twoWon + [0.5] * draws + [0] * oneWon)
-		write_rating(player1, args.players[0])
-		write_rating(player2, args.players[1])
-		# for p, pname in [(player1, p1), (player2, p2)]:
-		# 	print(f'{pname[-20:].rjust(20)} rating={int(p.rating)}±{int(p.rd)}, vol={p.vol:.3e}')
-
 def play_several_files(args):
 	players = args.players[:]  # Copy, because it will be overwritten by plays()
 	list_tasks = []
@@ -401,24 +325,16 @@ def play_several_files(args):
 	if not args.vs_ref_only:
 		list_tasks += list(itertools.combinations(args.players, 2))
 
-	if args.ratings:
-		plays(list_tasks, args, callback_results=update_ratings)
-		for p in players:
-			r = load_rating(p)
-			name = os.path.basename(os.path.dirname(p)) + (
-				'' if os.path.basename(p) == 'best.pt' else (' - ' + os.path.basename(p)))
-			print(f'{name[-20:].ljust(20)} rating={int(r.rating)}±{int(r.rd)}, vol={r.vol:.3e}')
-	else:
-		worst_games = {}
+	worst_games = {}
 
-		def show_worst_game(p1, p2, result, _):
-			worst_games[p1] = min(result[0], worst_games.get(p1, inf))
-			worst_games[p2] = min(result[1], worst_games.get(p2, inf))
+	def show_worst_game(p1, p2, result, _):
+		worst_games[p1] = min(result[0], worst_games.get(p1, inf))
+		worst_games[p2] = min(result[1], worst_games.get(p2, inf))
 
-		plays(list_tasks, args, callback_results=show_worst_game)
-		if len(players) > 3:
-			for name, worst_game in worst_games.items():
-				print(f'{name:<40}: {worst_game}')
+	plays(list_tasks, args, callback_results=show_worst_game)
+	if len(players) > 3:
+		for name, worst_game in worst_games.items():
+			print(f'{name:<40}: {worst_game}')
 
 
 def profiling(args):
@@ -452,15 +368,10 @@ def main():
 	parser.add_argument('--numMCTSSims'        , '-m' , action='store', default=None, type=int  , help='Number of games moves for MCTS to simulate.')
 	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, help='cpuct value')
 	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
-	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile of protocol v1.1 §1 on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet off, explicit eval temperature. Use this for every comparison meant to be decisional.')
+	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet off, explicit eval temperature. Use this for every comparison meant to be decisional.')
 	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , help='Override universes for both players (default: value stored in checkpoint). u<=1 = ONE fixed dice realisation; u>=2 samples several (8 seeds available)')
-	parser.add_argument('--nn-obs'                    , action='store', default=None, type=int  , choices=(0, 1), help='Hidden-info games, both players: 1 = query the net on the node observation (as trained), 0 = on the invented world. Default: 0 under --strict, else the checkpoint value')
-	parser.add_argument('--chance-per-sim'            , action='store', default=None, type=int  , choices=(0, 1), help='Both players: 1 = fresh chance stream at every simulation, 0 = one fixed stream per universe. Default: 0 under --strict, else the checkpoint value')
-	parser.add_argument('--peek'                      , action='store', default=None, type=int  , choices=(0, 1), help='DIAGNOSTIC, hidden-info games, both players: 1 = the search starts from the opponents\' TRUE resource hands (dev cards still invented); the net is queried as usual. Not a legal player. Default 0, never inherited')
 
-	# Per-side EVAL overrides: for experiments where the search profile IS the
-	# variable under test. Require --asymmetric so a decisional pit can never
-	# become asymmetric by accident.
+	# Per-side EVAL overrides, see _SIDE_KEYS
 	side = parser.add_argument_group('asymmetric pit (search-profile experiments)')
 	side.add_argument('--asymmetric'    , '-Y' , action='store_true', help='Allow the two sides to run different EVAL profiles. Without it, --strict aborts on any difference.')
 	side.add_argument('--m1'                   , action='store', default=None, type=int  , help='numMCTSSims for player 1 only')
@@ -471,18 +382,11 @@ def main():
 	side.add_argument('--f2'                   , action='store', default=None, type=float, help='fpu for player 2 only')
 	side.add_argument('--u1'                   , action='store', default=None, type=int  , help='universes for player 1 only')
 	side.add_argument('--u2'                   , action='store', default=None, type=int  , help='universes for player 2 only')
-	side.add_argument('--o1'                   , action='store', default=None, type=int  , choices=(0, 1), help='--nn-obs for player 1 only')
-	side.add_argument('--o2'                   , action='store', default=None, type=int  , choices=(0, 1), help='--nn-obs for player 2 only')
-	side.add_argument('--s1'                   , action='store', default=None, type=int  , choices=(0, 1), help='--chance-per-sim for player 1 only')
-	side.add_argument('--s2'                   , action='store', default=None, type=int  , choices=(0, 1), help='--chance-per-sim for player 2 only')
-	side.add_argument('--peek1'                , action='store', default=None, type=int  , choices=(0, 1), help='--peek for player 1 only')
-	side.add_argument('--peek2'                , action='store', default=None, type=int  , choices=(0, 1), help='--peek for player 2 only')
 
 	parser.add_argument('game'                        , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
 	parser.add_argument('--reference'          , '-r' , metavar='ref'   , nargs='*', help='list of reference players')
 	parser.add_argument('--vs-ref-only'        , '-z' , action='store_true', help='Use this option to prevent games between players, only players vs references')
-	parser.add_argument('--ratings'            , '-R' , action='store_true', help='Compute ratings based in games results and write ratings on disk')
 	parser.add_argument('--useray'                    , action='store_true', help='Mode for "ray", disable some messages')
 
 	parser.add_argument('--compare'            , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
@@ -492,7 +396,7 @@ def main():
 	args = parser.parse_args()
 
 	if _any_per_side(args) and not args.asymmetric:
-		raise SystemExit('[FATAL] per-side overrides (-m1/-m2/-c1/-c2/-f1/-f2/-u1/-u2/-o1/-o2/-s1/-s2/--peek1/--peek2) given without '
+		raise SystemExit('[FATAL] per-side overrides (-m1/-m2/-c1/-c2/-f1/-f2/-u1/-u2) given without '
 		                 '--asymmetric.\n        Declare the asymmetry explicitly, or drop them.')
 	if args.asymmetric and not _any_per_side(args):
 		print('[WARNING] --asymmetric given but no per-side override: the pit is symmetric.')

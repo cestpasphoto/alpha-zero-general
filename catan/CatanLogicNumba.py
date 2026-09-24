@@ -10,163 +10,63 @@ try:                                    # inside the package (main.py, pit.py)
 except ImportError:                     # run directly from the catan/ folder
 	from CatanConstants import *
 
-# Stochastic.py lives at the repository root, next to MCTS.py. Add that root to
-# sys.path when this module is imported from inside catan/, so that running
-# CatanTest.py directly works exactly like running through main.py.
+# Stochastic.py lives at the repository root: make it importable when this
+# module is used from inside catan/ (CatanTest.py run directly)
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
 	sys.path.append(_ROOT)
-try:
-	from Stochastic import hashed_draw
-except ImportError as _e:               # fail loudly: a silent fallback here would
-	raise ImportError(                  # mean the chance streams are not what we think
-		"Catan needs Stochastic.py (hashed_draw) at the repository root. "
-		"It comes with pimc.diff; without it the dice would use the old degenerate "
-		"generator. Original error: %s" % _e)
+from Stochastic import hashed_draw
 
 ############################## BOARD DESCRIPTION ##############################
 #
-# Game.state : np.ndarray[int8] of shape (75 + 4*N_PLAYERS, N_COLS=12)
-#              87 rows / 1044 bytes for the default 3 players.
+# state: np.ndarray[int8] of shape (75 + 4*N_PLAYERS, N_COLS=12), 87 x 12 for 3
+# players. Column names are the constants of CatanConstants.py. No value is ever
+# negative (absence is 0 or a NO_* sentinel) and no value is a bitfield;
+# CatanTest.py checks both after every move.
 #
-# The board is a GRAPH, not a grid: 54 vertices, 72 edges, 19 hexes. Only the
-# 54 vertices and the 19 hexes get a row (a token for the network); an EDGE has
-# no row of its own, its owner is stored on BOTH of its endpoints. The network
-# scores an edge with a bilinear head over its two endpoint embeddings, so every
-# edge still has its own logit -- no head ever picks among N options by reading
-# their average.
-# All incidences (VERTEX_TO_EDGE, VERTEX_TO_HEX, EDGE_TO_VERTEX, ...) are STATIC
-# and live in CatanConstants.py. Nothing static is ever stored in the state.
+# The board is a GRAPH: only vertices and hexes get a row (a network token). An
+# edge has no row, its owner is stored on BOTH endpoints (V_EDGE0..2 follow
+# VERTEX_TO_EDGE) and the network scores it with a bilinear head over them.
+# Static incidences live in CatanConstants.py, never in the state.
 #
-# Two invariants hold everywhere, and CatanTest.py checks them after every move:
-#   - no value in the state is ever negative (absence is 0, or the NO_* sentinel)
-#   - no value in the state is a bitfield (counters and small categories only)
+#   rows [0 .. 53]      one per VERTEX: building, owner (canonical order), port,
+#                       owner of each incident edge. Ports are stored per vertex so
+#                       that the 12 isometries are plain row permutations.
+#   rows [54 .. 72]     one per HEX: type, pips (economic value), token id
+#                       (identity: two 8s produce together), robber.
+#   4 rows per player   CANONICAL order, player 0 is the one to move:
+#     A  hand (resources, playable dev cards) and the two public TOTALS
+#     B  dev cards bought this turn, knights, pieces left, longest road, bonuses
+#     C  VP (public / from dev cards), dev played this turn, ports (cached from
+#        the vertices), dev cards bought this turn, cards owed after a 7, bank trades
+#     D  standing trade offer (ask, give, status), PUBLIC. Kept on its author's
+#        rows so it rotates with its owner; the protocol state (composer, next
+#        responder) is derived from the statuses, never stored.
+#   2 global rows
+#     A  bank, dev deck per type, last roll, phase
+#     B  round (lo/hi), pending roads or discards, turn player (relative to the
+#        player to move), setup step, dev cards played per type, chance counter,
+#        player trade done this turn
 #
-#   rows [0 .. 53]                          -> one per VERTEX, reading order
-#     col 0  V_BUILDING     0 empty / 1 settlement / 2 city
-#     col 1  V_OWNER        0 nobody / 1..N_PLAYERS, in CANONICAL player order
-#     col 2  V_PORT         0 none / 1..5 = 2:1 on that resource / 6 = 3:1 generic
-#     col 3  V_EDGE0        owner of edge VERTEX_TO_EDGE[v,0], 0 = free
-#     col 4  V_EDGE1        idem for VERTEX_TO_EDGE[v,1]
-#     col 5  V_EDGE2        idem for VERTEX_TO_EDGE[v,2]  (NO_EDGE -> always 0)
-#     cols 6..11            unused
-#
-#   Each edge appears on its two endpoints and MUST stay consistent: writing a
-#   road updates two rows. The port is stored per vertex (not read from the
-#   constants) so that the 12 isometries remain valid rewrites of the state.
-#
-#   rows [54 .. 72]                         -> one per HEX, reading order
-#     col 0  H_TYPE         0 desert / 1 hill / 2 forest / 3 mountain / 4 field / 5 pasture
-#     col 1  H_PIPS         0..5, the number of 2d6 combinations = 36*P(production)
-#     col 2  H_TOKEN        0 desert / 1..10 = tokens 2,3,4,5,6,8,9,10,11,12
-#     col 3  H_ROBBER       0 / 1, exactly one hex carries it
-#     cols 4..11            unused
-#
-#   H_PIPS and H_TOKEN are redundant on purpose: pips are the scalar that carries
-#   the economic value (monotone), the token id is the categorical identity that
-#   carries correlation between hexes (two 8s always produce together).
-#
-#   rows [73 .. 72+4*N_PLAYERS]             -> 4 rows per player, CANONICAL order
-#                                              (player 0 is always the one to move)
-#     row A  cols 0..4   PA_RESOURCES        hand, one counter per resource
-#            cols 5..9   PA_DEV_PLAYABLE     dev cards in hand, playable this turn
-#            col  10     PA_TOTAL_RES        redundant total, see MASKING below
-#            col  11     PA_TOTAL_DEV        redundant total, see MASKING below
-#     row B  cols 0..4   PB_DEV_NEW          dev cards bought this turn (not playable yet)
-#            col  5      PB_KNIGHTS          knights played so far
-#            col  6      PB_SETTLEMENTS_LEFT remaining pieces (5 / 4 / 15 at start)
-#            col  7      PB_CITIES_LEFT
-#            col  8      PB_ROADS_LEFT
-#            col  9      PB_ROAD_LENGTH      longest continuous road, recomputed on write
-#            col  10     PB_HAS_ROAD         0 / 1, holds the Longest Road card
-#            col  11     PB_HAS_ARMY         0 / 1, holds the Largest Army card
-#     row C  col  0      PC_VP_PUBLIC        settlements + cities + bonus cards
-#            col  1      PC_VP_DEV           victory points held in hand, DERIVED from
-#                                            the dev hand, so masking zeroes it for free
-#            col  2      PC_DEV_PLAYED_THIS_TURN  0 / 1, at most one dev card per turn
-#            cols 3..8   PC_PORTS            1 if the player owns that port type
-#            col  9      PC_TOTAL_DEV_NEW    how many cards were bought this turn. Public
-#                                            (the purchase was seen), only the type is
-#                                            hidden -> masking keeps it
-#            col  10     PC_DISCARD_LEFT     cards still owed after a 7
-#            col  11     PC_TRADES_THIS_TURN bank trades made this turn, reset at
-#                                            _start_turn(). NOT an official rule: bank
-#                                            trades are the one action type nothing else
-#                                            bounds (builds are capped by lifetime piece
-#                                            counts, dev buys by the 25-card deck); from a
-#                                            maxed-out hand a single turn fits up to 41
-#                                            consecutive 2:1 trades, and sustained over
-#                                            MAX_ROUNDS that pushes MCTS's recursive
-#                                            search() (one frame per ply) into the tens of
-#                                            thousands. MAX_TRADES_PER_TURN=6 bounds it.
-#
-#     row D  cols 0..4   PD_TRADE_RECV       this player's standing offer: what it ASKS
-#            cols 5..9   PD_TRADE_GIVE       ... and what it OFFERS in exchange
-#            col  10     PD_TRADE_STATUS     TRADE_NONE / COMPOSING / OFFERED / REFUSED
-#            col  11     unused
-#
-#   Row D is PUBLIC: an announcement is heard by everyone, so get_observation
-#   leaves it alone. Keeping the offer on its AUTHOR's rows (rather than in a
-#   global row) is what makes swap_players free -- nothing in row D names a
-#   player, so an offer rotates with its owner and needs no relabelling. It also
-#   means the whole protocol state is derived, never stored: the composer is the
-#   unique TRADE_COMPOSING, the next responder the first TRADE_NONE after the turn
-#   player in seat order.
-#
-#   PC_PORTS is derivable from the vertices but read on every valid_moves(), so it
-#   is cached. CatanTest.py asserts it matches the board after every move.
-#
-#   rows [73+4*N_PLAYERS, 74+4*N_PLAYERS]   -> 2 GLOBAL rows
-#     row A  cols 0..4   GA_BANK             resources left in the bank
-#            cols 5..9   GA_DEV_DECK         dev cards left, per type. HIDDEN in the
-#                                            rules sense: the draw is a chance node
-#                                            resolved by make_move(random_seed), the
-#                                            remaining counts are public and deducible
-#            col  10     GA_DICE             last roll, 0 before the first one
-#            col  11     GA_PHASE            see PHASE_* in CatanConstants.py
-#     row B  col  0      GB_ROUND_LO         round = GB_ROUND_HI*100 + GB_ROUND_LO,
-#            col  1      GB_ROUND_HI         split to stay inside int8
-#            col  2      GB_PENDING_COUNT    roads left to place (Road Building),
-#                                            or cards left to discard
-#            col  3      GB_TURN_PLAYER   who must answer (discard, trade)
-#            col  3      GB_TURN_PLAYER      whose TURN it is, relative to the player to
-#                                            move: during a discard the actor is not the
-#                                            turn owner, so the two must be distinguished
-#            col  4      GB_SETUP_STEP       index in the snake placement order
-#            cols 5..9   GB_DEV_PLAYED       dev cards played and discarded, per type.
-#                                            Needed for conservation: a played Monopoly
-#                                            leaves the hand and would otherwise vanish
-#            col  10     GB_CHANCE_COUNTER   incremented at each chance draw, mod 100, so
-#                                            that successive draws of one stream are
-#                                            decorrelated (see Stochastic.py)
-#            col  11     GB_PLAYER_TRADE_DONE 0/1, one player-trade ATTEMPT per turn
-#                                            (success or failure), reset in _start_turn
-#
-# MASKING (get_observation / sample_world)
-#   Hidden information is exactly: the resources and dev cards of the OTHER
-#   players. get_observation(viewer) zeroes PA_RESOURCES and PA_DEV_PLAYABLE /
-#   PB_DEV_NEW of every p != viewer while KEEPING PA_TOTAL_RES and PA_TOTAL_DEV,
-#   which is why those two columns exist: once the detail is masked the total is
-#   no longer deducible from the state alone.
-#   sample_world() redraws each opponent hand so that BOTH margins hold: each
-#   opponent's total, and the number of each resource outside the bank. This is a
-#   contingency table with fixed margins -- unlike Splendor, the sampling bias
-#   here is real and CatanTest.py checks the margins after every sample.
-#   With 2 players the opponent hand is fully determined by the bank, so masking
-#   changes nothing: hidden information only bites from 3 players on.
-#   A PUBLISHED OFFER CONSTRAINS THE SAMPLE. Announcing "I give 2 lumber" proves
-#   the author holds 2 lumber, and that announcement is public while its author's
-#   hand is masked (in canonical form the announcer is not the actor once it is
-#   someone else's turn to answer). sample_world therefore deals each masked
-#   player its own PD_TRADE_GIVE first and draws only the remainder at random --
-#   otherwise an accepted trade would debit cards the sampled world never gave it,
-#   driving a hand negative and breaking invariant I1 with no crash to point at.
+# HIDDEN INFORMATION (get_observation / sample_world)
+#   Hidden: the resources and dev cards of the OTHER players, and the composition
+#   of the dev deck. get_observation(viewer) zeroes them and keeps the public
+#   totals PA_TOTAL_RES / PA_TOTAL_DEV; the deck size stays deducible
+#   (dev_deck_size). A hand is masked iff its detail no longer sums to its total,
+#   the deck iff it no longer sums to dev_deck_size: no flag to keep in sync.
+#   sample_world() re-deals every masked hand and the deck so that all margins
+#   hold: each total, each resource outside the bank, each dev type not played.
+#   A published offer proves its author holds what it gives: those cards are
+#   reserved before any random draw.
+#   Legality never reads hidden information: valid_moves() is the same on the
+#   true state and on the observation.
+#   With 2 players the opponent's resources are deducible from the bank.
 #
 ############################## ACTION DESCRIPTION #############################
 #
-# One flat space of N_ACTIONS = 287 + 112 + N_PLAYERS ids (402 for 3 players), split
-# into DISJOINT ranges: an output neuron always means exactly one thing, whatever
-# the phase. Offsets are the A_* constants, never hard-coded.
+# One flat space of N_ACTIONS ids (402 for 3 players), split into DISJOINT ranges:
+# an output neuron always means exactly one thing, whatever the phase. Offsets
+# are the A_* constants, never hard-coded.
 #
 #   A_ROAD           + e              e   in [0, 72)   build a road on edge e
 #   A_SETTLEMENT     + v              v   in [0, 54)   build a settlement on vertex v
@@ -230,9 +130,7 @@ except ImportError as _e:               # fail loudly: a silent fallback here wo
 #
 # The board has 12 isometries (6 rotations x mirror). get_symmetries() applies
 # ISO_VERTEX / ISO_EDGE / ISO_HEX to the state AND the same permutation to the
-# policy, giving a x12 augmentation for free. Player rows and global rows are
-# untouched. Port types travel with the vertices, which is why they live in the
-# state: a rotated board is a legal, strategically identical position.
+# policy. Player and global rows are untouched.
 #
 ###############################################################################
 
@@ -433,19 +331,10 @@ class Board():
 		self.globals_[1, GB_ROUND_LO] = r % 100
 
 	def check_end_game(self, next_player):
-		# OFFICIAL RULE: a player wins only during its OWN turn. This used to take
-		# the max over EVERY player on every call, which is wrong twice over:
-		#   - off-turn wins. The turn player cutting a road can hand Longest Road
-		#     to a third player, who was then declared winner mid-move; under the
-		#     rules that player wins when its own turn comes round.
-		#   - terminality depending on cards of players who are not to move. Their
-		#     victory-point cards are hidden, so a world sampled by the search
-		#     (MCTS.py) can INVENT the win. Restricting the test to the turn player
-		#     removes that wherever the turn player is also the actor -- its hand is
-		#     never masked, it is canonical index 0. It stays possible in the few
-		#     phases where the actor is someone else (discard, trade answer), so
-		#     this narrows the failure mode rather than closing it.
-		# Catan still ends the instant the condition is met: no "finish the round".
+		# OFFICIAL RULE: a player wins only during its OWN turn, the instant the
+		# condition is met. Testing only the turn player also keeps terminality
+		# from depending on the hidden VP cards of the other players, except in
+		# the phases where the actor is not the turn player (discard, trade answer).
 		turn_player = int(self.globals_[1, GB_TURN_PLAYER])
 		timeout = self.get_round() >= self.max_rounds
 		if not timeout:
@@ -515,41 +404,36 @@ class Board():
 		return symmetries
 
 	############################## HIDDEN INFORMATION #########################
-	# Hidden = the resources and dev card TYPES of the other players. Their hand
-	# SIZES stay public, which is why the totals are stored: masked detail makes
-	# them undeducible. A player is "masked" iff its detail no longer sums to its
-	# total -- no flag to keep in sync.
+	# See HIDDEN INFORMATION in the header.
+
+	def dev_deck_size(self):
+		# public: 25 minus the dev cards in hand (public totals) and those played
+		n = 0
+		for k in range(N_DEV_TYPES):
+			n += DEV_DISTRIBUTION[k] - self.globals_[1, GB_DEV_PLAYED + k]
+		for p in range(self.num_players):
+			n -= self.players[4*p, PA_TOTAL_DEV]
+		return n
 
 	def get_observation(self, viewer):
-		self._mask_hands(viewer, True)
-
-	def get_peek_observation(self, viewer):
-		# DIAGNOSTIC ONLY (pit.py --peek): NOT a legal information set. The
-		# opponents' dev cards are masked as in get_observation, but their
-		# RESOURCES stay visible, so sample_world sees those hands as known
-		# (detail == total) and only deals the dev cards. It measures what the
-		# search would gain from perfect card counting; never train on it.
-		self._mask_hands(viewer, False)
-
-	def _mask_hands(self, viewer, hide_resources):
 		for p in range(self.num_players):
 			if p == viewer:
 				continue
-			if hide_resources:
-				for r in range(N_RESOURCES):
-					self.players[4*p, PA_RESOURCES + r] = 0
+			for r in range(N_RESOURCES):
+				self.players[4*p, PA_RESOURCES + r] = 0
 			for k in range(N_DEV_TYPES):
 				self.players[4*p, PA_DEV_PLAYABLE + k] = 0
 				self.players[4*p + 1, PB_DEV_NEW + k] = 0
 			self.players[4*p + 2, PC_VP_DEV] = 0      # derived from the dev hand
+		for k in range(N_DEV_TYPES):
+			self.globals_[0, GA_DEV_DECK + k] = 0
 
 	def sample_world(self, random_seed):
 		counter = np.int64(0)
 
 		# --- resources: deal from the pool of everything outside the bank ---
-		# `masked` is settled HERE, before anything is dealt: once cards start
-		# landing in a hand, "detail != total" stops meaning "hidden" and starts
-		# meaning "not finished yet", and the two must not be confused.
+		# `masked` is settled before anything is dealt: afterwards "detail !=
+		# total" would also mean "not finished yet".
 		pool = np.zeros(N_RESOURCES, dtype=np.int8)
 		for r in range(N_RESOURCES):
 			pool[r] = BANK_PER_RESOURCE - self.globals_[0, GA_BANK + r]
@@ -564,16 +448,9 @@ class Board():
 			else:
 				masked[p] = 1
 
-		# A published offer is PUBLIC and proves its author holds what it offers,
-		# so those cards are RESERVED before anything is drawn at random. Without
-		# this the sampled world can contradict an announcement everyone heard,
-		# and accepting that offer debits cards the world never handed out -- a
-		# negative hand, invariant I1, with no crash where it went wrong.
-		# The reservation is a pass of its OWN, ahead of every random draw: doing
-		# it per player inside the dealing loop below lets one player's random
-		# cards consume a resource a later player has publicly committed to. Two
-		# opponents each offering the last two lumber is enough to hit it, and it
-		# is what the first version of this did.
+		# Cards promised by published offers are reserved in a pass of their own,
+		# before any random draw: otherwise one player's random cards could use
+		# up a resource another player has publicly committed to.
 		forced = np.zeros(self.num_players, dtype=np.int8)
 		for p in range(self.num_players):
 			if masked[p] == 0 or self.players[4*p + 3, PD_TRADE_STATUS] != TRADE_OFFERED:
@@ -595,10 +472,16 @@ class Board():
 				r = self._draw_from_pool(pool, random_seed, counter)
 				self.players[4*p, PA_RESOURCES + r] += 1
 
-		# --- dev cards: same, with the playable / bought-this-turn split ----
+		# --- dev cards: masked hands, then the deck gets what is left ---------
+		deck = 0
+		for k in range(N_DEV_TYPES):
+			deck += self.globals_[0, GA_DEV_DECK + k]
+		deck_masked = deck != self.dev_deck_size()
 		dpool = np.zeros(N_DEV_TYPES, dtype=np.int8)
 		for k in range(N_DEV_TYPES):
-			dpool[k] = DEV_DISTRIBUTION[k] - self.globals_[0, GA_DEV_DECK + k] - self.globals_[1, GB_DEV_PLAYED + k]
+			dpool[k] = DEV_DISTRIBUTION[k] - self.globals_[1, GB_DEV_PLAYED + k]
+			if not deck_masked:
+				dpool[k] -= self.globals_[0, GA_DEV_DECK + k]
 		for p in range(self.num_players):
 			detail = 0
 			for k in range(N_DEV_TYPES):
@@ -622,21 +505,15 @@ class Board():
 					self.players[4*p, PA_DEV_PLAYABLE + k] += 1
 			self.players[4*p + 2, PC_VP_DEV] = (self.players[4*p, PA_DEV_PLAYABLE + VICTORY_POINT]
 			                                    + self.players[4*p + 1, PB_DEV_NEW + VICTORY_POINT])
+		if deck_masked:
+			for k in range(N_DEV_TYPES):
+				self.globals_[0, GA_DEV_DECK + k] = dpool[k]
 
 	def _draw_from_pool(self, pool, random_seed, counter):
-		# uniform draw without replacement from a multiset: both margins (each
-		# hand size, each resource total) hold exactly by construction, so
-		# `total` below should never be 0 while a draw is still owed. A pure-
-		# Python port of this exact algorithm held over 20k randomized trials
-		# (conservation, non-negativity, margins) -- the only way to hit
-		# total==0 there was an artificially corrupted true state.
-		# CORRECTED (was: `return 0` silently): that "safe" fallback was worse
-		# than the crash it avoided -- it hands out a card of type 0 without
-		# ever removing it from anywhere, so conservation (I7 in CatanTest.py)
-		# silently goes off by one instead of failing loudly at the source.
-		# Raise instead: this can only fire on a genuinely inconsistent state,
-		# and CatanTest.py's check_draw_from_pool_guard() exercises this path
-		# directly so the raise itself is covered, not just hoped-for.
+		# uniform draw without replacement from a multiset. The margins hold by
+		# construction, so an empty pool can only come from an inconsistent state:
+		# raise rather than hand out a card that comes from nowhere
+		# (exercised by CatanTest.check_draw_from_pool_guard)
 		total = 0
 		for i in range(pool.size):
 			total += pool[i]
@@ -761,8 +638,7 @@ class Board():
 	def _setup_vertex(self, player):
 		# The settlement whose road is still to be placed: the player's only
 		# building with no incident road of its own. Derived rather than stored,
-		# so that no board index ever sits in a global row (it would not be
-		# permuted by an isometry, and the battery caught exactly that).
+		# so that no board index ever sits in a global row (isometries).
 		for v in range(N_VERTICES):
 			if self.vertices[v, V_OWNER] != player + 1:
 				continue
@@ -775,36 +651,14 @@ class Board():
 		return 0   # no unroaded settlement: caller has a stale/inconsistent state
 
 	def _next_actor(self):
-		# Every return path here must be a CANONICAL-RELATIVE offset (0 = the
-		# player who is currently canonical index 0), never an absolute player
-		# id -- _apply()/make_move() apply directly to that convention, and the
-		# caller only ever rotates the board once, after make_move() returns,
-		# by whatever this function's LAST call within that make_move() returned.
-		#
-		# BUG #1 (found via CATAN_DEBUG cycle tracing): the setup snake formula
-		# `s if s < P else 2*P-1-s` returns an ABSOLUTE player id, not a
-		# relative offset. It only coincides with the relative convention for
-		# the very first placement (s=0, before any rotation has ever
-		# happened). Fixed below for the settlement case by taking the
-		# DIFFERENCE between the current and previous step's absolute snake
-		# position -- i.e. how far the snake moves this step, not where it is
-		# in absolute terms.
-		#
-		# BUG #2 (found one level deeper, same tracing): a road does NOT
-		# always belong to relative offset 0. It belongs to whichever player
-		# placed the settlement it completes -- and when THAT settlement was
-		# itself an auto-resolved, non-zero-offset transition (bug #1's fix,
-		# still within the SAME make_move() guard loop, no rotation since),
-		# the road must carry the SAME offset, not "0". Hardcoding 0 here was
-        # my own first attempt at this fix and was itself wrong -- confirmed
-        # by a trace showing a settlement placed at relative offset 1
-        # immediately followed by _setup_vertex asked for relative offset 0,
-        # which owns nothing, giving zero legal roads and the same crash one
-        # level deeper. The road's actor is already recorded on the board --
-        # V_OWNER is stored in canonical-relative terms throughout this
-        # codebase (owner label k means relative offset k-1) -- so reading it
-        # directly off the one settlement that has no road yet is both
-        # simpler and correct, with no separate case analysis needed.
+		# Returns a CANONICAL-RELATIVE offset (0 = the player currently at
+		# canonical index 0), never an absolute player id: make_move() applies its
+		# auto-resolved moves in that frame and the caller rotates the board once,
+		# afterwards.
+		#   - setup road: it belongs to whoever owns the only settlement without
+		#     a road (V_OWNER is canonical-relative), not necessarily to offset 0;
+		#   - setup settlement: the snake order is absolute, so return how far it
+		#     moves this step, not where it is.
 		phase = self.globals_[0, GA_PHASE]
 		if phase == PHASE_SETUP_ROAD:
 			for v in range(N_VERTICES):
@@ -941,10 +795,7 @@ class Board():
 				for v in range(N_VERTICES):
 					if self.vertices[v, V_OWNER] == player + 1 and self.vertices[v, V_BUILDING] == 1:
 						valids[A_CITY + v] = True
-			deck = 0
-			for k in range(N_DEV_TYPES):
-				deck += self.globals_[0, GA_DEV_DECK + k]
-			if deck > 0 and self._can_afford(player, COST_DEV):
+			if self.dev_deck_size() > 0 and self._can_afford(player, COST_DEV):
 				valids[A_BUY_DEV] = True
 			if self.players[c, PC_DEV_PLAYED_THIS_TURN] == 0:
 				if self.players[a, PA_DEV_PLAYABLE + KNIGHT] > 0:
@@ -1416,9 +1267,8 @@ class Board():
 			return
 		if holder >= 0 and self.players[4*holder + 1, PB_ROAD_LENGTH] == best_len:
 			return                              # the incumbent keeps it, ties included
-		# The incumbent no longer holds the longest road: it loses the card even
-		# when the new best is tied between several players, in which case nobody
-		# takes it. Returning early here left a holder shorter than its rivals.
+		# the incumbent is no longer the longest: it loses the card, and nobody
+		# takes it if the new best is tied
 		if holder >= 0:
 			self.players[4*holder + 1, PB_HAS_ROAD] = 0
 			self._refresh_vp(holder)

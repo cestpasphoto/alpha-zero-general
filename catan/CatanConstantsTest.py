@@ -1,8 +1,7 @@
-"""Assertions on CatanConstants. Run this before writing a single line of game logic.
+"""Assertions on CatanConstants.
 
-Everything checked here is structural: it cannot be checked later by playing games,
-because a wrong incidence table produces a board that is perfectly self-consistent
-and simply wrong.
+Everything checked here is structural: a wrong incidence table produces a board
+that is perfectly self-consistent and simply wrong, which playing games cannot see.
 """
 import numpy as np
 from CatanConstants import *
@@ -146,10 +145,8 @@ def check_actions():
 			ref.add(tuple(c))
 	assert {tuple(r) for r in TRADE_SETS} == ref, "TRADE_SETS is not exactly the 1..3 multisets"
 
-	# The trade ids name RESOURCES, which no isometry permutes, so every one of
-	# them must map to ITSELF. A silently permuted trade id would corrupt the x12
-	# augmentation and the policy target with it -- and nothing downstream would
-	# say so, which is exactly why this is asserted rather than assumed.
+	# The trade ids name RESOURCES, which no isometry permutes: every one of them
+	# must map to ITSELF.
 	for s in range(N_ISOMETRIES):
 		for a in range(N_ACTIONS_V1, N_ACTIONS):
 			assert ISO_ACTION[s, a] == a, f"isometry {s} moves trade action {a}"

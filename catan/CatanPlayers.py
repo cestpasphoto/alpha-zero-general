@@ -63,15 +63,10 @@ class HumanPlayer():
 
 ############################# HEURISTIC BASELINE ##############################
 #
-# A ONE-PLY GREEDY DOES NOT WORK HERE, and the failure is instructive: ranked on
-# (victory points, production, hand size) it played 2 settlements, 4 roads, then
-# ended its turn 84 times and discarded 200 cards to sevens. Every build lowers
-# the hand and no road raises VP or production, so "do nothing" always won the
-# tie-break. Catan punishes hoarding, which one ply cannot see.
-# What follows is therefore a rule-based player, not a search: a fixed priority
-# list over the phases. It is still weak -- no lookahead, blind to blocking, to
-# card counting and to what opponents are about to build -- but it is a baseline
-# a trained network should beat comfortably, which a random player is not.
+# A rule-based player, not a search: a fixed priority list over the phases (a
+# one-ply greedy only hoards, since every build lowers the hand). Weak -- no
+# lookahead, no blocking, no card counting -- but a baseline a trained network
+# should beat comfortably, which a random player is not.
 
 
 def vertex_value(state, v):
@@ -109,7 +104,7 @@ def production_pips(state, player):
 
 
 class GreedyPlayer():
-	"""Rule-based baseline. See the comment above for why it is not a greedy."""
+	"""Rule-based baseline, see the comment above."""
 
 	def __init__(self, game):
 		self.game = game
@@ -133,13 +128,8 @@ class GreedyPlayer():
 			             for m in np.flatnonzero(valids)])
 
 		# --- player trade ----------------------------------------------------
-		# This baseline never OPENS a trade (A_TRADE_RECV is simply absent from
-		# the main-phase priority list below), but the other players can drag it
-		# into the answer phases, and falling through to that list would return
-		# A_END_TURN -- illegal there, and an assert in Arena rather than a loss.
-		# Accepting whenever it nets more cards than it gives is a deliberately
-		# crude placeholder: it ignores WHICH resources move, so a trained net
-		# should exploit it easily. It is a control, not an opponent.
+		# Never OPENS a trade, but must answer the others' offers: it accepts
+		# whenever it receives more cards than it gives, whatever they are.
 		if phase == PHASE_TRADE_ANSWER:
 			turn_player = int(board[row_global + 1, GB_TURN_PLAYER])
 			d = row_a + ROWS_PER_PLAYER * turn_player + 3
@@ -151,8 +141,7 @@ class GreedyPlayer():
 		if phase == PHASE_TRADE_ACCEPT:
 			return A_TRADE_ACCEPT + 0           # refuse every counter-offer
 		if phase == PHASE_TRADE_OFFER:
-			# unreachable while this baseline never announces, but a wrong guess
-			# here would be an illegal move rather than a bad one: pick a legal id
+			# unreachable (never announces), but stay legal
 			return int(np.flatnonzero(valids)[0])
 
 		# --- forced-ish phases ---------------------------------------------

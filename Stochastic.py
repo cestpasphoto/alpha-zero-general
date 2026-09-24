@@ -8,24 +8,16 @@ Contract shared by MCTS.py and every game logic:
                        function of (random_seed, counter). Used inside the tree so
                        that a "universe" is one reproducible chance stream.
 
-Why a hash and not an LCG: the previous generators used a multiplier a with
-a ≡ 1 (mod m) (1981 mod 6 = 1, 4594591 mod m = 1 for most deck sizes), which
-degenerates into (seed + counter) mod m: a cyclic counter. Marginals were
-uniform but the joint law was wrong (after face k always came face k+1, two
-draws sharing one counter were perfectly correlated, universes were mere phase
-shifts of the same cycle). A splitmix64-style mixer gives decorrelated outputs
-for consecutive counters and for different seeds, at the same cost.
+A splitmix64-style mixer gives decorrelated outputs for consecutive counters and
+for different seeds. Do not replace it with an LCG whose multiplier is 1 modulo
+the range: that degenerates into a cyclic counter.
 """
 import warnings
 import numpy as np
 from numba import njit
 
-# The mixer below multiplies uint64 values that are MEANT to overflow (mod
-# 2**64) -- that wraparound IS the splitmix64 mixing step, not a bug. Compiled
-# (@njit) code wraps silently, matching C semantics. Interpreted mode (e.g.
-# NUMBA_DISABLE_JIT=1, used for debugging without paying compile time) runs
-# real numpy scalar arithmetic instead, which numpy warns about by default.
-# The computed value is identical either way; only this warning is spurious.
+# The uint64 overflow below IS the mixing step. Compiled code wraps silently;
+# interpreted mode (NUMBA_DISABLE_JIT=1) computes the same value but warns.
 warnings.filterwarnings('ignore', message='overflow encountered in scalar multiply',
                         category=RuntimeWarning)
 

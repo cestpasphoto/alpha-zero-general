@@ -8,7 +8,6 @@ os.environ["OMP_NUM_THREADS"] = "1" # PyTorch more efficient this way
 
 import numpy as np
 from tqdm import tqdm
-from time import sleep
 
 sys.path.append('../../')
 from utils import *
@@ -24,7 +23,7 @@ torch.set_num_threads(1) # PyTorch more efficient this way
 class GenericNNetWrapper(NeuralNet):
 	def __init__(self, game, nn_args):
 		self.args = nn_args
-		self.game = game   # kept so a refused tolerant load can be rolled back cleanly
+		self.game = game   # to rebuild the net when an additive-compatible load is refused
 		self.device = {
 			'training' : 'cpu', #'cuda' if torch.cuda.is_available() else 'cpu',
 			'inference': 'onnx',
@@ -96,9 +95,6 @@ class GenericNNetWrapper(NeuralNet):
 		"""
 		board: np array with board
 		"""
-		# timing
-
-		# preparing input
 		self.switch_target('inference')
 
 		if self.current_mode == 'onnx':
@@ -158,10 +154,6 @@ class GenericNNetWrapper(NeuralNet):
 			locks[0].release() # Unblock 1st thread
 
 	def evaluate(self, validation_set):
-		# print()
-		# print(f'LR = {scheduler.get_last_lr()[0]:.1e}', end=' ')
-
-		# Evaluation
 		self.nnet.eval()
 		with torch.no_grad():
 			picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
@@ -181,11 +173,6 @@ class GenericNNetWrapper(NeuralNet):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")
 		return loss_(outputs, targets)
 
-		# loss_ = torch.nn.CrossEntropyLoss()
-		# return loss_(outputs, targets)
-
-		# return -torch.sum(torch.log(targets) * torch.exp(outputs)) / targets.size()[0]
-
 	def loss_v(self, targets_V, targets_Q, outputs):
 		targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
 		return torch.sum((targets - outputs) ** 2) / (targets_V.size()[0] * targets_V.size()[-1]) # Normalize by batch size * nb of players
@@ -193,17 +180,12 @@ class GenericNNetWrapper(NeuralNet):
 	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', additional_keys={}):
 		filepath = os.path.join(folder, filename)
 		if not os.path.exists(folder):
-			# print("Checkpoint Directory does not exist! Making directory {}".format(folder))
 			os.mkdir(folder)
-		# else:
-		#     print("Checkpoint Directory exists! ")
 
 		data = {
 			'state_dict': self.nnet.state_dict(),
 			'full_model': self.nnet,
-			# Explicit version key: version check no longer relies solely on the
-			# pickled full_model object (which can be corrupted by cross-arch transfer).
-			'nn_version': self.nnet.version,
+			'nn_version': self.nnet.version,   # explicit, do not rely on the pickled model
 			'onnx_parity_skipped': os.environ.get('SKIP_ONNX_PARITY') == '1',
 		}
 		data.update(additional_keys)
@@ -232,7 +214,6 @@ class GenericNNetWrapper(NeuralNet):
 					target_params = target_state[name]
 					if target_params.shape == params.shape:
 						target_params.copy_(params)
-						# print(f'no problem to copy {name}')
 					elif target_params.dim() == params.dim():
 						if len(target_params.shape) == 1:
 							min_size = min(target_params.shape[0], params.shape[0])
@@ -252,12 +233,8 @@ class GenericNNetWrapper(NeuralNet):
 						print(f'{name}: load {params.shape}  target {target_params.shape}, used {(min_size_0)}')
 					else:
 						print(f'{name}: couldnt match loaded {params.shape}  and target {target_params.shape}, using standard initialization')
-						
-				# else:
-				# 	print(f'hasnt loaded layer {name} because not in target')
 
-		# Prefer the explicit 'nn_version' key (written since the fix); fall back to
-		# full_model.version for legacy checkpoints that pre-date this key.
+		# explicit 'nn_version' key, or full_model.version for older checkpoints
 		ckpt_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
 
 		if strict and (ckpt_version != self.args['nn_version']):
@@ -269,11 +246,9 @@ class GenericNNetWrapper(NeuralNet):
 			self.nnet.load_state_dict(checkpoint['state_dict'])
 			self.nnet.version = ckpt_version
 		except:
-			# Same architecture version, but checkpoint written BEFORE some purely
-			# ADDITIVE, zero-initialised tensors existed. Accept it if and only if
-			# nothing else differs -- the loaded net then computes exactly the
-			# function the checkpoint encoded. Any other case falls through to the
-			# pre-existing behaviour below.
+			# Same version, but checkpoint written before some purely ADDITIVE,
+			# zero-initialised tensors existed: accept it iff nothing else differs,
+			# so the loaded net computes exactly the checkpoint's function.
 			if self._load_additive_compatible(checkpoint['state_dict'], ckpt_version):
 				return
 			if strict:
@@ -285,11 +260,8 @@ class GenericNNetWrapper(NeuralNet):
 						load_not_strict(checkpoint['state_dict'], self.nnet)
 						print('Could load state dict but NOT STRICT, saved archi-version was', ckpt_version)
 					except:
-						# GUARD: only replace self.nnet with the full pickled model if the
-						# versions match (same class). A cross-version replacement (e.g.
-						# V62 SmallworldNNet replacing a V72 SmallworldGraphNNet) corrupts
-						# all subsequent saves: full_model.version becomes the OLD version
-						# and the next strict load wrongly fires the version-mismatch path.
+						# only adopt the pickled model if it is the same version (same
+						# class), otherwise every later save would carry the old version
 						if ckpt_version == self.nnet.version:
 							self.nnet = self._adopt_full_model(checkpoint['full_model'])
 							print('Had to load full model AS IS (V%s), WONT BE UPDATED' % ckpt_version)
@@ -299,15 +271,13 @@ class GenericNNetWrapper(NeuralNet):
 							print('load_not_strict failed V%s->V%s; keeping random init for V%s' % (
 								ckpt_version, self.nnet.version, self.nnet.version))
 				else:
-					# nn_version=-1 (e.g. GenericNNetWrapper.py -i <file> without -V):
-					# accept the full pickled model as-is (diagnostic / standalone use).
+					# nn_version=-1 (standalone use without -V): take the pickled model as-is
 					self.nnet = self._adopt_full_model(checkpoint['full_model'])
 
 
 	def _adopt_full_model(self, model):
-		# A pickled model carries the __dict__ it had when it was SAVED, but its
-		# methods come from the CURRENT class. If the game's net grew submodules
-		# since, ask it to repair itself before we use it.
+		# a pickled model carries its saved __dict__ but the CURRENT class's
+		# methods: let the game's net repair itself if it grew submodules since
 		if hasattr(model, 'upgrade_legacy'):
 			model.upgrade_legacy()
 		return model
@@ -327,7 +297,6 @@ class GenericNNetWrapper(NeuralNet):
 			self.init_nnet(self.game, self.args)
 			return False
 		self.nnet.version = ckpt_version
-		# print(f'Loaded V{ckpt_version} checkpoint; {len(result.missing_keys)} additive tensors kept at zero-init:', result.missing_keys)
 		return True
 
 	def switch_target(self, mode):
@@ -380,8 +349,8 @@ class GenericNNetWrapper(NeuralNet):
 		opts.intra_op_num_threads, opts.inter_op_num_threads, opts.inter_op_num_threads = 1, 1, ort.ExecutionMode.ORT_SEQUENTIAL
 		self.ort_session = ort.InferenceSession(temporary_file, sess_options=opts, providers=['CPUExecutionProvider'])
 		os.remove(temporary_file)
-		# GUARDRAIL: the function that PLAYS must be the function that was TRAINED.
-		# Single choke point: every ONNX session (self-play, arena, daemon, pit) is born here.
+		# the function that PLAYS must be the function that was TRAINED; every
+		# ONNX session (self-play, arena, pit) is born here
 		if os.environ.get('SKIP_ONNX_PARITY') != '1':
 			self._assert_onnx_parity(verbose=(os.environ.get('ONNX_PARITY_VERBOSE') == '1'))
 
@@ -392,26 +361,17 @@ class GenericNNetWrapper(NeuralNet):
 		Compare the torch module and the freshly exported ONNX session on the SAME
 		inputs. Raises RuntimeError on mismatch. Cost ~0.2 s per export.
 
-		Why synthetic boards over the full int8 range rather than real positions:
-		the known failure mode (integer floor-div lowered to a truncating cast in
-		ONNX) only shows on NEGATIVE values, and a sample of "realistic" boards may
-		not exercise the column that carries them. Random boards are not legal game
-		states -- that is fine, we are comparing two implementations of the same
-		function, not playing.
-
-		Batch 8 and batch 1 are both tested: the graph is exported at batch 1 with
-		dynamic axes, but predict_server() runs it batched.
-
-		Tolerances: on a healthy net the measured gap is ~4e-6 on log-probs and
-		~5e-7 on v, so 1e-4 / 1e-5 leave >20x of headroom, while a single wrong bit
-		moves logits by ~4e-2.
+		Synthetic boards over the full int8 range, not real positions: integer ops
+		that diverge between torch and ONNX (floor vs truncating division) only
+		show on NEGATIVE values. Batch 8 and batch 1 are both tested, since
+		predict_server() runs the graph batched. A healthy net differs by ~1e-6.
 		"""
 		import numpy as _np
 		rng = _np.random.default_rng(seed)
 		boards = rng.integers(-128, 128, size=(n_synth,) + tuple(self.board_size)).astype(_np.float32)
 		boards[:n_synth // 2] = _np.abs(boards[:n_synth // 2])   # half with NO negative value,
 		valids = rng.random((n_synth, self.action_size)) > 0.5    # so the diagnostic below can
-		valids[:, 0] = True                      # never an all-illegal row; separate the two groups
+		valids[:, 0] = True                                       # separate the two groups; no all-illegal row
 
 		was_training = self.nnet.training
 		self.nnet.eval()
@@ -519,11 +479,7 @@ if __name__ == "__main__":
 	nnet.nnet.eval()
 	flops = FlopCountAnalysis(nnet.nnet, (dummy_board, dummy_valid_actions))
 	flops.unsupported_ops_warnings(False)
-	# flops.uncalled_modules_warnings(False)
 	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
-	# print(flops.by_module().most_common(15))
-	# print({ k:v//1000 for k,v in flops.by_module().items() if k.count('.') <= 2 })
-	# breakpoint()
 
 	if not args.training:
 		if args.input:
@@ -550,18 +506,6 @@ if __name__ == "__main__":
 	trainExamples = trainExamples[-args.nb_samples*1000:]
 	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}; number of epochs {args.epochs}')
 
-	# print({ k:v//1000 for k,v in flops.by_module().items() if k.count('.') <= 1 })
-	# breakpoint()
-	
-	# trainExamples_small = trainExamples[::30]
-	# testExamples_small = testExamples[::30]
-	# nnet.args['learn_rate'], nnet.args['lr'], nnet.args['batch_size'] = 3e-2, 3e-2, 32
-	# nnet.optimizer = None
-	# save_every = 1e5 // nnet.args['batch_size']
-	# nnet.train(trainExamples_small, testExamples_small, '', save_every)
-
-	# nnet.args['learn_rate'], nnet.args['lr'], nnet.args['batch_size'] = 3e-4, 3e-4, 512
-	# nnet.optimizer = None
 	save_every = (1e5 // nnet.args['batch_size']) - 1
 	nnet.train(trainExamples, testExamples, output, save_every)
 

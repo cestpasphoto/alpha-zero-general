@@ -17,24 +17,16 @@ class Arena():
     def __init__(self, player1, player2, game, display=None):
         """
         Input:
-            player 1,2: two functions that takes board as input, return action
+            player 1,2: FACTORIES, i.e. zero-arg callables returning a player
+                        function (board, move number) -> action. Called once
+                        for perfect-info games, once per seat for hidden-info
+                        games, so that seats never share one MCTS tree.
             game: Game object
-            display: a function that takes board as input and prints it (e.g.
-                     display in othello/OthelloGame). Is necessary for verbose
-                     mode.
+            display: a function that takes board as input and prints it.
+                     Necessary for verbose mode.
 
-        see othello/OthelloPlayers.py for an example. See pit.py for pitting
-        human players/other baselines with each other.
+        See pit.py for pitting human players/other baselines with each other.
         """
-        # player1/player2 are FACTORIES (pit.create_player now returns one, see
-        # its diff): calling one returns a fresh, independently-treed player
-        # closure. For perfect-info games we call each factory ONCE and reuse
-        # that single instance for every seat that role occupies, exactly like
-        # before (zero behaviour change). For hidden-info games (Game exposes
-        # getObservation) each seat gets its OWN instance instead: with one
-        # shared MCTS, seat B and seat C (both "player2" in a 3p+ game) would
-        # pool Nsa/Q across two DIFFERENT hidden hands within the same game,
-        # which is a real information leak between seats, not just noise.
         self.game = game
         self.display = display
         self.macos_terminal = (environ.get("TERM_PROGRAM", "") == "Apple_Terminal" and "ITERM_SESSION_ID" not in environ)
@@ -53,14 +45,7 @@ class Arena():
             or
                 draw result returned from the game that is neither 1, -1, nor 0.
         """
-        # if NUMBER_PLAYERS == 2:
-        #     players = [self.player2, self.player1]                             if other_way else [self.player1, self.player2]
-        # elif NUMBER_PLAYERS == 3:
-        #     players = [self.player2, self.player1, self.player1]               if other_way else [self.player1, self.player2, self.player2]
-        # elif NUMBER_PLAYERS == 4:
-        #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
-        # elif NUMBER_PLAYERS == 5:
-        #     players = [self.player2, self.player1, self.player1, self.player1] if other_way else [self.player1, self.player2, self.player2, self.player2]
+        # player1 takes seat 0 and player2 all others, or the reverse when other_way
         n_other = self.game.getNumberOfPlayers() - 1
         if not other_way:
             players = [self._p1_pool[0]] + [self._p2_pool[i % len(self._p2_pool)] for i in range(n_other)]
@@ -68,7 +53,7 @@ class Arena():
             players = [self._p2_pool[0]] + [self._p1_pool[i % len(self._p1_pool)] for i in range(n_other)]
         curPlayer, it = 0, 0
         board = self.game.getInitBoard()
-        opening = []  # first plies, for duplicate-game detection (effective-N check)
+        opening = []  # first plies, for duplicate-game detection
 
         # Load initial state
         if initial_state != "":
@@ -99,10 +84,6 @@ class Arena():
             board, curPlayer = self.game.getNextState(board, curPlayer, action, random_seed=0)
             curPlayer = int(curPlayer)
 
-            # if verbose:
-            #     data = board.tobytes() + curPlayer.to_bytes(1) + it.to_bytes(2)
-            #     compressed_board = base64.b64encode(zlib.compress(data, level=9, wbits=-15))
-            #     print(f'state = "{str(compressed_board, "UTF-8")}"')
         if verbose:
             if self.display:
                 self.display(board)
@@ -131,13 +112,11 @@ class Arena():
             colors = ['RED', 'MAGENTA', 'YELLOW', 'CYAN', 'GREEN']
 
         oneWon, twoWon, draws = 0, 0, 0
-        openings = set()  # bonus: opening uniqueness -> detects collapsed effective-N
+        openings = set()
         t = trange(num, desc="Arena.playGames", ncols=120, disable=None)
         for i in t:
-            # Since trees may not be resetted, the first games (1vs2) can't be
-            # considered as fair as the last games (2vs1). Switching between 
-            # 1vs2 and 2vs1 like below seems more fair:
-            # 1 2 2 1   1 2 2 1  ...
+            # Seats alternate as 1 2 2 1  1 2 2 1 ... so that neither side always
+            # plays with the freshest tree
             one_vs_two = (i%4 == 0) or (i%4 == 3) or (initial_state != "")
             t.set_description('Arena ' + ('(1 vs 2)' if one_vs_two else '(2 vs 1)'), refresh=False)
             gameResult, opening = self.playGame(verbose=verbose, initial_state=initial_state, other_way=not one_vs_two)
@@ -154,8 +133,8 @@ class Arena():
             t.colour = colors[bisect.bisect_right(ratio_boundaries, ratio)]
         t.close()
 
-        # Bonus: opening uniqueness. Low values mean games are near-duplicates and the
-        # effective sample size is far below `num` -> the pit result is unreliable.
+        # Opening uniqueness: low values mean near-duplicate games, so an effective
+        # sample size far below `num` and an unreliable pit.
         played = oneWon + twoWon + draws
         if played:
             uniq = len(openings) / played

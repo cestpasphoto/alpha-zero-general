@@ -27,11 +27,6 @@ def import_game(pkg_name):
 
 def import_logicnumba(pkg_name):
     mdl = importlib.import_module(pkg_name + '.' + class_names_dict[pkg_name] + 'LogicNumba')
-    #if "__all__" in mdl.__dict__:
-    #    names = mdl.__dict__["__all__"]
-    #else:
-    #    names = [x for x in mdl.__dict__ if not x.startswith("_")]
-    #    globals().update({k: getattr(mdl, k) for k in names})
     board_class = getattr(mdl, 'Board')
     return board_class
 

@@ -4,18 +4,15 @@ import numpy as np
 
 N_PLAYERS = 3                  # 2, 3 or 4 -- changes observation_size() and action_size()
 ENABLE_PLAYER_TRADE = True     # player-to-player trade; see the TRADE section below
-# Counter-offers during PHASE_TRADE_ANSWER. Turning them OFF is a MASK
-# restriction only: N_ACTIONS, the state layout and the phase enum are
-# unchanged, so a checkpoint trained with one setting loads with the other.
+# Counter-offers during PHASE_TRADE_ANSWER. A MASK restriction only: N_ACTIONS,
+# the state layout and the phases are unchanged, so checkpoints load either way.
 # OFF   -> answer is OK / NO, PHASE_TRADE_ACCEPT is unreachable, <= P+1 plies
 # ON    -> answers may counter, offers stack, <= 2P+1 plies
 ENABLE_TRADE_COUNTER = False
 RANDOM_BOARD = True            # shuffle hexes, number tokens and port types at init
-# Symmetry subsampling of near-forced positions. A position with at most
-# SYM_TRIVIAL_MAX_LEGAL legal moves (roll: 2, trade answer without counters: 2)
-# carries almost no policy signal but costs as much to train on as any other;
-# it gets N_SYM_TRIVIAL isometries in the replay buffer instead of 12, which
-# down-weights it 12/N_SYM_TRIVIAL x. N_SYM_TRIVIAL = 12 disables this.
+# A position with at most SYM_TRIVIAL_MAX_LEGAL legal moves (roll, trade answer)
+# carries almost no policy signal: it is kept in the replay buffer with
+# probability N_SYM_TRIVIAL / N_ISOMETRIES. N_SYM_TRIVIAL = 12 disables this.
 SYM_TRIVIAL_MAX_LEGAL = 2
 N_SYM_TRIVIAL = 1
 FORBID_ADJACENT_RED = True     # official rule: no two 6/8 on adjacent hexes
@@ -69,14 +66,9 @@ MIN_KNIGHTS_FOR_ARMY = 3
 MIN_LENGTH_FOR_ROAD = 5
 HAND_LIMIT_ON_SEVEN = 7
 MAX_ROUNDS = 400               # draw guard; stored as (lo, hi) to stay within int8
-# NOT an official rule: bank trades are the one action type with no natural cap
-# (roads/settlements/cities are limited by lifetime piece counts, dev buys by
-# the 25-card deck shared by everyone) -- from a maxed-out hand (19 of a
-# resource, the bank's own ceiling) a single turn can fit up to 41 consecutive
-# 2:1 trades. Sustained across MAX_ROUNDS that is enough to push MCTS's
-# recursive search() (one Python stack frame per action) past tens of
-# thousands of frames on a single simulation. This caps it at the rules level,
-# which is more sessions than any sensible policy would ever need in one turn.
+# NOT an official rule: bank trades are the only action with no natural cap,
+# and an uncapped turn can chain dozens of them, which blows up the depth of
+# MCTS's recursive search. 6 per turn is more than any sensible policy needs.
 MAX_TRADES_PER_TURN = 6
 
 ############################## TOPOLOGY #######################################
@@ -257,16 +249,12 @@ PB_ROADS_LEFT, PB_ROAD_LENGTH, PB_HAS_ROAD, PB_HAS_ARMY = 8, 9, 10, 11
 # Player row C
 PC_VP_PUBLIC, PC_VP_DEV, PC_DEV_PLAYED_THIS_TURN, PC_PORTS = 0, 1, 2, 3   # PC_PORTS: 6 slots
 PC_DISCARD_LEFT = 10           # cards this player still owes after a 7
-PC_TOTAL_DEV_NEW = 9            # how many dev cards were bought this turn. Public (everyone
-                               # saw the purchase), only the TYPE is hidden, so masking must
-                               # keep it: without it sample_world cannot tell a playable card
-                               # from one bought this turn.
-PC_TRADES_THIS_TURN = 11       # bank trades made this turn, reset in _start_turn(). See
-                               # MAX_TRADES_PER_TURN above for why this exists.
-# Player row D -- this player's standing player-trade offer, PUBLIC (an announcement
-# is heard by everyone, so get_observation leaves this row alone). Keeping the offer
-# on its AUTHOR's rows is what makes swap_players free: nothing here names a player,
-# so the offer rotates with its owner and needs no relabelling.
+PC_TOTAL_DEV_NEW = 9            # dev cards bought this turn: public (only the TYPE is hidden),
+                               # lets sample_world tell a playable card from a new one
+PC_TRADES_THIS_TURN = 11       # bank trades made this turn, see MAX_TRADES_PER_TURN
+# Player row D -- this player's standing player-trade offer, PUBLIC (get_observation
+# leaves it alone). Kept on its AUTHOR's rows, so it rotates with its owner in
+# swap_players and needs no relabelling.
 PD_TRADE_RECV = 0              # 5 slots: what this player asks FOR
 PD_TRADE_GIVE = 5              # 5 slots: what this player offers IN EXCHANGE
 PD_TRADE_STATUS = 10           # TRADE_* below
@@ -285,20 +273,13 @@ GB_ROUND_LO, GB_ROUND_HI, GB_PENDING_COUNT = 0, 1, 2
 GB_TURN_PLAYER = 3             # whose TURN it is, relative to the player to move. During a
                                # discard the actor is not the turn owner, hence two fields.
 GB_SETUP_STEP = 4              # index in the snake placement order
-GB_DEV_PLAYED = 5              # 5 slots: dev cards played and discarded, per type.
-                               # Without it, conservation of non-knight dev cards is
-                               # uncheckable: a played Monopoly leaves the hand and
-                               # vanishes. Added because the assertion battery needed it.
+GB_DEV_PLAYED = 5              # 5 slots: dev cards played, per type (conservation of dev cards)
 GB_CHANCE_COUNTER = 10         # bumped at every chance draw, mod 100: decorrelates the
                                # successive draws of one stream (see Stochastic.py)
 GB_PLAYER_TRADE_DONE = 11      # 0/1, one player-trade ATTEMPT per turn (success or not),
-                               # reset in _start_turn(). Same reasoning as
-                               # MAX_TRADES_PER_TURN: without it an agent can reopen a
-                               # refused announcement indefinitely and regrow the depth
-                               # the cap exists to bound.
-# A vertex index was stored in col 11 at first; it broke isometry equivariance (a
-# global scalar holding a board id is not permuted) and the battery caught it. The
-# setup vertex is now DERIVED: it is the player's only building with no incident
+                               # bounds the search depth like MAX_TRADES_PER_TURN
+# No board index is ever stored in a global column (it would not follow the
+# isometries): the setup vertex is DERIVED, the player's only building with no
 # road of its own.
 
 # Phases. PHASE_TRADE_OFFER covers BOTH plies of an announcement (ask, then offer):
@@ -354,14 +335,6 @@ TRADE_SETS = np.array([
 N_TRADE_SETS = TRADE_SETS.shape[0]              # 55
 TRADE_SET_SIZE = TRADE_SETS.sum(1).astype(np.int8)
 
-# How many cards a player may ASK for in one announcement. 3 = no restriction.
-# Mask-only, like ENABLE_TRADE_COUNTER: N_ACTIONS, the state layout and the
-# checkpoints are untouched, so the same net plays both settings. Measured at 3:
-# 61% of the search's mass goes to 3-card asks, which responders accept 22-29% of
-# the time (vs 40-53% for 1-card asks), they leave a single legal giveaway 44% of
-# the time, and they widen the MAIN node from ~11 to ~26 legal moves.
-TRADE_MAX_ASK = 3
-
 A_TRADE_RECV = N_ACTIONS_V1                     # 55 : the multiset I ask FOR
 A_TRADE_GIVE = A_TRADE_RECV + N_TRADE_SETS      # 55 : the multiset I offer in exchange
 A_TRADE_OK = A_TRADE_GIVE + N_TRADE_SETS        # 1 : a responder accepts the turn player's offer
@@ -375,9 +348,8 @@ N_ACTIONS = A_TRADE_ACCEPT + N_PLAYERS
 YOP_PAIRS = np.array([[a, b] for a in range(N_RESOURCES) for b in range(a, N_RESOURCES)], dtype=np.int8)
 
 # Image of every action id under each isometry. int16: N_ACTIONS exceeds 127.
-# Starting from the identity is what leaves the trade block alone: its ids name
-# RESOURCES, which no isometry permutes. CatanConstantsTest asserts that, rather
-# than leaving it to this initialisation being read correctly.
+# Starting from the identity leaves the trade block alone: its ids name
+# RESOURCES, which no isometry permutes (asserted in CatanConstantsTest).
 ISO_ACTION = np.tile(np.arange(N_ACTIONS, dtype=np.int16), (N_ISOMETRIES, 1))
 for _s in range(N_ISOMETRIES):
 	for _e in range(N_EDGES):
@@ -389,31 +361,3 @@ for _s in range(N_ISOMETRIES):
 		for _t in range(N_PLAYERS):
 			ISO_ACTION[_s, A_ROBBER + _h * N_PLAYERS + _t] = A_ROBBER + int(ISO_HEX[_s, _h]) * N_PLAYERS + _t
 
-
-# ---- action blocks -------------------------------------------------------
-# Which KIND of move an action id is, for the trade-usage instrumentation
-# (CatanGame._TradeStats): it reports what the search plays, not just which id.
-ACTION_BLOCKS = (
-	('road',        A_ROAD,           N_EDGES),
-	('settlement',  A_SETTLEMENT,     N_VERTICES),
-	('city',        A_CITY,           N_VERTICES),
-	('buy dev',     A_BUY_DEV,        1),
-	('play dev',    A_PLAY_DEV,       2),
-	('robber',      A_ROBBER,         N_HEXES * N_PLAYERS),
-	('roll',        A_ROLL,           1),
-	('monopoly',    A_MONOPOLY,       N_RESOURCES),
-	('year plenty', A_YEAR_OF_PLENTY, 15),
-	('bank trade',  A_BANK_TRADE,     20),
-	('discard',     A_DISCARD,        N_RESOURCES),
-	('end turn',    A_END_TURN,       1),
-	('ask (open)',  A_TRADE_RECV,     N_TRADE_SETS),
-	('give',        A_TRADE_GIVE,     N_TRADE_SETS),
-	('OK',          A_TRADE_OK,       1),
-	('NO',          A_TRADE_NO,       1),
-	('accept',      A_TRADE_ACCEPT,   N_PLAYERS),
-)
-N_BLOCKS = len(ACTION_BLOCKS)
-assert sum(_k for _, _, _k in ACTION_BLOCKS) == N_ACTIONS, 'ACTION_BLOCKS must tile the action space'
-ACTION_BLOCK_OF = np.zeros(N_ACTIONS, dtype=np.int8)
-for _i, (_name, _a0, _k) in enumerate(ACTION_BLOCKS):
-	ACTION_BLOCK_OF[_a0:_a0 + _k] = _i

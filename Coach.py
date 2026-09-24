@@ -8,7 +8,6 @@ from tqdm import tqdm, trange
 from queue import SimpleQueue
 from threading import Thread, Lock
 from time import sleep
-import json
 
 from random import shuffle
 import numpy as np
@@ -44,9 +43,9 @@ class Coach():
 		in trainExamples.
 
 		Returns:
-			trainExamples: a list of examples of the form (canonicalBoard, currPlayer, pi,v)
-						   pi is the MCTS informed policy vector, v is +1 if
-						   the player eventually won the game, else -1.
+			examples: list of (board, pi, outcome, valids, q), compressed unless
+			          --no-compression; outcome is the per-player result of the game
+			opening: tuple of the first plies, to measure opening diversity
 		"""
 		if isinstance(my_mcts, list):
 			mcts_list = my_mcts
@@ -56,10 +55,8 @@ class Coach():
 		if mcts_list is None: 
 			if my_mcts is None: my_mcts = getattr(self, 'mcts', None)
 			if hasattr(my_game, 'getObservation'):
-				# One tree per seat for hidden-info games (C5): a single shared
-				# tree would pool Nsa/Q across seats holding DIFFERENT hidden
-				# hands within the same game. Seat 0 reuses the MCTS the caller
-				# already built; the others get fresh siblings (same net/args).
+				# Hidden-info games: one tree per seat, a shared tree would pool
+				# statistics across seats holding different hidden hands.
 				mcts_list = [my_mcts] + [
 					MCTS(my_game, my_mcts.nnet, my_mcts.args, dirichlet_noise=my_mcts.dirichlet_noise,
 					     batch_info=my_mcts.batch_info)
@@ -74,9 +71,8 @@ class Coach():
 		board = my_game.getInitBoard()
 		curPlayer = 0
 		episodeStep = 0
-		episode_metrics = {"max_depth": [], "avg_new_depth": [], "new_nodes": [], "entropy": [], "confidence": [], "root_coverage": []}
 		opening_sequence = []
-		DEPTH_OPENING = 2 * abs(self.args.tempThreshold)  # abs: robust to step-mode (negative) tempThreshold, else opening capture is disabled and uniq reads a false 0%
+		DEPTH_OPENING = 2 * abs(self.args.tempThreshold)   # abs(): tempThreshold < 0 means step mode
 
 		while True:
 			episodeStep += 1
@@ -85,28 +81,18 @@ class Coach():
 			my_mcts = mcts_list[curPlayer]
 			is_saving = (curPlayer in players_to_save)
 			
-			# pnet (opponents in the arena gate) plays greedily (temp=0.0), full search
+			# players whose moves are not saved play greedily
 			temp = 1.0 if is_saving else 0.0
-			force_full = False
-			
-			pi, q, is_full_search, metrics = my_mcts.getActionProb(canonicalBoard, temp=temp, force_full_search=force_full)
+			pi, q, is_full_search = my_mcts.getActionProb(canonicalBoard, temp=temp)
 			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep) if is_saving else 0.0)
 			
 			if episodeStep <= DEPTH_OPENING:
 				opening_sequence.append(action)
 
 			if is_full_search and is_saving:
-				for k, v in metrics.items():
-					episode_metrics[k].append(v)
 				valids = my_game.getValidMoves(canonicalBoard, 0)
-				# Hidden-info games: train on what the network will actually see
-				# at inference (own hand + public totals only), never the raw
-				# ground truth. MCTS.getActionProb() already never feeds the true
-				# opponent hands to the net either (it determinizes per universe
-				# instead) -- storing canonicalBoard as-is here would train the
-				# net on information it will never have again at search time.
-				# getValidMoves is unaffected (C6: legality only reads the
-				# actor's own hand + public state, which get_observation keeps).
+				# Hidden-info games: train on the observation, which is what the net
+				# is queried on during the search
 				board_for_training = my_game.getObservation(canonicalBoard, 0) if hasattr(my_game, 'getObservation') else canonicalBoard
 				sym = my_game.getSymmetries(board_for_training, pi, valids)
 				for b, p, v in sym:
@@ -125,9 +111,7 @@ class Coach():
 				) for x in trainExamples]
 
 				examples = trainExamples if self.args.no_compression else [zlib.compress(pickle.dumps(x), level=1) for x in trainExamples]
-				avg_metrics = {k: np.mean(v) for k, v in episode_metrics.items()} if episode_metrics["max_depth"] else {k: 0.0 for k in episode_metrics.keys()}
-				avg_metrics["opening"] = tuple(opening_sequence)
-				return examples, avg_metrics
+				return examples, tuple(opening_sequence)
 
 	def executeEpisodes_batch(self, i_thread, shared_memory, locks):
 		# Execute an episode in a thread until need to evaluate NN
@@ -144,7 +128,7 @@ class Coach():
 
 			mcts_nnet = MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0), batch_info=batch_info_nnet)
 			if hasattr(my_game, 'getObservation'):
-				# see executeEpisode's own default branch for why (C5)
+				# one tree per seat, see executeEpisode()
 				mcts_list = [mcts_nnet] + [
 					MCTS(my_game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0),
 					     batch_info=batch_info_nnet)
@@ -152,8 +136,8 @@ class Coach():
 			else:
 				mcts_list = [mcts_nnet] * my_game.num_players
 
-			episode_examples, episode_metrics = self.executeEpisode(my_game=my_game, mcts_list=mcts_list, players_to_save=players_to_save)
-			self.examplesQueue.put((episode_examples, episode_metrics))
+			episode_examples, opening = self.executeEpisode(my_game=my_game, mcts_list=mcts_list, players_to_save=players_to_save)
+			self.examplesQueue.put((episode_examples, opening))
 
 		while shared_memory[-1] == 1: # We received signal 1, wait for other threads to complete
 			locks[i_thread+1].release()
@@ -167,10 +151,10 @@ class Coach():
 			unique_openings = set()
 			t = trange(self.args.numEps, desc="Self Play", ncols=120)
 			for _ in t:
-				episode_examples, episode_metrics = self.executeEpisode()
+				episode_examples, opening = self.executeEpisode()
 				iterationTrainExamples += episode_examples
 				completed_episodes += 1
-				unique_openings.add(episode_metrics["opening"])
+				unique_openings.add(opening)
 				t.set_postfix(uniq=f"{len(unique_openings)/completed_episodes:.0%}", refresh=False)
 				self.mcts = MCTS(self.game, self.nnet, self.args, dirichlet_noise=(self.args.dirichletAlpha!=0))
 				if len(iterationTrainExamples) == self.args.maxlenOfQueue:
@@ -195,10 +179,10 @@ class Coach():
 			while True:
 				sleep(1)
 				for _ in range(self.examplesQueue.qsize()):
-					episode_examples, episode_metrics = self.examplesQueue.get_nowait()
+					episode_examples, opening = self.examplesQueue.get_nowait()
 					iterationTrainExamples += episode_examples
 					nb_examples += 1
-					unique_openings.add(episode_metrics["opening"])
+					unique_openings.add(opening)
 					progress.set_postfix(uniq=f"{len(unique_openings)/nb_examples:.0%}", refresh=False)
 					progress.update()
 				# Check if we have collected enough samples
@@ -264,12 +248,10 @@ class Coach():
 			if self.args.arena_gate:
 				self.arena_gate_step(i)
 			else:
-				# No synchronous gate: save every checkpoint unconditionally,
-				# selection is done later by hand with pit.py.
+				# no gate: save every checkpoint, selection is done afterwards with pit.py
 				log.info(f'Iter #{i} - Training completed. Saving Checkpoint.')
 				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
-				# 'best.pt' is reserved for post-hoc selection (the last checkpoint is rarely the best).
-				# Write 'latest.pt' as the convenience "most recent" pointer instead.
+				# 'best.pt' is reserved for post-hoc selection, 'latest.pt' is the most recent
 				self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='latest.pt', additional_keys=vars(self.args))
 				self.consecutive_failures = 0
 
@@ -278,31 +260,19 @@ class Coach():
 		Pit the freshly trained net against its pre-training snapshot (temp.pt,
 		already loaded in pnet) and keep it only if it clears args.updateThreshold.
 
-		Eval hygiene:
-		- both players share the exact same search profile (same args object),
-		  full search forced, dirichlet_noise=False so Dirichlet / forced
-		  playouts are OFF by construction;
-		- moves are SAMPLED from the tempered policy (np.random.choice), not
-		  argmax'ed: argmax was the A4 bug (temperature silently cancelled,
-		  effective N collapsed by duplicate games).
-
-		Reminder: at arenaCompare=30 this is a coarse filter (~±130 Elo). Its job
-		is to gate obvious regressions, not to measure progress.
+		Both players share the same search profile, full search, no Dirichlet noise
+		nor forced playouts, and moves are sampled from the tempered policy.
+		At arenaCompare=30 this is a coarse filter (~±130 Elo): it gates obvious
+		regressions, it does not measure progress.
 		"""
-		# The gate may run at a different sim count than self-play: its job is to
-		# RANK two nets, and cost is ~linear in sims, so spending the same wall
-		# clock on more games at fewer sims buys resolution. Both sides always
-		# share the exact same profile -- that is what forbids the 3200-vs-800 trap.
+		# --arena-sims may lower the gate's sim count (more games for the same
+		# wall clock); both sides always share the same profile.
 		import copy
 		gate_args = copy.copy(self.args)
 		if getattr(self.args, 'arena_sims', None):
 			gate_args.numMCTSSims = self.args.arena_sims
-		# Arena now takes a FACTORY per side (fresh MCTS instance per call) so
-		# it can give hidden-info games one tree per SEAT instead of one tree
-		# shared by every seat that side occupies (see Arena.py's diff). A
-		# plain shared `nmcts`/`pmcts` closure, as before, is exactly the
-		# per-seat leak that fix targets, so the factory must build a NEW MCTS
-		# each time, not close over one instance built here.
+		# Arena takes a factory per side and calls it once per seat for
+		# hidden-info games, so each call must build a new MCTS
 		def make_gate_player(net):
 			def factory():
 				mcts = MCTS(self.game, net, gate_args)
@@ -325,9 +295,8 @@ class Coach():
 		else:
 			log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
 			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
-			# Legacy semantics: in gate mode 'best.pt' = last ACCEPTED checkpoint
-			# (pit.py resolves folders to best.pt first). This is NOT the post-hoc
-			# best of the run; keep selecting decision checkpoints post-hoc.
+			# in gate mode 'best.pt' is the last ACCEPTED checkpoint, not the
+			# post-hoc best of the run
 			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
 			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='latest.pt', additional_keys=vars(self.args))
 			self.consecutive_failures = 0
@@ -412,10 +381,9 @@ def random_pick(probs, temperature=1.):
 if __name__ == "__main__":
 	import argparse
 
-	parser = argparse.ArgumentParser(description='Examples loader')
+	parser = argparse.ArgumentParser(description='Split .examples files into training (all iterations but the last) and testing (last one)')
 	parser.add_argument('input', metavar='example filename', nargs='*'                 , help='list of examples to load (.examples files)')
 	parser.add_argument('--output'    , '-o', action='store', default='../results/new' , help='Prefix for output files')
-	parser.add_argument('--binarize'  , '-b', action='store_true', help='Transform policy into binary one')
 	args = parser.parse_args()
 
 	training, testing = [], []
@@ -427,38 +395,8 @@ if __name__ == "__main__":
 			training += new_input[:-1]
 			testing += [list(x)[::8] for x in new_input[-1:]] # Remove symmetries
 
-	# for filename in args.input:
-	#     print(f'Loading {filename}...')
-	#     with open(filename, "rb") as f:
-	#         new_input = pickle.load(f)
-	#         print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')
-	#         training += new_input[-3:]
-	# testing = [list(training[-1])[::8]]
-	# training = training[:-1]
-	
-	if args.binarize:
-		print('Binarizing policy...')
-		for t in [training, testing]:
-			for i in range(len(t)):
-				print(i, end=' ')
-				for j in range(len(t[i])):
-					data = pickle.loads(zlib.decompress(t[i][j]))
-					policy = data[1]
-					bestA = np.argmax(policy)
-					new_policy = np.zeros_like(policy)
-					new_policy[bestA] = 1
-					data = (data[0], new_policy, data[2], data[3], data[4], data[5])
-					t[i][j] = zlib.compress(pickle.dumps(data), level=1)
-			print()
-
-	# breakpoint()
-
 	for t, name in [(training, 'training'), (testing, 'testing')]:
 		filename = args.output + '_' + name + '.examples'
 		print(f'total size {name} = {sum([len(x) for x in t])} --> writing to {filename}')
 		with open(filename, "wb") as f:
 			pickle.dump(t, f)
-		# print(f'Testing...')
-		# with open(filename, "rb") as f:
-		#     new_input = pickle.load(f)
-		#     print(f'size = {[len(x) for x in new_input]}, total = {sum([len(x) for x in new_input])}')

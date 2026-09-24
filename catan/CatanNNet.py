@@ -8,54 +8,27 @@ try:
 except ImportError:
 	from CatanConstants import *
 
-# PROTOTYPE "A": same token graph and same heads as the current CatanNNet, but
-#   1. every categorical field of a token type is embedded with ONE stacked
-#      table and ONE gather (CatEmbed) instead of one embedding module per field;
-#   2. all batch-constant terms (kind, seat, vertex degree/land) live in one
-#      static table indexed by a constant, so ORT folds them away;
-#   3. the trunk layer is a single Linear(d, 3d) split into self / neighbour /
-#      context messages -- the old msg->upd pair had NO nonlinearity between
-#      them, so it was one linear map written as two matmuls;
-#   4. a GELU before the residual (zero MACs);
-#   5. the context term is mean(all) + global token + viewer token, instead of
-#      mean(all) only: the viewer's hand reached a vertex only through a 1/77
-#      share of a mean before;
-#   6. neighbour aggregation as a dense row-normalised adjacency matmul: more
-#      MACs than the padded gather, fewer memory-bound kernels (measured faster
-#      on x86 / onnxruntime; re-measure on the training machine).
-# The FAST family (V13+) keeps 3-6 and replaces the encoder and the heads with
-# fewer kernels; see VERSIONS.
+# Token graph: 54 vertices + 19 hexes + P players + 1 global, one token each.
+#   - each token type is encoded by a sum of embeddings of its categorical
+#     fields (one stacked table and one gather, CatEmbed) plus a projection of
+#     its numerical fields; batch-constant terms (kind, seat, vertex degree)
+#     live in one static table;
+#   - trunk layer: one Linear(d, 3d) split into self / neighbour / context
+#     messages, GELU, residual, LayerNorm. Neighbours are aggregated with a dense
+#     row-normalised adjacency matmul; the context is mean(all) + global token +
+#     viewer token;
+#   - heads: bilinear edge logits on the two endpoint vertices, vertex logits
+#     for settlements / cities, hex x victim logits for the robber, the rest
+#     from the global token; value from an attention pooling over all tokens.
+# The FAST family (V13) encodes each token type with one one-hot + one matmul
+# and reads the value from the global token + the token mean: latency at this
+# size is set by the number of kernels, not by MACs.
 
 VERSIONS = {
 	10: dict(dim=32, layers=4, edge_rank=16, name='tiny'),
 	11: dict(dim=48, layers=3, edge_rank=16, name='base'),
 	12: dict(dim=64, layers=2, edge_rank=16, name='wide'),
-	# FAST family: same token graph, same trunk, same output blocks, but
-	#   - the encoder is one one-hot + one matmul per token type (exactly the
-	#     sum-of-embeddings of CatEmbed, without the per-field gathers), the
-	#     player/global float features are the raw rows times a constant scale
-	#     instead of ~40 slice/div/stack ops;
-	#   - the value head reads the global token + the token mean instead of
-	#     attention pooling.
-	# Latency on this size of net is set by the NUMBER of kernels times the
-	# tensor width (B x 77 x d), not by MACs -- see the profile in the notes.
 	13: dict(dim=32, layers=2, edge_rank=16, name='fast', fast=True),
-	14: dict(dim=24, layers=2, edge_rank=12, name='fast24', fast=True),
-	15: dict(dim=32, layers=1, edge_rank=16, name='fast1', fast=True),
-	# CAPACITY probes: same fast architecture as V13, only wider and deeper.
-	# Rationale (measured, see notes): m800 -> m1600 buys ~+12 Elo, doubling the
-	# self-play volume at halved sims is exactly neutral, and a longer history
-	# hurts -- none of the data-side levers move the needle, so capacity is the
-	# remaining suspect. Self-play speed has no measured Elo value any more, so a
-	# 2-3x slower forward pass is affordable. Test them offline on a saved buffer
-	# (validation loss vs V13) BEFORE spending a from-scratch run: the weights are
-	# not checkpoint-compatible with any other version.
-	16: dict(dim=64, layers=3, edge_rank=32, name='fast64', fast=True),
-	17: dict(dim=96, layers=4, edge_rank=32, name='fast96', fast=True),
-	# V18 is a PROBE ONLY: too slow for self-play, it is there to show whether the
-	# validation loss is still falling at that size (capacity really is the limit)
-	# or has flattened between V16 and V17 (it is not).
-	18: dict(dim=128, layers=4, edge_rank=48, name='fast128', fast=True),
 }
 
 N_TOKENS = N_VERTICES + N_HEXES + N_PLAYERS + 1

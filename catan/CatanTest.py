@@ -1,23 +1,18 @@
-"""Assertion battery for Catan. Written BEFORE the game logic, on purpose.
+"""Assertion battery for Catan.
 
-Three layers, in increasing order of what they need:
+  1. check_state(state)        invariants of a raw state array
+  2. check_isometries(state)   the 12 isometries, on a static state
+  3. check_*()                 the game logic: random playouts, make_move/isometry
+                               commutation, hidden information, trade protocol
+  4. test_the_instrument()     corrupts a valid state in known ways and asserts
+                               that check_state catches every one
 
-  1. check_state(state)        pure function on a raw state array. Runs today.
-  2. check_isometries(state)   the x12 augmentation, on a static state. Runs today.
-  3. check_with_logic()        random playouts, make_move/isometry commutation,
-                               get_observation / sample_world. Runs as soon as
-                               CatanLogicNumba exists; skipped until then.
-
-Layer 4 is this file testing itself: test_the_instrument() corrupts a valid state
-in 14 known ways and asserts each one is caught. An assertion battery that has
-never failed on purpose is not an instrument, it is decoration.
-
-build_reference_state() is deliberately an INDEPENDENT oracle: it builds a legal
-state with plain numpy, without importing the game logic, so that a bug in
-init_game cannot hide behind the same bug in the checker.
+build_reference_state() is an INDEPENDENT oracle: it builds a legal state with
+plain numpy, without the game logic, so that a bug in init_game cannot hide
+behind the same bug in the checker.
 
 Usage:
-    python CatanTest.py            # layers 1, 2, 4 (+ 3 if the logic is there)
+    python CatanTest.py
 """
 import numpy as np
 
@@ -27,14 +22,8 @@ except ImportError:                 # pragma: no cover
 	from .CatanConstants import *
 
 
-# Decisions, not rounds. A turn is roll + up to MAX_TRADES_PER_TURN bank trades +
-# one player-trade attempt (2P+1 plies at worst) + builds + end turn. Builds and dev
-# buys are bounded over the whole GAME (24 pieces, a 25-card deck) rather than per
-# turn, so this is loose on purpose -- it exists to stop a genuinely stalled game
-# from hanging the battery, not to be tight. It replaces a flat 4*MAX_ROUNDS, which
-# player trades quietly outgrew: random play needs ~6 decisions per round with them
-# on, against ~4 before, so games were being cut off at round ~270 of 400 and
-# reported as "did not terminate".
+# Decisions, not rounds: roll + bank trades + one player-trade attempt (2P+1 plies)
+# + end turn, per round. Loose on purpose: it only stops a stalled game.
 MAX_DECISIONS = MAX_ROUNDS * (4 + MAX_TRADES_PER_TURN + 2 * N_PLAYERS + 1)
 
 
@@ -168,7 +157,7 @@ def check_state(st, masked=False):
 	"""Raise AssertionError on the first violated invariant.
 
 	masked=True relaxes the invariants that get_observation deliberately breaks
-	(opponent hands are zeroed, so resources no longer sum to 19).
+	(opponent hands and the dev deck are zeroed, so conservation no longer holds).
 	"""
 	verts = st[ROW_VERTEX:ROW_VERTEX + N_VERTICES]
 	hexes = st[ROW_HEX:ROW_HEX + N_HEXES]
@@ -190,10 +179,8 @@ def check_state(st, masked=False):
 	assert hexes[:, H_ROBBER].sum() == 1, f"{hexes[:, H_ROBBER].sum()} robbers"
 
 	# --- I3 ports -----------------------------------------------------------
-	# Deliberately position-independent: ports live in the state, not in the
-	# constants, which is what keeps the 12 isometries legal rewrites. Checking
-	# against PORT_VERTICES here would re-couple them and reject every rotation.
-	# That init_game uses the frame positions is a layer-3 check.
+	# Position-independent on purpose, so that rotated states pass: that
+	# init_game uses the frame positions is checked in check_setup.
 	port_v = set(np.flatnonzero(verts[:, V_PORT] != PORT_NONE).tolist())
 	assert len(port_v) == 2 * N_PORTS, f"{len(port_v)} port vertices, expected {2 * N_PORTS}"
 	seen, covered = [], set()
@@ -297,10 +284,9 @@ def check_state(st, masked=False):
 		assert st[ROW_PLAYER + 4 * p + 2, PC_TRADES_THIS_TURN] <= MAX_TRADES_PER_TURN, \
 			f"p{p} exceeded MAX_TRADES_PER_TURN"
 
-	# --- I12 the player-trade protocol (global row D of each player) -------
-	# Checked WITHOUT the `masked` escape on purpose: an announcement is public,
-	# everyone at the table heard it, so get_observation must leave row D alone.
-	# If masking ever starts touching it, these fire on the observation itself.
+	# --- I12 the player-trade protocol (row D of each player) ---------------
+	# Checked even on observations: an announcement is public, masking must
+	# leave row D alone.
 	phase = int(ga[GA_PHASE])
 	turn = int(gb[GB_TURN_PLAYER])
 	status, composing, offered = [], [], []
@@ -328,8 +314,7 @@ def check_state(st, masked=False):
 		assert all(s == TRADE_NONE for s in status), \
 			f"phase {phase} is not a trade phase but statuses are {status}"
 	else:
-		# _next_actor derives the whole protocol from these, so an inconsistency
-		# here is a silently wrong ACTOR, not a visible crash
+		# _next_actor derives the actor from these statuses
 		assert len(composing) == (1 if phase == PHASE_TRADE_OFFER else 0), \
 			f"phase {phase} with {len(composing)} players composing"
 		waiting = [p for p in range(N_PLAYERS) if p != turn and status[p] == TRADE_NONE]
@@ -402,30 +387,18 @@ def check_isometries(st):
 
 
 # ---------------------------------------------------------------------------
-# Layer 3: needs CatanLogicNumba (skipped until it exists)
+# Layer 3: the game logic
 # ---------------------------------------------------------------------------
 
 def check_robber_action_indices():
-	"""Regression test for a real bug: `self.num_players` is a numba.int8
-	JITCLASS FIELD. Combined arithmetically with a large python-int constant
-	(A_ROBBER = ~183), numpy's NEP 50 rules keep the result in int8 -- which
-	overflows (max 127) past h=1 already. Interpreted mode raises OverflowError
-	loudly; COMPILED numba wraps SILENTLY (C semantics, no exception at all),
-	so this corrupted valid_moves()/_apply() dispatch with no crash to point at
-	-- the default execution mode this whole battery otherwise runs under never
-	saw it. Every check above this one tests "did it crash or violate an
-	invariant", never "does this specific index equal what plain arithmetic
-	says it should" -- that gap is exactly what let this through.
-	"""
+	"""Robber action ids against plain Python arithmetic. `num_players` is an
+	int8 jitclass field: combined with A_ROBBER it must not stay in int8, which
+	compiled numba would wrap silently."""
 	Board = _import_board()
-	if Board is None or not hasattr(Board, 'make_move'):
-		print('layer 3c (robber indices)      SKIPPED - logic not written yet')
-		return False
 	board = Board(N_PLAYERS)
 	board.init_game()
 
-	# 1) valid_moves() in PHASE_MOVE_ROBBER must match an INDEPENDENT reference,
-	#    computed with plain Python ints only (no jitclass involved at all).
+	# 1) valid_moves() in PHASE_MOVE_ROBBER against a plain-Python reference
 	board.get_state()[ROW_GLOBAL, GA_PHASE] = PHASE_MOVE_ROBBER
 	valids = board.valid_moves(0)
 	got = set(np.flatnonzero(valids[A_ROBBER:A_ROBBER + N_HEXES * N_PLAYERS]).tolist())
@@ -434,53 +407,32 @@ def check_robber_action_indices():
 	expected = {h * N_PLAYERS + 0 for h in range(N_HEXES) if h != robber_hex}
 	assert got == expected, f'robber action set mismatch: extra {got - expected}, missing {expected - got}'
 
-	# 2) the boundary index specifically -- (h=N_HEXES-1, t=N_PLAYERS-1), the
-	#    largest value this expression ever produces -- must be independently
-	#    reachable via read AND write, not just "doesn't crash on read".
+	# 2) the largest robber id (h=N_HEXES-1, t=N_PLAYERS-1)
 	worst = A_ROBBER + (N_HEXES - 1) * N_PLAYERS + (N_PLAYERS - 1)
 	assert worst < N_ACTIONS_V1, f'boundary index {worst} escaped the reserved v1 range'
 	probe = np.zeros(N_ACTIONS, dtype=np.bool_)
-	probe[worst] = True                      # would raise/wrap under the old bug
+	probe[worst] = True
 	assert probe[worst] and probe.sum() == 1
 
-	# 3) dispatch must actually APPLY a robber move, not silently no-op: the
-	#    robber must land on the hex we chose. (Checking the PHASE afterwards
-	#    would be wrong: make_move()'s own auto-resolve loop can legitimately
-	#    cascade through END_TURN -> ROLL -> a NEW seven for the next player,
-	#    landing back in PHASE_MOVE_ROBBER for a different reason entirely. The
-	#    robber's position is the direct, cascade-proof signature of OUR move.)
+	# 3) dispatch must APPLY the move: the robber lands on the chosen hex (the
+	#    phase afterwards proves nothing, make_move may auto-resolve a new seven)
 	h_target = max(got) // N_PLAYERS
 	a = A_ROBBER + max(got)
 	before = board.get_state().copy()
 	board.make_move(a, 0, 1)
 	after = board.get_state()
 	assert after[ROW_HEX + h_target, H_ROBBER] == 1, \
-		'robber move dispatched to nothing: robber never reached the target hex ' \
-		'(the exact silent-no-op failure mode)'
+		'robber move dispatched to nothing: robber never reached the target hex'
 	assert not (after == before).all(), 'robber move applied but state is byte-identical to before'
 	print(f'layer 3c (robber indices)      OK  ({N_PLAYERS} players, boundary index {worst})')
 	return True
 
 
 def check_setup_actor_consistency(n_games=200, seed=0):
-	"""Regression test for a real bug: _next_actor()'s setup-phase formula
-	returned an ABSOLUTE player id where every caller (_apply, make_move,
-	the outer swap_players() convention) expects a CANONICAL-RELATIVE offset.
-	It coincided with the relative convention only for the very first
-	placement (s=0), then diverged: a road could be requested for a player
-	who owns no settlement at all, giving zero legal moves. Uniform-random
-	playouts (check_with_logic) never catch this -- a random policy just
-	misattributes ownership to whichever player _next_actor() names, and
-	keeps going, since it never revisits an already-expanded node the way
-	PUCT does. This test drives setup through the SAME copy/make_move/
-	swap_players cycle MCTS.py's get_next_best_action_and_canonical_state
-	uses, and checks that every road's owner matches the settlement it
-	completes, at every step, for every player count.
-	"""
+	"""_next_actor() must return a CANONICAL-RELATIVE offset during setup. Drives
+	setup through the same make_move / swap_players cycle as MCTS.py and checks
+	that every road's owner matches the settlement it completes."""
 	Board = _import_board()
-	if Board is None or not hasattr(Board, 'make_move'):
-		print('layer 3e (setup actor)         SKIPPED - logic not written yet')
-		return False
 	rng = np.random.default_rng(seed)
 	board = Board(N_PLAYERS)
 	for g in range(n_games):
@@ -520,17 +472,8 @@ def check_setup_actor_consistency(n_games=200, seed=0):
 
 
 def check_trade_cap():
-	"""Regression test for a real bug: bank trades had NO per-turn limit, and
-	from a maxed-out hand (19 of a resource, the bank's own ceiling) a single
-	turn fit up to 41 consecutive 2:1 trades. Sustained across MAX_ROUNDS an
-	adversarial "always trade" policy drove MCTS's recursive search() past
-	20000 stack frames on a single simulation -- not a deep-but-legitimate
-	tree, a structurally unbounded one. MAX_TRADES_PER_TURN caps it.
-	"""
+	"""MAX_TRADES_PER_TURN bounds bank trades, hence the depth of the search."""
 	Board = _import_board()
-	if Board is None or not hasattr(Board, 'make_move'):
-		print('layer 3d (trade cap)           SKIPPED - logic not written yet')
-		return False
 
 	# 1) from a hand maxed out at the bank's own ceiling, with the best
 	#    possible ratio, trading must stop at the cap -- not at exhaustion.
@@ -585,18 +528,10 @@ def check_trade_cap():
 
 
 def check_victory_is_on_own_turn():
-	"""OFFICIAL RULE: reaching the target wins only on your OWN turn.
-
-	Built by hand rather than waited for in a playout: an off-turn 10th point is
-	exactly the position random play almost never produces, and it is the one the
-	old max-over-all-players test got wrong. It is also reachable for real -- the
-	turn player cutting a road can hand Longest Road, and its 2 points, to a third
-	player in the middle of someone else's move.
-	"""
+	"""OFFICIAL RULE: reaching the target wins only on your OWN turn. Built by
+	hand: random play almost never reaches an off-turn 10th point (e.g. Longest
+	Road handed over by someone else's move)."""
 	Board = _import_board()
-	if Board is None:
-		print("layer 3f (victory timing)      SKIPPED - logic not written yet")
-		return False
 	st = build_reference_state(seed=3, n_settlements=2)
 	st[ROW_GLOBAL, GA_PHASE] = PHASE_MAIN
 	st[ROW_GLOBAL + 1, GB_TURN_PLAYER] = 0
@@ -634,17 +569,12 @@ def check_player_trade(n_games=12, seed=0):
 	  2. the protocol terminates: at most 2P+1 plies from announcement to
 	     resolution, and never two attempts in one turn;
 	  3. an executed trade moves BOTH hands by exactly (give - recv) and its
-	     opposite. check_state's I7 only sees global conservation, which a swapped
-	     direction would satisfy just as well;
-	  4. legality reads no hidden hand: the legal RECV set computed on the true
-	     state equals the one computed on the masked observation;
-	  5. sample_world honours a published offer -- without that, accepting one
-	     debits cards the sampled world never dealt and a hand goes negative.
+	     opposite (conservation alone would not see a swapped direction);
+	  4. legality reads no hidden information: valid_moves on the true state
+	     equals valid_moves on the observation;
+	  5. sample_world honours a published offer.
 	"""
 	Board = _import_board()
-	if Board is None or not hasattr(Board, 'make_move'):
-		print("layer 3g (player trade)        SKIPPED - logic not written yet")
-		return False
 	if not ENABLE_PLAYER_TRADE:
 		print("layer 3g (player trade)        SKIPPED - ENABLE_PLAYER_TRADE is False")
 		return False
@@ -682,11 +612,8 @@ def check_player_trade(n_games=12, seed=0):
 			actor = player
 
 			# 3. an executed trade moves the two hands in opposite directions.
-			# Measured with _apply on a CLONE, never across make_move: make_move
-			# auto-resolves every forced move that follows, so ending the turn,
-			# rolling and collecting production all land in the same before/after
-			# delta. A first version of this test compared across make_move and
-			# "failed" on a perfectly correct trade for exactly that reason.
+			# Measured with _apply on a CLONE: make_move auto-resolves the forced
+			# moves that follow, which would pollute the before/after delta.
 			proposer = -1
 			if a == A_TRADE_OK:
 				proposer = int(before[ROW_GLOBAL + 1, GB_TURN_PLAYER])
@@ -742,9 +669,10 @@ def check_player_trade(n_games=12, seed=0):
 							        >= w[dq, PD_TRADE_GIVE + r]), \
 								f"sampled world gives p{q} less {r} than it publicly offered"
 
-	# 4. legality must not depend on hidden hands
+	# 4. legality must not depend on hidden information
 	for seed2 in range(8):
 		st = build_reference_state(seed=200 + seed2, n_settlements=2)
+		_deal_dev_cards(st, seed2)
 		st[ROW_GLOBAL, GA_PHASE] = PHASE_MAIN
 		b1 = Board(N_PLAYERS)
 		b1.copy_state(st.copy(), True)
@@ -752,10 +680,8 @@ def check_player_trade(n_games=12, seed=0):
 		b2 = Board(N_PLAYERS)
 		b2.copy_state(st.copy(), True)
 		b2.get_observation(0)
-		masked_valids = b2.valid_moves(0)
-		sl = slice(A_TRADE_RECV, A_TRADE_RECV + N_TRADE_SETS)
-		assert (true_valids[sl] == masked_valids[sl]).all(), \
-			"the legal RECV set changes once opponents' hands are masked: it leaks"
+		assert (true_valids == b2.valid_moves(0)).all(), \
+			"legal moves change once the hidden information is masked: it leaks"
 
 	print(f"layer 3g (player trade, {n_games} games) OK - {opened} opened, {executed} executed, "
 	      f"worst {worst} plies (bound {2 * N_PLAYERS + 1})")
@@ -765,9 +691,6 @@ def check_player_trade(n_games=12, seed=0):
 def check_setup(n_boards=30, seed=0):
 	"""Layer 3a: what the Board already offers, without valid_moves / make_move."""
 	Board = _import_board()
-	if Board is None:
-		print("layer 3a (setup)               SKIPPED - CatanLogicNumba.py not there yet")
-		return False
 	rng = np.random.default_rng(seed)
 	board = Board(N_PLAYERS)
 	for g in range(n_boards):
@@ -846,6 +769,9 @@ def check_setup(n_boards=30, seed=0):
 			assert row_b[PB_DEV_NEW:PB_DEV_NEW + N_DEV_TYPES].sum() == 0, f"p{p} new dev not masked"
 			assert row_a[PA_TOTAL_RES] == st[ROW_PLAYER + 4 * p, PA_TOTAL_RES], f"p{p} lost its hand size"
 			assert row_a[PA_TOTAL_DEV] == st[ROW_PLAYER + 4 * p, PA_TOTAL_DEV], f"p{p} lost its dev count"
+		assert obs[ROW_GLOBAL, GA_DEV_DECK:GA_DEV_DECK + N_DEV_TYPES].sum() == 0, "dev deck not masked"
+		deck = int(st[ROW_GLOBAL, GA_DEV_DECK:GA_DEV_DECK + N_DEV_TYPES].sum())
+		assert b2.dev_deck_size() == deck, "dev_deck_size is not deducible from the observation"
 		worlds = set()
 		for sd in (1, 2, 3, 4321, 999999):
 			b2.copy_state(obs.copy(), True)
@@ -859,10 +785,8 @@ def check_setup(n_boards=30, seed=0):
 			b2.get_observation(0)
 			assert (b2.get_state() == obs).all(), "obs(sample_world(obs)) != obs: unstable tree keys"
 			worlds.add(w.tobytes())
-			# same seed, same masked input -> byte-identical world (MCTS.py caches
-			# sampleWorld() once per universe and trusts this; hashed_draw()'s own
-			# contract in Stochastic.py promises it, this just checks Catan didn't
-			# break it e.g. by leaking np.random or dict-iteration order into the draw)
+			# same seed, same masked input -> byte-identical world (MCTS.py deals
+			# one world per universe and relies on it)
 			b2.copy_state(obs.copy(), True)
 			b2.sample_world(sd)
 			assert (b2.get_state() == w).all(), f"sample_world(seed={sd}) is not reproducible"
@@ -872,20 +796,10 @@ def check_setup(n_boards=30, seed=0):
 
 
 def check_draw_from_pool_guard(seed=0):
-	"""_draw_from_pool must RAISE on an empty pool, not silently hand out a
-	card it never removed from anywhere (that "safe" fallback was WORSE than
-	the crash it avoided: it broke resource conservation, I7, without a
-	trace). Should be unreachable from a genuinely consistent state -- 20k
-	randomized trials of this exact algorithm never hit it -- so this test
-	reaches it on purpose: inflate a masked player's PA_TOTAL_RES past what
-	the (deliberately near-empty) bank can supply, so sample_world's shared
-	pool runs dry mid-draw. Exercises the guard directly rather than hoping
-	check_setup/check_with_logic's random trials happen to trigger it.
-	"""
+	"""_draw_from_pool must RAISE on an empty pool rather than hand out a card
+	that comes from nowhere. Unreachable from a consistent state, so reached on
+	purpose: a masked player claims more cards than exist outside the bank."""
 	Board = _import_board()
-	if Board is None:
-		print("layer 3a (pool guard)          SKIPPED - CatanLogicNumba.py not there yet")
-		return False
 	st = build_reference_state(seed=seed, n_settlements=2, give_resources=False)
 	st[ROW_GLOBAL, GA_BANK + 0] = 0                         # resource 0 entirely "out there"
 	st[ROW_PLAYER + ROWS_PER_PLAYER, PA_TOTAL_RES] = BANK_PER_RESOURCE + 5  # player 1 claims more than exists
@@ -919,33 +833,15 @@ def _deal_dev_cards(st, seed):
 
 
 def _import_board():
-	"""Return the Board class, or None if the logic file genuinely does not exist.
-
-	Anything else -- a missing dependency, a syntax error, a numba typing error --
-	is REPORTED, never swallowed. Reporting a broken import as "not written yet"
-	is the instrument lying about its own coverage, which is the one failure mode
-	this whole file exists to prevent.
-	"""
-	import os
-	if not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'CatanLogicNumba.py')):
-		return None
 	try:
-		try:
-			from CatanLogicNumba import Board
-		except ModuleNotFoundError:        # NOT ImportError: a dependency of the logic
-			from .CatanLogicNumba import Board   # failing must not look like a path issue
-		return Board
-	except Exception as e:
-		print("\n!!! CatanLogicNumba.py EXISTS but could not be imported -- layers 3a/3b are NOT running.")
-		print("!!! %s: %s\n" % (type(e).__name__, e))
-		raise
+		from CatanLogicNumba import Board
+	except ModuleNotFoundError:            # NOT ImportError: a dependency of the logic
+		from .CatanLogicNumba import Board   # failing must not look like a path issue
+	return Board
 
 
 def check_with_logic(n_games=8, seed=0):
 	Board = _import_board()
-	if Board is None or not hasattr(Board, 'make_move'):
-		print("layer 3b (playouts)            SKIPPED - valid_moves/make_move not written yet")
-		return False
 
 	rng = np.random.default_rng(seed)
 	board = Board(N_PLAYERS)
@@ -999,6 +895,17 @@ def check_with_logic(n_games=8, seed=0):
 				assert a_row[PA_RESOURCES:PA_RESOURCES + N_RESOURCES].sum() == 0, f"p{p} hand not masked"
 				assert a_row[PA_TOTAL_RES] == board.get_state()[ROW_PLAYER + 4 * p, PA_TOTAL_RES], \
 					f"p{p} total lost, it is no longer deducible once the detail is masked"
+			assert obs[ROW_GLOBAL, GA_DEV_DECK:GA_DEV_DECK + N_DEV_TYPES].sum() == 0, "dev deck not masked"
+			assert b4.dev_deck_size() == board.dev_deck_size() == \
+				int(board.get_state()[ROW_GLOBAL, GA_DEV_DECK:GA_DEV_DECK + N_DEV_TYPES].sum()), \
+				"dev_deck_size disagrees with the deck"
+			assert (b4.valid_moves(0) == board.valid_moves(0)).all(), \
+				"legal moves change once the hidden information is masked: it leaks"
+			b5 = Board(N_PLAYERS)
+			b5.copy_state(board.get_state(), True)
+			b5.get_observation(player)                  # the actor's own information set
+			assert (b5.valid_moves(player) == board.valid_moves(player)).all(), \
+				"the actor's legal moves change once the hidden information is masked"
 			for sd in (1, 2, 12345):
 				b4.copy_state(obs, True)
 				b4.sample_world(sd)

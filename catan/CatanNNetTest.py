@@ -1,11 +1,8 @@
-"""Assertions on CatanNNet. Run before the first training run.
+"""Assertions on CatanNNet.
 
-The one that matters most is EQUIVARIANCE. get_symmetries() multiplies every
-sample by 12; if the network does not satisfy f(sigma . s) == sigma . f(s), the
-augmented (state, policy) pairs are mutually inconsistent and the augmentation
-is worse than useless -- it teaches the network that the same position has 12
-different answers. The failure is silent: training simply converges to a worse
-network, with nothing in the logs to point at.
+The one that matters most is EQUIVARIANCE: f(sigma . s) == sigma . f(s) for the
+12 isometries. CatanGame.getSymmetries keeps a single isometry per position
+because of it, and a non-equivariant net would fail silently.
 
 Usage:
     python CatanNNetTest.py            # add --flops for the FLOP count
@@ -38,8 +35,7 @@ def _net(version, seed=0):
 
 def check_nn_args_dict(version):
 	"""The real call site is catan/NNet.py: nn_model(game, nn_args), with nn_args
-	the FULL dict built in main.py -- not just the version number. This is
-	exactly the call that crashed with TypeError: unhashable type: 'dict'."""
+	the FULL dict built in main.py, not just the version number."""
 	nn_args = dict(lr=1e-3, dropout=0., epochs=2, batch_size=32, nn_version=version,
 	              learn_rate=1e-3, no_compression=False, q_weight=0.5)
 	net = CatanNNet(_FakeGame(), nn_args)
@@ -66,8 +62,7 @@ def check_shapes(version):
 	net = _net(version)
 	board = _batch(range(4))
 	valids = torch.ones(4, N_ACTIONS, dtype=torch.bool)
-	# The trade block is masked here only to have a KNOWN-invalid range to test
-	# masking against; it is a real block now, not a reserved one.
+	# the trade block is masked only to have a KNOWN-invalid range
 	valids[:, N_ACTIONS_V1:] = False
 	pi, v = net(board, valids)
 	assert pi.shape == (4, N_ACTIONS), pi.shape
@@ -151,10 +146,8 @@ def check_masking_flag(version):
 
 
 def check_trade_offer_is_encoded(version):
-	"""A standing offer must reach the network, and reach it on ITS OWN AUTHOR's
-	token. The net answers OK/NO and counters, so an offer it cannot see makes
-	those three phases blind guesses -- and an offer it sees but cannot attribute
-	makes A_TRADE_ACCEPT + t undecidable."""
+	"""A standing offer must reach the network on ITS OWN AUTHOR's token, or the
+	answer phases and A_TRADE_ACCEPT + t are blind guesses."""
 	net = _net(version)
 	st = build_reference_state(seed=5, n_settlements=2)
 	board = torch.from_numpy(st[None].astype(np.float32))
@@ -210,12 +203,9 @@ def check_onnx(version):
 
 
 def check_dummy_trace_robustness(version):
-	"""export_and_load_onnx() (and FlopCountAnalysis, and torch.jit tracing in
-	general) calls forward() on a DUMMY board of unconstrained torch.randn
-	floats, purely to capture shapes. This crashed in practice with
-	'IndexError: index out of range in self' the first time it ran for real,
-	because embedding lookups read raw board columns with no bound. Every
-	board-derived embedding index must tolerate garbage input."""
+	"""export_and_load_onnx() (and FlopCountAnalysis) calls forward() on a DUMMY
+	board of unconstrained torch.randn floats: every board-derived embedding
+	index must tolerate garbage input."""
 	net = _net(version)
 	for _ in range(20):
 		scale = 10 ** np.random.randint(0, 4)
