@@ -5,6 +5,7 @@ import numba
 from .SmallworldConstants import *
 from .SmallworldMaps import *
 from .SmallworldDisplay import print_board, print_valids, move_to_str
+from Stochastic import hashed_draw, HASHED_SEED_OFFSET
 
 ############################## BOARD DESCRIPTION ##############################
 
@@ -120,6 +121,25 @@ def my_unpackbits(values):
 	for i, v in enumerate(values):
 		result[i, :] = (np.bitwise_and(v, mask) != 0)
 	return result.flatten()
+
+# Chance events inside the search (random_seed != 0). A seed >= HASHED_SEED_OFFSET
+# selects hashed_draw (A7 test), with one independent stream per kind of event.
+_DICE_STREAM, _PPL_STREAM, _PWR_STREAM = 1 << 32, 2 << 32, 3 << 32
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _tree_dice(random_seed, counter):
+	if random_seed >= HASHED_SEED_OFFSET:
+		return DICE_VALUES[hashed_draw(random_seed, _DICE_STREAM + np.int64(counter), 6)]
+	# Legacy LCG (m=6, c=5, a=1981): degenerate since 1981 = 1 mod 6 (A7)
+	return DICE_VALUES[(1981 * (random_seed+np.int64(counter)) + 5) % 6]
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _tree_draw(random_seed, counter, stream, size):
+	if random_seed >= HASHED_SEED_OFFSET:
+		return np.int64(hashed_draw(random_seed, stream + np.int64(counter), size))
+	# Legacy LCG (a=2*3*5*7*9*11*13*17+1): degenerate for most sizes, and people
+	# and power are drawn from the same counter (A7)
+	return np.int64((4594591 * (random_seed+np.int64(counter))) % size)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def _split_pwr_data(unified_value):
@@ -376,10 +396,7 @@ class Board():
 			if random_seed == 0:
 				dice = np.random.choice(DICE_VALUES)
 			else:
-				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-				# m=6, c=5, a=1980+1
-				rnd_value = (1981 * (random_seed+np.int64(self.invisible_deck[5])) + 5) % 6
-				dice = DICE_VALUES[rnd_value]
+				dice = _tree_dice(random_seed, self.invisible_deck[5])
 			self.invisible_deck[5] += 1
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				self.round_status[player, 4] = PHASE_CONQ_WITH_DICE
@@ -1146,10 +1163,7 @@ class Board():
 			if random_seed == 0:
 				dice = np.random.choice(DICE_VALUES)
 			else:
-				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-				# m=6, c=5, a=1980+1
-				rnd_value = (1981 * (random_seed+np.int64(self.invisible_deck[5])) + 5) % 6
-				dice = DICE_VALUES[rnd_value]
+				dice = _tree_dice(random_seed, self.invisible_deck[5])
 			self.invisible_deck[5] += 1
 			current_ppl[4] = dice + 2**6
 		else:
@@ -1325,12 +1339,8 @@ class Board():
 				chosen_ppl = np.random.choice(avail_people_id)
 				chosen_power = np.random.choice(avail_power_id)
 			else:
-				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-				# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
-				rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_people_id.size
-				chosen_ppl = avail_people_id[rnd_value]
-				rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_power_id.size
-				chosen_power = avail_power_id[rnd_value]
+				chosen_ppl = avail_people_id[_tree_draw(random_seed, self.invisible_deck[6], _PPL_STREAM, avail_people_id.size)]
+				chosen_power = avail_power_id[_tree_draw(random_seed, self.invisible_deck[6], _PWR_STREAM, avail_power_id.size)]
 			self.invisible_deck[6] += 1
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]
@@ -1368,12 +1378,8 @@ class Board():
 						chosen_ppl = np.random.choice(avail_people_id)
 						chosen_power = np.random.choice(avail_power_id)		
 					else:
-						# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-						# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
-						rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_people_id.size
-						chosen_ppl = avail_people_id[rnd_value]
-						rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_power_id.size
-						chosen_power = avail_power_id[rnd_value]
+						chosen_ppl = avail_people_id[_tree_draw(random_seed, self.invisible_deck[6], _PPL_STREAM, avail_people_id.size)]
+						chosen_power = avail_power_id[_tree_draw(random_seed, self.invisible_deck[6], _PWR_STREAM, avail_power_id.size)]
 					self.invisible_deck[6] += 1
 					nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]						
 					self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]

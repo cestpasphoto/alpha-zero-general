@@ -23,7 +23,8 @@ game = None
 # any difference. Experiments ABOUT the search profile (sims, cpuct, fpu,
 # universes) need a deliberately asymmetric pit: opt-in via --asymmetric,
 # labelled in the report. A side-specific value overrides the shared one.
-_SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes'}
+_SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes',
+			  'g': 'chance_hash', 'r': 'chance_per_move'}
 
 
 def _per_side(args, player_id, letter, fallback):
@@ -35,7 +36,7 @@ def _any_per_side(args):
 	return any(getattr(args, f'{l}{i}', None) is not None for l in _SIDE_KEYS for i in (1, 2))
 
 
-def _universes_note(u):
+def _universes_note(u, per_move=False):
 	# u=0 and u=1 both explore a SINGLE fixed chance stream; u>=2 cycles several
 	# (8 seeds exist). Games with chance_per_sim re-draw chance at every
 	# simulation, and u then only fixes the invented hidden information.
@@ -43,6 +44,8 @@ def _universes_note(u):
 		return ''
 	if getattr(game, 'chance_per_sim', False):
 		return f' (chance re-drawn at every simulation; u={u} hidden-information world(s))'
+	if per_move and u > 0:
+		return f' (u={u}: {u} chance seed(s) redrawn at every move)'
 	if u <= 0:
 		return ' (u=0: ONE fixed dice stream, seed -1 -- not real randomness)'
 	if u == 1:
@@ -105,6 +108,8 @@ def create_player(name, args, player_id):
 			'fpu'              : _per_side(args, player_id, 'f', args.fpu if getattr(args, 'fpu', None) is not None else 0.1),
 			'fpu_root'         : 0.0,
 			'universes'        : _per_side(args, player_id, 'u', args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1)),
+			'chance_hash'      : bool(_per_side(args, player_id, 'g', args.chance_hash)),
+			'chance_per_move'  : bool(_per_side(args, player_id, 'r', args.chance_per_move)),
 			'prob_fullMCTS'    : 1.,      # PCR off in eval
 			'forced_playouts'  : False,   # training tool
 			'forced_playouts_k': 1.5,
@@ -129,6 +134,8 @@ def create_player(name, args, player_id):
 		'fpu'             : fpu_cli if fpu_cli is not None else (0.1 if fpu_ckpt is None else fpu_ckpt),
 		'fpu_root'        : fpu_cli if fpu_cli is not None else (0.0 if fpu_root_ckpt is None else fpu_root_ckpt),
 		'universes'       : _per_side(args, player_id, 'u', args.universes if getattr(args, 'universes', None) is not None else additional_keys.get('universes', 1)),
+		'chance_hash'     : bool(_per_side(args, player_id, 'g', args.chance_hash or additional_keys.get('chance_hash', False))),
+		'chance_per_move' : bool(_per_side(args, player_id, 'r', args.chance_per_move or additional_keys.get('chance_per_move', False))),
 		'cpuct'           : _per_side(args, player_id, 'c', args.cpuct if args.cpuct else cpuct),
 		'prob_fullMCTS'   : 1.,
 		'forced_playouts' : False,
@@ -220,8 +227,8 @@ def play(args):
 		diffs = {k: (m1[k], m2[k]) for k in m1 if k in m2 and m1[k] != m2[k]}
 	if getattr(args, 'strict', False) and m1 is not None and m2 is not None:
 		# log the profile of BOTH players at the top of the report
-		print(f'EVAL PROFILE p1: {dict(m1)}{_universes_note(m1.get("universes"))}')
-		print(f'EVAL PROFILE p2: {dict(m2)}{_universes_note(m2.get("universes"))}')
+		print(f'EVAL PROFILE p1: {dict(m1)}{_universes_note(m1.get("universes"), m1.get("chance_per_move"))}')
+		print(f'EVAL PROFILE p2: {dict(m2)}{_universes_note(m2.get("universes"), m2.get("chance_per_move"))}')
 		if diffs and not getattr(args, 'asymmetric', False):
 			raise SystemExit('[FATAL] EVAL profiles differ between players - comparison is not decisional.\n'
 			                 f'        differing keys: {diffs}\n'
@@ -348,6 +355,8 @@ def main():
 	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
 	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet off, explicit eval temperature. Use this for every comparison meant to be decisional.')
 	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , choices=range(9), help='Override universes for both players (default: value stored in checkpoint). u<=1 = ONE fixed chance seed; u>=2 cycles u fixed seeds')
+	parser.add_argument('--chance-hash'               , action='store_true', help='A7 test, both players: hashed_draw for chance events inside the search')
+	parser.add_argument('--chance-per-move'           , action='store_true', help='A7 test, both players: universe seeds redrawn at every move')
 
 	# Per-side EVAL overrides, see _SIDE_KEYS
 	side = parser.add_argument_group('asymmetric pit (search-profile experiments)')
@@ -360,6 +369,10 @@ def main():
 	side.add_argument('--f2'                   , action='store', default=None, type=float, help='fpu for player 2 only')
 	side.add_argument('--u1'                   , action='store', default=None, type=int  , choices=range(9), help='universes for player 1 only')
 	side.add_argument('--u2'                   , action='store', default=None, type=int  , choices=range(9), help='universes for player 2 only')
+	side.add_argument('--g1'                   , action='store', default=None, type=int  , choices=(0, 1), help='chance_hash for player 1 only')
+	side.add_argument('--g2'                   , action='store', default=None, type=int  , choices=(0, 1), help='chance_hash for player 2 only')
+	side.add_argument('--r1'                   , action='store', default=None, type=int  , choices=(0, 1), help='chance_per_move for player 1 only')
+	side.add_argument('--r2'                   , action='store', default=None, type=int  , choices=(0, 1), help='chance_per_move for player 2 only')
 
 	parser.add_argument('game'                        , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
@@ -373,7 +386,7 @@ def main():
 	args = parser.parse_args()
 
 	if _any_per_side(args) and not args.asymmetric:
-		raise SystemExit('[FATAL] per-side overrides (-m1/-m2/-c1/-c2/-f1/-f2/-u1/-u2) given without '
+		raise SystemExit('[FATAL] per-side overrides (--m1/--m2/--c1/--c2/--f1/--f2/--u1/--u2/--g1/--g2/--r1/--r2) given without '
 		                 '--asymmetric.\n        Declare the asymmetry explicitly, or drop them.')
 	if args.asymmetric and not _any_per_side(args):
 		print('[WARNING] --asymmetric given but no per-side override: the pit is symmetric.')
