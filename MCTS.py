@@ -10,6 +10,9 @@ from Stochastic import hashed_draw
 EPS = 1e-8
 NAN = -42.
 MINFLOAT = float('-inf')
+# Fixed chance seeds used inside the tree, cycled over simulations (args.universes <= 8).
+# They never change between moves nor games: universes=1 plans every search against
+# the same chance stream. Real games use random_seed=0, i.e. true randomness.
 magic_seeds = [31416, 1, 14142, 42, 27183, 2, 16180, 7]
 
 log = logging.getLogger(__name__)
@@ -20,11 +23,12 @@ class MCTS():
     This class handles the MCTS tree.
     """
 
-    def __init__(self, game, nnet, args, dirichlet_noise=False, batch_info=None):
+    def __init__(self, game, nnet, args, dirichlet_noise=False, batch_info=None, is_selfplay=False):
         self.game = game
         self.nnet = nnet
         self.args = args
         self.dirichlet_noise = dirichlet_noise
+        self.is_selfplay = is_selfplay
 
         # One entry per board s: (Es, Vs, Ps, [Ns, Qs], Qsa, Nsa, r)
         #   Es  game.getGameEnded(s)          Vs   game.getValidMoves(s)
@@ -67,7 +71,7 @@ class MCTS():
         forced_playouts = (is_full_search and self.args.forced_playouts)
         # Self-play full searches start from a fresh tree so that forced playouts,
         # policy target pruning and Dirichlet noise act on uncontaminated counts.
-        if is_full_search and self.dirichlet_noise:
+        if is_full_search and self.is_selfplay:
             self.nodes_data = {}
             self.last_cleaning = 0
 
@@ -123,7 +127,7 @@ class MCTS():
             else:
                 # every invented root is terminal: fall back on the net's own view
                 valids_fallback = self.game.getValidMoves(canonicalBoard, 0)
-                Ps_fb, v_fb = self.nnet.predict(obs, valids_fallback)
+                _, v_fb = self.nnet.predict(obs, valids_fallback)
                 counts = [int(valids_fallback[a]) for a in range(action_size)]
                 q = list(v_fb)
             valid_moves_mask = self.game.getValidMoves(canonicalBoard, 0)  # legality reads public info only

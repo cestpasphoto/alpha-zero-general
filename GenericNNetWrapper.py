@@ -41,7 +41,7 @@ class GenericNNetWrapper(NeuralNet):
 	def init_nnet(self, game, nn_args):
 		pass
 
-	def train(self, examples, validation_set=None, save_folder=None, every=0):
+	def train(self, examples):
 		"""
 		examples: list of examples, each example is of form (board, pi, v)
 		"""
@@ -82,12 +82,6 @@ class GenericNNetWrapper(NeuralNet):
 				scheduler.step()
 
 				t.update()
-
-				if validation_set and ((i_batch + batch_count*epoch) % every == 0):
-					print(self.evaluate(validation_set))
-					self.nnet.train()
-					if (i_batch > 0) and save_folder:
-						self.save_checkpoint(save_folder, filename=f'intermediary_{i_batch}.pt')
 
 		t.close()
 		
@@ -153,22 +147,6 @@ class GenericNNetWrapper(NeuralNet):
 
 			locks[0].release() # Unblock 1st thread
 
-	def evaluate(self, validation_set):
-		self.nnet.eval()
-		with torch.no_grad():
-			picked_examples = [pickle.loads(zlib.decompress(e)) for e in validation_set]
-			boards, pis, vs, valid_actions, qs = list(zip(*picked_examples))
-			boards = torch.FloatTensor(np.array(boards).astype(np.float32))
-			valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
-			target_pis = torch.FloatTensor(np.array(pis).astype(np.float32))
-			target_vs = torch.FloatTensor(np.array(vs).astype(np.float32))
-			target_qs = torch.FloatTensor(np.array(qs).astype(np.float32))
-
-			# compute output
-			out_pi, out_v = self.nnet(boards, valid_actions)
-			total_loss = self.loss_pi(target_pis, out_pi) + self.loss_v(target_vs, target_qs, out_v)
-			return total_loss.item()
-
 	def loss_pi(self, targets, outputs):
 		loss_ = torch.nn.KLDivLoss(reduction="batchmean")
 		return loss_(outputs, targets)
@@ -192,95 +170,34 @@ class GenericNNetWrapper(NeuralNet):
 		torch.save(data, filepath)
 
 	def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
-		# https://github.com/pytorch/examples/blob/master/imagenet/main.py#L98
+		# Fail loudly: a silent fallback would train or play a random network
 		filepath = os.path.join(folder, filename)
 		if not os.path.exists(filepath):
-			print("No model in path {}".format(filepath))
-			return			
-		try:
-			checkpoint = torch.load(filepath, map_location='cpu', weights_only=False)
-			self.load_network(checkpoint, strict=(self.args['nn_version']>0))
-		except:
-			print("MODEL {} CAN'T BE READ but file exists".format(filepath))
-			return
+			raise FileNotFoundError(f'No model in path {filepath}')
+		checkpoint = torch.load(filepath, map_location='cpu', weights_only=False)
+		self.load_network(checkpoint)
 		self.switch_target('just_loaded')
 		return checkpoint
-			
-	def load_network(self, checkpoint, strict=False):
-		def load_not_strict(network_state_to_load, target_network):
-			target_state = target_network.state_dict()
-			for name, params in network_state_to_load.items():
-				if name in target_state:
-					target_params = target_state[name]
-					if target_params.shape == params.shape:
-						target_params.copy_(params)
-					elif target_params.dim() == params.dim():
-						if len(target_params.shape) == 1:
-							min_size = min(target_params.shape[0], params.shape[0])
-							target_params[:min_size] = params[:min_size]
-						elif len(target_params.shape) == 2:
-							min_size_0, min_size_1 = min(target_params.shape[0], params.shape[0]), min(target_params.shape[1], params.shape[1])
-							target_params[:min_size_0, :min_size_1] = params[:min_size_0, :min_size_1]
-						elif len(target_params.shape) == 3:
-							min_size_0, min_size_1, min_size_2 = min(target_params.shape[0], params.shape[0]), min(target_params.shape[1], params.shape[1]), min(target_params.shape[2], params.shape[2])
-							target_params[:min_size_0, :min_size_1, :min_size_2] = params[:min_size_0, :min_size_1, :min_size_2]
-						elif len(target_params.shape) == 4:
-							min_size_0, min_size_1, min_size_2, min_size_3 = min(target_params.shape[0], params.shape[0]), min(target_params.shape[1], params.shape[1]), min(target_params.shape[2], params.shape[2]), min(target_params.shape[3], params.shape[3])
-							target_params[:min_size_0, :min_size_1, :min_size_2, :min_size_3] = params[:min_size_0, :min_size_1, :min_size_2, :min_size_3]
-						else:
-							raise Exception('Unsupported number of dimensions')
 
-						print(f'{name}: load {params.shape}  target {target_params.shape}, used {(min_size_0)}')
-					else:
-						print(f'{name}: couldnt match loaded {params.shape}  and target {target_params.shape}, using standard initialization')
-
+	def load_network(self, checkpoint):
 		# explicit 'nn_version' key, or full_model.version for older checkpoints
 		ckpt_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
 
-		if strict and (ckpt_version != self.args['nn_version']):
+		if ckpt_version != self.args['nn_version']:
 			print('Checkpoint includes NN version', ckpt_version, ', but you ask version', self.args['nn_version'], ' so not loading it and initiate knowledge transfer')
 			self.requestKnowledgeTransfer = True
 			return
 
 		try:
 			self.nnet.load_state_dict(checkpoint['state_dict'])
-			self.nnet.version = ckpt_version
-		except:
+		except RuntimeError as e:
 			# Same version, but checkpoint written before some purely ADDITIVE,
 			# zero-initialised tensors existed: accept it iff nothing else differs,
 			# so the loaded net computes exactly the checkpoint's function.
 			if self._load_additive_compatible(checkpoint['state_dict'], ckpt_version):
 				return
-			if strict:
-				print('Cant load NN', ckpt_version, 'in checkpoint, so initiate knowledge transfer')
-				self.requestKnowledgeTransfer = True
-			else:
-				if self.nnet.version > 0:
-					try:
-						load_not_strict(checkpoint['state_dict'], self.nnet)
-						print('Could load state dict but NOT STRICT, saved archi-version was', ckpt_version)
-					except:
-						# only adopt the pickled model if it is the same version (same
-						# class), otherwise every later save would carry the old version
-						if ckpt_version == self.nnet.version:
-							self.nnet = self._adopt_full_model(checkpoint['full_model'])
-							print('Had to load full model AS IS (V%s), WONT BE UPDATED' % ckpt_version)
-							if input("Continue? [y|n]") != "y":
-								sys.exit()
-						else:
-							print('load_not_strict failed V%s->V%s; keeping random init for V%s' % (
-								ckpt_version, self.nnet.version, self.nnet.version))
-				else:
-					# nn_version=-1 (standalone use without -V): take the pickled model as-is
-					self.nnet = self._adopt_full_model(checkpoint['full_model'])
-
-
-	def _adopt_full_model(self, model):
-		# a pickled model carries its saved __dict__ but the CURRENT class's
-		# methods: let the game's net repair itself if it grew submodules since
-		if hasattr(model, 'upgrade_legacy'):
-			model.upgrade_legacy()
-		return model
+			print(f'Cant load NN {ckpt_version} in checkpoint ({e}), so initiate knowledge transfer')
+			self.requestKnowledgeTransfer = True
 
 	def _load_additive_compatible(self, state_dict, ckpt_version):
 		prefixes = getattr(self.nnet, 'additive_param_prefixes', ())
@@ -346,7 +263,7 @@ class GenericNNetWrapper(NeuralNet):
 			onnx.save(model_with_new_opset, temporary_file)
 
 		opts = ort.SessionOptions()
-		opts.intra_op_num_threads, opts.inter_op_num_threads, opts.inter_op_num_threads = 1, 1, ort.ExecutionMode.ORT_SEQUENTIAL
+		opts.intra_op_num_threads = 1   # inter-op threads and sequential mode are onnxruntime defaults
 		self.ort_session = ort.InferenceSession(temporary_file, sess_options=opts, providers=['CPUExecutionProvider'])
 		os.remove(temporary_file)
 		# the function that PLAYS must be the function that was TRAINED; every
@@ -432,46 +349,29 @@ class GenericNNetWrapper(NeuralNet):
 		return total_params, trainable_params
 
 if __name__ == "__main__":
+	# Inspection tool: architecture cost (MFlops, parameters) and checkpoint metadata
 	import argparse
-	import os.path
-	import time
 	from GameSwitcher import import_game
 
-	parser = argparse.ArgumentParser(description='NNet loader')
-	parser.add_argument('game'               , action='store', default='splendor', help='The name of the game to play')
-	parser.add_argument('--input'      , '-i', action='store', default=None , help='Input NN to load')
-	parser.add_argument('--output'     , '-o', action='store', default=None , help='Prefix for output NN')
-	parser.add_argument('--training'   , '-T', action='store', default=None , help='')
-	parser.add_argument('--test'       , '-t', action='store', default=None , help='')
-
-	parser.add_argument('--learn-rate' , '-l' , action='store', default=0.0003, type=float, help='')
-	parser.add_argument('--dropout'    , '-d' , action='store', default=0.3   , type=float, help='')
-	parser.add_argument('--epochs'     , '-p' , action='store', default=2    , type=int  , help='')
-	parser.add_argument('--batch-size' , '-b' , action='store', default=32   , type=int  , help='')
-	parser.add_argument('--nb-samples' , '-N' , action='store', default=9999 , type=int  , help='How many samples (in thousands)')
-	parser.add_argument('--nn-version' , '-V' , action='store', default=-1   , type=int  , help='Which architecture to choose')
-	parser.add_argument('--q-weight'   , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
+	parser = argparse.ArgumentParser(description='NNet inspector')
+	parser.add_argument('game'               , action='store', help='The name of the game')
+	parser.add_argument('--input'      , '-i', action='store', default=None , help='Checkpoint to inspect')
+	parser.add_argument('--nn-version' , '-V', action='store', default=None , type=int, help='Architecture to build (default: the one of --input)')
 	args = parser.parse_args()
+	if args.input is None and args.nn_version is None:
+		raise SystemExit('Specify a checkpoint (--input) and/or an architecture (-V)')
 	Game, NNet, players, NUMBER_PLAYERS = import_game(args.game)
 
-	output = (args.output if args.output else 'output_') + str(int(time.time()))[-6:]
+	checkpoint = torch.load(args.input, map_location='cpu', weights_only=False) if args.input else {}
+	if args.nn_version is None:
+		args.nn_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
 
 	g = Game()
-	nn_args = dict(
-		lr=args.learn_rate,
-		dropout=args.dropout,
-		epochs=args.epochs,
-		batch_size=args.batch_size,
-		nn_version=args.nn_version,
-		learn_rate=args.learn_rate,
-		no_compression=False,
-		q_weight=args.q_weight,
-	)
+	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=args.nn_version,
+				   learn_rate=None, no_compression=False, q_weight=0.)
 	nnet = NNet(g, nn_args)
 	if args.input:
 		nnet.load_checkpoint(os.path.dirname(args.input), os.path.basename(args.input))
-	elif args.nn_version == -1:
-		raise Exception("You have to specify at least a NN file to load or a NN version")
 
 	from fvcore.nn import FlopCountAnalysis
 	dummy_board         = torch.randn(g.getBoardSize(), dtype=torch.float32).unsqueeze(0)
@@ -481,32 +381,7 @@ if __name__ == "__main__":
 	flops.unsupported_ops_warnings(False)
 	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 
-	if not args.training:
-		if args.input:
-			checkpoint = torch.load(args.input, map_location='cpu', weights_only=False)
-			for k in sorted(checkpoint.keys()):
-				if k not in ['state_dict', 'full_model', 'optim_state']:
-					print(f'  {k}: {checkpoint[k]}')
-			print(f'Board shape: {list(dummy_board.shape)}, valids shape: {list(dummy_valid_actions.shape)}')
-		exit()
-	with open(args.training, "rb") as f:
-		examples = pickle.load(f)
-	trainExamples = []
-	for e in examples:
-		trainExamples.extend(e)
-	if args.test is None:
-		splitNumber = len(trainExamples) // 10
-		testExamples, trainExamples = trainExamples[-splitNumber:], trainExamples[:-splitNumber]
-	else:
-		with open(args.test, "rb") as f:
-			examples = pickle.load(f)
-		testExamples = []
-		for e in examples:
-			testExamples.extend(e)
-	trainExamples = trainExamples[-args.nb_samples*1000:]
-	print(f'Number of samples: training {len(trainExamples)}, testing {len(testExamples)}; number of epochs {args.epochs}')
-
-	save_every = (1e5 // nnet.args['batch_size']) - 1
-	nnet.train(trainExamples, testExamples, output, save_every)
-
-	nnet.save_checkpoint(output, filename='last.pt')
+	for k in sorted(checkpoint.keys()):
+		if k not in ['state_dict', 'full_model', 'optim_state']:
+			print(f'  {k}: {checkpoint[k]}')
+	print(f'Board shape: {list(dummy_board.shape)}, valids shape: {list(dummy_valid_actions.shape)}')

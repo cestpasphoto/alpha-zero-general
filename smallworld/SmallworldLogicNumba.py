@@ -73,9 +73,7 @@ from .SmallworldDisplay import print_board, print_valids, move_to_str
 #  Bivouacking, fortified, heroic: number of bonus "defense" left
 
 ############################## ACTION DESCRIPTION #############################
-# We coded 131 actions, taking some shortcuts on combinations of gems that can be
-# got or that can be given back, and forbidding to simultaneously get gems and
-# give some back.
+# We coded 5*NB_AREAS + MAX_REDEPLOY + DECK_SIZE + 2 actions (131 on the 2-player map).
 # Here is description of each action:
 ##### Index   Meaning
 #####   0-22  Abandon
@@ -184,11 +182,6 @@ class Board():
 		# Warning: np.ascontiguousarray may return a copy in general case. but
 		# in this particular case it returns a view. And Numba needs it to
 		# ensure that reshape is done on a contiguous array.
-		# See this test code:
-		#   base_ptr = self.state.ctypes.data
-		#   total_bytes_big = self.state.size # itemsize = 1 for np.int8
-		#   view_ptr = self.peoples.ctypes.data
-		#   print((view_ptr >= base_ptr) and (view_ptr < base_ptr + total_bytes_big))
 		self.visible_deck   = self.state[NB_AREAS+3*NUMBER_PLAYERS          :NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE  ,:]
 		self.round_status   = self.state[NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE:NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE  ,:]
 		self.game_status    = self.state[NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE:NB_AREAS+5*NUMBER_PLAYERS+DECK_SIZE  ,:]
@@ -233,7 +226,7 @@ class Board():
 		elif move < 5*NB_AREAS+MAX_REDEPLOY+DECK_SIZE+2:
 			self._do_end(player, random_seed)
 		else:
-			print('Unknown move {move}')
+			print('Unknown move', move)
 
 		if self.game_status[player, 4] >= 0:
 			return player
@@ -295,46 +288,6 @@ class Board():
 				symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
 				self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
-		# # (Approximate symmetry, remove when NN is strong)
-		# # Declined people all have same effects (with some exceptions), we can swap
-		# blacklist_ppl = [DWARF, GHOUL, TROLL]
-		# available_people = my_unpackbits(self.invisible_deck[0:2])
-		# if available_people.sum() != 0:
-		# 	for ppl in blacklist_ppl:
-		# 		available_people[ppl] = False
-		# 	for p in range(NUMBER_PLAYERS):
-		# 		declined_ppl_type = self.peoples[p, DECLINED, 1]
-		# 		if declined_ppl_type == NOPPL or -declined_ppl_type in blacklist_ppl:
-		# 			continue
-		# 		# Swap type with another random one
-		# 		new_ppl_type = -np.random.choice(np.flatnonzero(available_people))
-		# 		for area in range(NB_AREAS):
-		# 			if self.territories[area, 1] == declined_ppl_type:
-		# 				self.territories[area, 1] = new_ppl_type
-		# 		self.peoples[p, DECLINED, 1] = new_ppl_type
-
-		# 		symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
-		# 		self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
-
-		# # (Approximate symmetry, remove when NN is strong)
-		# # Having n declined ppl in hand is like having none at all, unless ghoul
-		# for p in range(NUMBER_PLAYERS):
-		# 	for ppl_id in [DECLINED, DECLINED_SPIRIT]:
-		# 		if self.peoples[p, ppl_id, 0] > 0 and self.peoples[p, ppl_id, 1] != -GHOUL:
-		# 			self.peoples[p, ppl_id, 0] = 0
-
-		# 			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
-		# 			self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
-
-		# # (Approximate symmetry, remove when NN is strong)
-		# # For non-playing peoples, having n active ppl in hand is like having none at all
-		# for p in range(1, NUMBER_PLAYERS):
-		# 	if self.peoples[p, ACTIVE, 0] > 0:
-		# 		self.peoples[p, ACTIVE, 0] = 0
-
-		# 		symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
-		# 		self.state[:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
-
 		return symmetries
 
 	###########################################################################
@@ -376,7 +329,6 @@ class Board():
 				if current_ppl[1] != HALFLING:
 					conditions = np.logical_and(conditions, descr[:, 5] != 0)
 			else:
-				# neighbor_areas = np.logical_or.reduce(connexity_matrix[territories_of_player])
 				neighbor_areas = (connexity_matrix[territories_of_player].sum(axis=0) != 0)
 				if current_ppl[2] == UNDERWORLD:
 					# All caverns are neighbors for underworlds
@@ -1324,8 +1276,7 @@ class Board():
 			self.peoples[player, ACTIVE, 4] = 0 # Reset value at this stage
 
 		if score_for_this_turn != self.round_status[player, 6]:
-			print(f'Je tombe sur {score_for_this_turn} alors que le calcul itératif donne {self.round_status[player, 6]}')
-			# breakpoint()
+			print(f'Score mismatch: recomputed {score_for_this_turn} but iterative computation gives {self.round_status[player, 6]}')
 
 		backup_score = self.game_status[player, 6]
 		self.game_status[player, 6] += score_for_this_turn

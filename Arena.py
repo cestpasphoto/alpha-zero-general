@@ -9,6 +9,23 @@ from os import environ
 
 from MCTS import MCTS
 
+
+def report_opening_uniqueness(n_distinct, n_played, what):
+    """
+    Share of distinct openings, printed only below 90%: near-duplicate games
+    shrink the effective sample size far below the number of games played.
+    """
+    if n_played == 0:
+        return
+    uniq = n_distinct / n_played
+    if uniq >= 0.90:
+        return
+    msg = f"{what}: opening uniqueness {uniq:.0%} ({n_distinct}/{n_played} distinct openings)"
+    if uniq < 0.20:
+        msg += "  <-- WARNING: effective N collapsed"
+    print(msg)
+
+
 class Arena():
     """
     An Arena class where any 2 agents can be pit against each other.
@@ -79,8 +96,7 @@ class Arena():
             if verbose:
                 print(f'P{curPlayer} decided to {self.game.moveToString(action, curPlayer)}')
 
-            if valids[action] == 0:
-                assert valids[action] > 0
+            assert valids[action] > 0, f'illegal action {action}'
             board, curPlayer = self.game.getNextState(board, curPlayer, action, random_seed=0)
             curPlayer = int(curPlayer)
 
@@ -133,14 +149,6 @@ class Arena():
             t.colour = colors[bisect.bisect_right(ratio_boundaries, ratio)]
         t.close()
 
-        # Opening uniqueness: low values mean near-duplicate games, so an effective
-        # sample size far below `num` and an unreliable pit.
-        played = oneWon + twoWon + draws
-        if played:
-            uniq = len(openings) / played
-            msg = f"Opening uniqueness: {uniq:.0%} ({len(openings)}/{played} distinct first-10-ply lines)"
-            if uniq < 0.20:
-                msg += "  <-- WARNING: effective N collapsed, pit likely unreliable"
-            print(msg)
+        report_opening_uniqueness(len(openings), oneWon + twoWon + draws, 'Arena')
 
         return oneWon, twoWon, draws

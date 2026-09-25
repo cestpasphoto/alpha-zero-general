@@ -52,9 +52,7 @@ def run(args):
 	if args.load_model:
 		log.info('Loading checkpoint "%s"...', args.load_folder_file)
 		nnet.load_checkpoint(os.path.dirname(args.load_folder_file), os.path.basename(args.load_folder_file))
-
-		if not args.useray:
-			compare_settings(args)
+		compare_settings(args)
 
 	log.debug('Loading the Coach...')
 	c = Coach(g, nnet, args)
@@ -63,13 +61,12 @@ def run(args):
 		log.info("Loading 'trainExamples' from file...")
 		c.loadTrainExamples()
 
-	if not args.useray:
-		# Backup code used for this run
-		subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
-		subprocess.run(f'cp *py "{args.game}"/*py "{args.checkpoint}/"', shell=True)
-		subprocess.run(
-			f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"',
-			shell=True)
+	# Backup code used for this run
+	subprocess.run(f'mkdir -p "{args.checkpoint}/"', shell=True)
+	subprocess.run(f'cp *py "{args.game}"/*py "{args.checkpoint}/"', shell=True)
+	subprocess.run(
+		f'[ -f "{args.checkpoint}/settings.txt" ] && mv "{args.checkpoint}/settings.txt" "{args.checkpoint}/settings."`date +%s` ;   echo "{args}" > "{args.checkpoint}/settings.txt"',
+		shell=True)
 
 	log.debug('Starting the learning process 🎉')
 	c.learn()
@@ -139,24 +136,21 @@ def main():
 	parser.add_argument('--epochs'          , '-p' , action='store', default=2    , type=int  , help='')
 	parser.add_argument('--batch-size'      , '-b' , action='store', default=32   , type=int  , help='')
 	parser.add_argument('--dropout'         , '-D' , action='store', default=0.   , type=float  , help='Dropout value - advised to disable')
-	parser.add_argument('--nn-version'      , '-V' , action='store', default=1    , type=int  , help='Which architecture to choose')
+	parser.add_argument('--nn-version'      , '-V' , action='store', required=True, type=int  , help='Which architecture to choose (mandatory, no default)')
 
 	### Advanced params ###
 	parser.add_argument('--q-weight'        , '-q' , action='store', default=0.5  , type=float, help='Weight for mixing Q into value loss')
-	parser.add_argument('--arena-gate'      , '-A' , action='store_true', help='Synchronous evaluation mode: after each training iteration, pit the new net against its pre-training snapshot and accept/reject based on --updateThreshold. Without this flag (default), checkpoints are saved unconditionally, selection is post-hoc via pit.py.')
-	parser.add_argument('--arenaCompare'           , action='store', default=30   , type=int  , help='Arena gate: number of games against the previous net. 30 is a COARSE filter (~±130 Elo): it gates obvious regressions, it does not measure progress')
-	parser.add_argument('--arena-sims'             , action='store', default=None , type=int  , help='Arena gate: numMCTSSims used by BOTH sides of the gate (default: --numMCTSSims). Fewer sims buy more games for the same wall clock. Never affects self-play nor pit.py.')
-	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='During arena playoff, new neural net will be accepted if threshold or more of games are won')
+	parser.add_argument('--arenaCompare'           , action='store', default=30   , type=int  , help='Number of arena games between the new net and its pre-training snapshot, after each iteration. 30 is a COARSE filter (~±130 Elo): it gates obvious regressions, it does not measure progress')
+	parser.add_argument('--updateThreshold'        , action='store', default=0.60 , type=float, help='The new net is accepted if it wins at least this fraction of the arena games, otherwise the snapshot is restored')
 	parser.add_argument('--ratio-fullMCTS'         , action='store', default=5    , type=int  , help='Ratio of MCTS sims between full and fast exploration')
 	parser.add_argument('--prob-fullMCTS'          , action='store', default=0.25 , type=float, help='Probability to choose full MCTS exploration')
-	parser.add_argument('--universes'       , '-u' , action='store', default=1    , type=int  , choices=range(9), help='Number of universes (up to 8): chance streams (and hidden-information worlds) cycled across simulations. Set to 0 for a deterministic exploration')
+	parser.add_argument('--universes'       , '-u' , action='store', default=1    , type=int  , choices=range(9), help='Chance seeds (and hidden-information worlds) used INSIDE the search, cycled over simulations: 1 = one fixed seed for every search of the run, N = N fixed seeds cycled, 0 = seed -1. Real games always use true randomness')
 
 	parser.add_argument('--forget-examples'        , action='store_true', help='Do not load previous examples')
 	parser.add_argument('--numIters'        , '-n' , action='store', default=50   , type=int, help='')
 	parser.add_argument('--stop-after-N-fail', '-s', action='store', default=-2   , type=float, help='Number of consecutive failed arenas that stops the run (-N means N*numItersHistory)')
 	parser.add_argument('--profile'                , action='store_true', help='profiler')
 	parser.add_argument('--debug'                  , action='store_true', help='Disable all optimisations to allow easier debugging')
-	parser.add_argument('--useray'                 , action='store_true', help='Mode for "ray", disable some messages')
 	parser.add_argument('--parallel-inferences','-P',action='store', default=8    , type=int  , help='Size of batch for inferences = nb of threads, set to 1 to disable')
 	parser.add_argument('--no-compression'         , action='store_true', help='Prevent using in-memory data compression (huge memory decrease and impact by only by ~1 second per 100k samples), useful for easier debugging')
 	parser.add_argument('--no-mem-optim'           , action='store_true', help='Prevent cleaning MCTS tree of old moves during each game')
@@ -179,8 +173,7 @@ def main():
 	if args.profile:
 		profiling(args)
 	else:
-		if not args.useray:
-			print(args)
+		print(args)
 		run(args)
 
 

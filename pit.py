@@ -50,6 +50,18 @@ def _universes_note(u):
 	return f' (u={u}: {min(u, 8)} dice realisations cycled across simulations)'
 
 
+def _mcts_player_factory(net, mcts_args, temp_for_game):
+	# Arena calls the factory once per seat for hidden-info games: fresh tree
+	# per call, net weights shared
+	def make_player():
+		mcts = MCTS(game, net, mcts_args)
+		def player(x, n):
+			probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
+			return int(np.random.choice(len(probs), p=probs))
+		return player
+	return make_player
+
+
 def create_player(name, args, player_id):
 	global game
 	global NNet
@@ -98,17 +110,8 @@ def create_player(name, args, player_id):
 			'forced_playouts_k': 1.5,
 			'no_mem_optim'     : False,
 		})
-		def temp_for_game(n):
-			# eval temperature: 0.5 -> 0, half-life 4 plies
-			return 0.5 * (0.5 ** (n / 4.0))
-
-		def make_player():
-			mcts = MCTS(game, net, mcts_args)   # fresh tree per call, net weights shared
-			def player(x, n):
-				probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
-				return int(np.random.choice(len(probs), p=probs))
-			return player
-		return make_player, mcts_args
+		# eval temperature: 0.5 -> 0, half-life 4 plies
+		return _mcts_player_factory(net, mcts_args, lambda n: 0.5 * (0.5 ** (n / 4.0))), mcts_args
 
 	# warn about a silent fallback to the default sim count
 	sims_from_ckpt = additional_keys.get('numMCTSSims', None)
@@ -139,23 +142,11 @@ def create_player(name, args, player_id):
 		half_life = abs((additional_keys.get('temperature', [])[3:4] or [10])[0])
 		return t_end + (t_begin - t_end) * (0.5 ** (n / half_life))
 
-	def make_player():
-		mcts = MCTS(game, net, mcts_args)   # fresh tree per call, net weights shared
-		def player(x, n):
-			probs = mcts.getActionProb(x, temp=temp_for_game(n), force_full_search=True)[0]
-			return int(np.random.choice(len(probs), p=probs))
-		return player
-	return make_player, mcts_args
+	return _mcts_player_factory(net, mcts_args, temp_for_game), mcts_args
 
 def _resolve_player_path(p):
-	# Prefer best.pt (post-hoc selected); fall back to latest.pt (most recent checkpoint).
-	if os.path.isdir(p):
-		for cand in ('best.pt', 'latest.pt'):
-			full = os.path.join(p, cand)
-			if os.path.exists(full):
-				return full
-		return os.path.join(p, 'best.pt')  # informative failure downstream
-	return p
+	# A folder stands for its best.pt, the last checkpoint accepted by the arena
+	return os.path.join(p, 'best.pt') if os.path.isdir(p) else p
 
 
 def _report_decision(result, args, p1_name, p2_name, diffs=None):
@@ -218,8 +209,7 @@ def _report_decision(result, args, p1_name, p2_name, diffs=None):
 def play(args):
 	players = [_resolve_player_path(p) for p in args.players]
 
-	if not args.useray:
-		print(players[0], 'vs', players[1])
+	print(players[0], 'vs', players[1])
 	# create_player also returns the resolved MCTS args (None for baselines)
 	(player1, m1), (player2, m2) = create_player(players[0], args, 0), create_player(players[1], args, 1)
 	if m1 is not None and m2 is not None and m1.numMCTSSims != m2.numMCTSSims:
@@ -228,7 +218,7 @@ def play(args):
 	diffs = {}
 	if m1 is not None and m2 is not None:
 		diffs = {k: (m1[k], m2[k]) for k in m1 if k in m2 and m1[k] != m2[k]}
-	if getattr(args, 'strict', False) and not args.useray and m1 is not None and m2 is not None:
+	if getattr(args, 'strict', False) and m1 is not None and m2 is not None:
 		# log the profile of BOTH players at the top of the report
 		print(f'EVAL PROFILE p1: {dict(m1)}{_universes_note(m1.get("universes"))}')
 		print(f'EVAL PROFILE p2: {dict(m2)}{_universes_note(m2.get("universes"))}')
@@ -252,17 +242,8 @@ def play(args):
 	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
 	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
 
-	if getattr(args, 'strict', False) and not args.useray:
+	if getattr(args, 'strict', False):
 		_report_decision(result, args, players[0], players[1], diffs)
-
-	if args.useray:
-		##### Write results in a file
-		directory = args.players[1] if os.path.isdir(args.players[1]) else os.path.dirname(args.players[1])
-		score = result[1] + result[2] / 2.
-		print('Writing score to ' + directory + '/score.txt:  ', score)
-		with open(directory + '/score.txt', 'w') as f:
-			f.write(f'{score}')
-		#####
 
 	return result
 
@@ -318,10 +299,7 @@ def play_several_files(args):
 	players = args.players[:]  # Copy, because it will be overwritten by plays()
 	list_tasks = []
 	if args.reference:
-		if args.useray:
-			list_tasks += list(itertools.product(args.reference, args.players))
-		else:
-			list_tasks += list(itertools.product(args.players, args.reference))
+		list_tasks += list(itertools.product(args.players, args.reference))
 	if not args.vs_ref_only:
 		list_tasks += list(itertools.combinations(args.players, 2))
 
@@ -369,7 +347,7 @@ def main():
 	parser.add_argument('--cpuct'              , '-c' , action='store', default=None, type=float, help='cpuct value')
 	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
 	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet off, explicit eval temperature. Use this for every comparison meant to be decisional.')
-	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , help='Override universes for both players (default: value stored in checkpoint). u<=1 = ONE fixed dice realisation; u>=2 samples several (8 seeds available)')
+	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , choices=range(9), help='Override universes for both players (default: value stored in checkpoint). u<=1 = ONE fixed chance seed; u>=2 cycles u fixed seeds')
 
 	# Per-side EVAL overrides, see _SIDE_KEYS
 	side = parser.add_argument_group('asymmetric pit (search-profile experiments)')
@@ -380,14 +358,13 @@ def main():
 	side.add_argument('--c2'                   , action='store', default=None, type=float, help='cpuct for player 2 only')
 	side.add_argument('--f1'                   , action='store', default=None, type=float, help='fpu for player 1 only')
 	side.add_argument('--f2'                   , action='store', default=None, type=float, help='fpu for player 2 only')
-	side.add_argument('--u1'                   , action='store', default=None, type=int  , help='universes for player 1 only')
-	side.add_argument('--u2'                   , action='store', default=None, type=int  , help='universes for player 2 only')
+	side.add_argument('--u1'                   , action='store', default=None, type=int  , choices=range(9), help='universes for player 1 only')
+	side.add_argument('--u2'                   , action='store', default=None, type=int  , choices=range(9), help='universes for player 2 only')
 
 	parser.add_argument('game'                        , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
 	parser.add_argument('--reference'          , '-r' , metavar='ref'   , nargs='*', help='list of reference players')
 	parser.add_argument('--vs-ref-only'        , '-z' , action='store_true', help='Use this option to prevent games between players, only players vs references')
-	parser.add_argument('--useray'                    , action='store_true', help='Mode for "ray", disable some messages')
 
 	parser.add_argument('--compare'            , '-C' , action='store', default='../results', help='Compare all best.pt located in the specified folders')
 	parser.add_argument('--compare-age'        , '-A' , action='store', default=None        , help='Maximum age (in hour) of best.pt to be compared', type=int)
