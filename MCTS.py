@@ -158,7 +158,7 @@ class MCTS():
                 self._fp_warned = True
         else:
             s = self.game.stringRepresentation(canonicalBoard)
-            counts = [self.nodes_data[s][5][a] for a in range(action_size)] # Nsa
+            counts = [int(n) for n in self.nodes_data[s][5]] # Nsa
 
             # Per-player Q measured directly from backups (no zero-sum assumption)
             q = list(self.nodes_data[s][3][1])
@@ -182,8 +182,9 @@ class MCTS():
                     if gap <= 0:
                         continue   # already at least as urgent as best: subtract nothing
                     n_min = math.ceil(self.args.cpuct * Ps_root[a] * math.sqrt(S) / gap - 1)
-                    new_n = max(n - n_forced, int(n_min), 0)
-                    adjusted_counts[a] = new_n
+                    adjusted_counts[a] = min(n, max(n - n_forced, int(n_min), 0))
+
+
                 adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
                 counts = adjusted_counts
             valid_moves_mask = self.nodes_data[s][1] # Vs from root node
