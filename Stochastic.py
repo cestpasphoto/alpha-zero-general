@@ -21,10 +21,6 @@ from numba import njit
 warnings.filterwarnings('ignore', message='overflow encountered in scalar multiply',
                         category=RuntimeWarning)
 
-# A7 test switch: tree seeds >= HASHED_SEED_OFFSET ask the game logic to draw
-# its chance events with hashed_draw instead of its legacy generator.
-HASHED_SEED_OFFSET = 1 << 40
-
 _M1 = np.uint64(0x9E3779B97F4A7C15)
 _M2 = np.uint64(0xBF58476D1CE4E5B9)
 _M3 = np.uint64(0x94D049BB133111EB)
