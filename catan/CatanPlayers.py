@@ -37,8 +37,7 @@ class HumanPlayer():
 			ids = [i - start for i in range(start, start + size) if valid[i]]
 			if ids:
 				print(f'{name}: ' + ' '.join(f'{start + i}({move_to_str(start + i, 0, short=True)})' for i in ids))
-		for i in list(range(A_BUY_DEV, N_ACTIONS_V1)) + [A_TRADE_OK, A_TRADE_NO] \
-				+ list(range(A_TRADE_ACCEPT, A_TRADE_ACCEPT + N_PLAYERS)):
+		for i in list(range(A_BUY_DEV, N_ACTIONS_V1)) + [A_TRADE_OK, A_TRADE_NO]:
 			if valid[i]:
 				print(f'{i} = {move_to_str(i, 0, short=True)}', end='   ')
 		print('\n(+ to show all moves)')
@@ -138,8 +137,6 @@ class GreedyPlayer():
 			if valids[A_TRADE_OK] and give > recv:
 				return A_TRADE_OK
 			return A_TRADE_NO
-		if phase == PHASE_TRADE_ACCEPT:
-			return A_TRADE_ACCEPT + 0           # refuse every counter-offer
 		if phase == PHASE_TRADE_OFFER:
 			# unreachable (never announces), but stay legal
 			return int(np.flatnonzero(valids)[0])

@@ -18,16 +18,6 @@ magic_seeds = [31416, 1, 14142, 42, 27183, 2, 16180, 7]
 log = logging.getLogger(__name__)
 
 
-def _opt(args, key, default):
-    """Optional arg: args may be an argparse Namespace (Coach) or a dotdict (pit)
-    whose __getattr__ raises KeyError on a missing key."""
-    try:
-        v = args[key] if isinstance(args, dict) else getattr(args, key, default)
-    except KeyError:
-        return default
-    return default if v is None else v
-
-
 class MCTS():
     """
     This class handles the MCTS tree.
@@ -67,17 +57,6 @@ class MCTS():
         self.chance_per_sim = bool(getattr(self.game, 'chance_per_sim', False))
         self._fp_warned = False
 
-        # Root-only search options, opt-in (pit.py), never set by Coach:
-        #   flat_answer : the game flags roots whose prior is replaced by a uniform
-        #                 one (Catan: trade answers, see CatanTrade.py)
-        #   trade_filter: the game restricts the moves the root may play
-        #                 (Catan: a single vetted offer, see CatanTrade.py)
-        self.flat_answer = bool(_opt(args, 'flat_answer', False)) and hasattr(game, 'flatRootPrior')
-        self.trade_filter = bool(_opt(args, 'trade_filter', False)) and hasattr(game, 'rootMoveFilter')
-        if self.trade_filter and batch_info is not None:
-            raise NotImplementedError('trade_filter evaluates the net itself: not available with batched self-play')
-        self.root_memo = {}   # state the root filter keeps between two decisions of this player
-
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
         """
         Performs numMCTSSims simulations of MCTS starting from canonicalBoard.
@@ -104,8 +83,6 @@ class MCTS():
         if self.hidden_info:
             obs = self.game.getObservation(canonicalBoard, 0)
         chance_base = int(self.rng.integers(1, 2147483647)) if self.chance_per_sim else 0
-        root_flat = self.flat_answer and bool(self.game.flatRootPrior(canonicalBoard))
-        root_mask = self.game.rootMoveFilter(canonicalBoard, self.nnet, self.args, self.root_memo) if self.trade_filter else None
 
         for self.step in range(nb_MCTS_sims):
             world_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
@@ -123,8 +100,7 @@ class MCTS():
             else:
                 root_board = canonicalBoard
                 dir_noise = (self.step == 0 and is_full_search and self.dirichlet_noise)
-            self.search(root_board, dirichlet_noise=dir_noise, forced_playouts=forced_playouts and not self.hidden_info, is_root=True,
-                        root_mask=root_mask, root_flat=root_flat)
+            self.search(root_board, dirichlet_noise=dir_noise, forced_playouts=forced_playouts and not self.hidden_info, is_root=True)
 
         action_size = self.game.getActionSize()
         if self.hidden_info:
@@ -161,7 +137,7 @@ class MCTS():
                 self._fp_warned = True
         else:
             s = self.game.stringRepresentation(canonicalBoard)
-            counts = [int(n) for n in self.nodes_data[s][5]] # Nsa
+            counts = [int(n) for n in self.nodes_data[s][5]] # Nsa, as Python ints: their int16 sum overflows
 
             # Per-player Q measured directly from backups (no zero-sum assumption)
             q = list(self.nodes_data[s][3][1])
@@ -185,17 +161,10 @@ class MCTS():
                     if gap <= 0:
                         continue   # already at least as urgent as best: subtract nothing
                     n_min = math.ceil(self.args.cpuct * Ps_root[a] * math.sqrt(S) / gap - 1)
-                    adjusted_counts[a] = min(n, max(n - n_forced, int(n_min), 0))
-
-
+                    adjusted_counts[a] = min(n, max(n - n_forced, int(n_min), 0))   # never ADD visits
                 adjusted_counts = [c if c > 1 else 0 for c in adjusted_counts]
                 counts = adjusted_counts
             valid_moves_mask = self.nodes_data[s][1] # Vs from root node
-
-        if root_mask is not None:
-            # a reused tree may hold visits on moves the filter now forbids
-            counts = [c if root_mask[a] else 0 for a, c in enumerate(counts)]
-            valid_moves_mask = np.logical_and(valid_moves_mask, root_mask)
 
         if sum(counts) <= 0:
             # defensive only: spread over legal moves rather than divide by zero
@@ -221,7 +190,7 @@ class MCTS():
         probs = [x / counts_sum for x in counts]
         return probs, q, is_full_search
 
-    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False, root_mask=None, root_flat=False):
+    def search(self, canonicalBoard, dirichlet_noise=False, forced_playouts=False, is_root=False):
         """
         One simulation: descends by highest UCB until a leaf, expands the leaf with
         the network (or reads the outcome of a terminal node), and backs the value
@@ -277,20 +246,10 @@ class MCTS():
 
         Ns, Qs = meta_ns_qs[0], float(meta_ns_qs[1][0])   # scalar Q for numba FPU
 
-        # Root-only options: moves forbidden by the game's root filter, prior
-        # replaced by a uniform one. Applied at pick time only, the stored node
-        # keeps the net's prior (the node may be reused as an inner node).
-        Vs_pick, Ps_pick = Vs, Ps
-        if is_root and (root_mask is not None or root_flat):
-            Vs_pick = Vs if root_mask is None else np.logical_and(Vs, root_mask)
-            Ps_pick = (Vs_pick if root_flat else Ps * Vs_pick).astype(np.float32)
-            total = float(Ps_pick.sum())
-            Ps_pick = Ps_pick / total if total > 0 else Vs_pick.astype(np.float32) / max(int(Vs_pick.sum()), 1)
-
         # pick the action with the highest upper confidence bound
         # get next state and get canonical version of it
         a, next_s, next_player = get_next_best_action_and_canonical_state(
-            Es, Vs_pick, Ps_pick, Ns, Qsa, Nsa, Qs,
+            Es, Vs, Ps, Ns, Qsa, Nsa, Qs,
             self.args.cpuct,
             self.game.board,
             canonicalBoard,

@@ -17,7 +17,7 @@ dev_char = ['knight', 'victory point', 'road building', 'monopoly', 'year of ple
 port_char = ['', '2:1 brick', '2:1 lumber', '2:1 ore', '2:1 grain', '2:1 wool', '3:1 any']
 port_short = ['', '2B', '2L', '2O', '2G', '2W', '3*']
 phase_char = ['setup settlement', 'setup road', 'roll', 'discard', 'move robber', 'main',
-              'road building', 'trade offer', 'trade answer', 'trade accept']
+              'road building', 'trade offer', 'trade answer']
 
 ############################# ACTION TO STRING ################################
 
@@ -71,12 +71,6 @@ def move_to_str(move, player=0, short=False):
 		return f'{p}accepts the offer' if not short else 'OK'
 	if move == A_TRADE_NO:
 		return f'{p}declines the offer' if not short else 'NO'
-	if A_TRADE_ACCEPT <= move < A_TRADE_ACCEPT + N_PLAYERS:
-		t = move - A_TRADE_ACCEPT
-		if t == 0:
-			return f'{p}refuses every counter-offer' if not short else 'refAll'
-		who = f'P{(player + t) % N_PLAYERS}'
-		return f'{p}takes the counter-offer from {who}' if not short else f'take{who}'
 	return f'{p}unknown action {move}' if not short else f'?{move}'
 
 

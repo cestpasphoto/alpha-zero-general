@@ -3,12 +3,6 @@ import numpy as np
 ############################## GAME CONFIGURATION #############################
 
 N_PLAYERS = 3                  # 2, 3 or 4 -- changes observation_size() and action_size()
-ENABLE_PLAYER_TRADE = True     # player-to-player trade; see the TRADE section below
-# Counter-offers during PHASE_TRADE_ANSWER. A MASK restriction only: N_ACTIONS,
-# the state layout and the phases are unchanged, so checkpoints load either way.
-# OFF   -> answer is OK / NO, PHASE_TRADE_ACCEPT is unreachable, <= P+1 plies
-# ON    -> answers may counter, offers stack, <= 2P+1 plies
-ENABLE_TRADE_COUNTER = False
 RANDOM_BOARD = True            # shuffle hexes, number tokens and port types at init
 # A position with at most SYM_TRIVIAL_MAX_LEGAL legal moves (roll, trade answer)
 # carries almost no policy signal: it is kept in the replay buffer with
@@ -286,8 +280,8 @@ GB_PLAYER_TRADE_DONE = 11      # 0/1, one player-trade ATTEMPT per turn (success
 # which one is pending is read off the composer's PD_TRADE_RECV, so no fourth phase.
 PHASE_SETUP_SETTLEMENT, PHASE_SETUP_ROAD = 0, 1
 PHASE_ROLL, PHASE_DISCARD, PHASE_MOVE_ROBBER, PHASE_MAIN = 2, 3, 4, 5
-PHASE_ROAD_BUILDING, PHASE_TRADE_OFFER, PHASE_TRADE_ANSWER, PHASE_TRADE_ACCEPT = 6, 7, 8, 9
-N_PHASES = 10
+PHASE_ROAD_BUILDING, PHASE_TRADE_OFFER, PHASE_TRADE_ANSWER = 6, 7, 8
+N_PHASES = 10                  # 9 never reached (was the counter-offer pick)
 
 ############################## ACTION LAYOUT ##################################
 #
@@ -338,11 +332,11 @@ TRADE_SET_SIZE = TRADE_SETS.sum(1).astype(np.int8)
 A_TRADE_RECV = N_ACTIONS_V1                     # 55 : the multiset I ask FOR
 A_TRADE_GIVE = A_TRADE_RECV + N_TRADE_SETS      # 55 : the multiset I offer in exchange
 A_TRADE_OK = A_TRADE_GIVE + N_TRADE_SETS        # 1 : a responder accepts the turn player's offer
-A_TRADE_NO = A_TRADE_OK + 1                     # 1 : a responder declines without countering
-A_TRADE_ACCEPT = A_TRADE_NO + 1                 # P : the turn player picks a counter-offer.
-                                                #     Relative player id, 0 = refuse them all
-                                                #     (same convention as A_ROBBER's victim).
-N_ACTIONS = A_TRADE_ACCEPT + N_PLAYERS
+A_TRADE_NO = A_TRADE_OK + 1                     # 1 : a responder declines
+# The last N_PLAYERS ids are NEVER legal. They were the counter-offer picks, now
+# removed, and are kept so that the policy head (hence the checkpoints) keeps
+# its shape.
+N_ACTIONS = A_TRADE_NO + 1 + N_PLAYERS
 
 # Unordered pairs of resources, for Year of Plenty (id -> the two resource ids)
 YOP_PAIRS = np.array([[a, b] for a in range(N_RESOURCES) for b in range(a, N_RESOURCES)], dtype=np.int8)

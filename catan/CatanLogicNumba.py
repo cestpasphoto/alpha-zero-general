@@ -91,33 +91,26 @@ from Stochastic import hashed_draw
 #   A_DISCARD        + r              r   in [0, 5)    discard ONE card, repeated
 #   A_END_TURN
 #
-#   Player trade, only while ENABLE_PLAYER_TRADE:
+#   Player trade:
 #   A_TRADE_RECV     + s              s   in [0, 55)   announce: I ask for TRADE_SETS[s]
 #   A_TRADE_GIVE     + s              s   in [0, 55)   ... and offer TRADE_SETS[s] for it
 #   A_TRADE_OK                                         accept the turn player's offer
-#   A_TRADE_NO                                         decline it, without countering
-#   A_TRADE_ACCEPT   + t              t   in [0, P)    the turn player takes the counter
-#                                                      from relative player t;
-#                                                      t = 0 = refuse them all
+#   A_TRADE_NO                                         decline it
+#   The last N_PLAYERS ids are never legal (former counter-offer picks, kept for
+#   the shape of the policy head, see CatanConstants.py).
 #
 #   An announcement is FACTORISED over two plies: a flat id per (ask, offer) pair
 #   would need 55*55 = 3025 ids, the split needs 55+55 and loses nothing.
 #
 #   PROTOCOL (non-official: real haggling has no bounded ply count)
 #     turn player : RECV, GIVE                                    2 plies
-#     each other player, in seat order, answers ONCE, and always
-#     to the TURN PLAYER's offer:
+#     each other player, in seat order, answers ONCE:
 #         OK      -> executes at once, the round table is CLOSED  1 ply
 #         NO      -> next responder                               1 ply
-#         counter -> RECV, GIVE, stacked for the turn player,
-#                    then the next responder                      2 plies
-#     if at least one counter is standing:
-#         turn player : A_TRADE_ACCEPT + t, or t=0 to refuse all  1 ply
-#     Worst case 2P+1 plies (7 at P=3). A counter is never submitted to the other
-#     responders, which is what keeps that bound; every trade involves the turn
-#     player on one side.
+#     Worst case P+1 plies (4 at P=3). Every trade involves the turn player.
+#     One announcement per turn, accepted or not (GB_PLAYER_TRADE_DONE).
 #
-# Relative player ids (A_ROBBER, A_TRADE_ACCEPT) are expressed in the CANONICAL
+# Relative player ids (A_ROBBER) are expressed in the CANONICAL
 # frame, so that swap_players() never changes the meaning of an action id. The
 # trade SET ids name resources, which no isometry permutes, so they map to
 # themselves (asserted in CatanConstantsTest.py).
@@ -651,14 +644,14 @@ class Board():
 		return 0   # no unroaded settlement: caller has a stale/inconsistent state
 
 	def _next_actor(self):
-		# Returns a CANONICAL-RELATIVE offset (0 = the player currently at
-		# canonical index 0), never an absolute player id: make_move() applies its
-		# auto-resolved moves in that frame and the caller rotates the board once,
-		# afterwards.
-		#   - setup road: it belongs to whoever owns the only settlement without
-		#     a road (V_OWNER is canonical-relative), not necessarily to offset 0;
-		#   - setup settlement: the snake order is absolute, so return how far it
-		#     moves this step, not where it is.
+		# Index, IN THE FRAME OF THE BOARD, of the next player to act. make_move()
+		# runs on canonical boards (MCTS: the mover is index 0) and on absolute
+		# boards (Coach, Arena, pit: the mover is any seat), so nothing here may
+		# depend on the frame (checked by CatanFrameTest):
+		#   - setup road: whoever owns the only settlement without a road;
+		#   - setup settlement: the snake order, counted from the first player,
+		#     whose index GB_TURN_PLAYER keeps during the whole setup;
+		#   - discard: in seat order from the turn player.
 		phase = self.globals_[0, GA_PHASE]
 		if phase == PHASE_SETUP_ROAD:
 			for v in range(N_VERTICES):
@@ -673,17 +666,10 @@ class Board():
 			return 0   # unreachable in a consistent state; see _setup_vertex's own guard
 		if phase == PHASE_SETUP_SETTLEMENT:
 			s = int(self.globals_[1, GB_SETUP_STEP])
-			if s == 0:
-				return 0
-			# GB_TURN_PLAYER stays on the first player during setup, and it is
-			# relative to index 0 of the current frame: frame-independent
 			P = int(self.num_players)
 			cur_abs = s if s < P else 2*P - 1 - s
 			return (int(self.globals_[1, GB_TURN_PLAYER]) + cur_abs) % P
 		if phase == PHASE_DISCARD:
-			# in seat order from the turn player, so that the order does not depend
-			# on the frame of the board (index order would differ between the
-			# absolute and the canonical frames)
 			t = int(self.globals_[1, GB_TURN_PLAYER])
 			for i in range(self.num_players):
 				p = (t + i) % self.num_players
@@ -703,8 +689,6 @@ class Board():
 				if self.players[4*p + 3, PD_TRADE_STATUS] == TRADE_NONE:
 					return p
 			return t                                        # unreachable when consistent
-		# PHASE_TRADE_ACCEPT is answered by the turn player, which the line below
-		# already returns.
 		return int(self.globals_[1, GB_TURN_PLAYER])
 
 	############################## VALID MOVES ################################
@@ -774,18 +758,6 @@ class Board():
 			valids[A_TRADE_NO] = True                       # always available
 			if self._can_pay_recv_of(player, t):
 				valids[A_TRADE_OK] = True
-			if ENABLE_TRADE_COUNTER:                        # or counter-offer
-				for s in range(N_TRADE_SETS):
-					if self._recv_is_legal(player, s):
-						valids[A_TRADE_RECV + s] = True
-
-		elif phase == PHASE_TRADE_ACCEPT:
-			valids[A_TRADE_ACCEPT + 0] = True               # refuse every counter
-			for i in range(1, self.num_players):
-				q = (player + i) % self.num_players
-				if (self.players[4*q + 3, PD_TRADE_STATUS] == TRADE_OFFERED
-						and self._can_pay_recv_of(player, q)):
-					valids[A_TRADE_ACCEPT + i] = True
 
 		elif phase == PHASE_MAIN:
 			a, b, c = 4*player, 4*player + 1, 4*player + 2
@@ -832,7 +804,7 @@ class Board():
 						k += 1
 			# Opening a player trade IS the A_TRADE_RECV action: no separate
 			# "I would like to trade" id, which would cost a whole ply.
-			if ENABLE_PLAYER_TRADE and self.globals_[1, GB_PLAYER_TRADE_DONE] == 0:
+			if self.globals_[1, GB_PLAYER_TRADE_DONE] == 0:
 				for s in range(N_TRADE_SETS):
 					if self._recv_is_legal(player, s):
 						valids[A_TRADE_RECV + s] = True
@@ -910,8 +882,6 @@ class Board():
 			self._do_trade_ok(player)
 		elif move == A_TRADE_NO:
 			self._do_trade_no(player)
-		elif A_TRADE_ACCEPT <= move < A_TRADE_ACCEPT + int(self.num_players):
-			self._do_trade_accept(move - A_TRADE_ACCEPT, player)
 		elif move == A_END_TURN:
 			self._end_turn(player)
 
@@ -1160,16 +1130,8 @@ class Board():
 		self._advance_trade()
 
 	def _do_trade_ok(self, player):
-		# a responder accepts the TURN PLAYER's standing offer: that closes the
-		# round table at once, whatever is still stacked behind it
+		# a responder accepts the turn player's offer: that closes the round table
 		self._execute_trade(int(self.globals_[1, GB_TURN_PLAYER]), player)
-		self._end_trade()
-
-	def _do_trade_accept(self, t, player):
-		# `player` is the turn player picking among the stacked counters;
-		# t is a RELATIVE id, 0 meaning "refuse them all"
-		if t != 0:
-			self._execute_trade((player + t) % self.num_players, player)
 		self._end_trade()
 
 	def _execute_trade(self, proposer, accepter):
@@ -1193,11 +1155,6 @@ class Board():
 			p = (t + i) % self.num_players
 			if self.players[4*p + 3, PD_TRADE_STATUS] == TRADE_NONE:
 				self.globals_[0, GA_PHASE] = PHASE_TRADE_ANSWER
-				return
-		for i in range(1, self.num_players):            # any counter left standing?
-			p = (t + i) % self.num_players
-			if self.players[4*p + 3, PD_TRADE_STATUS] == TRADE_OFFERED:
-				self.globals_[0, GA_PHASE] = PHASE_TRADE_ACCEPT
 				return
 		self._end_trade()                               # everyone refused
 

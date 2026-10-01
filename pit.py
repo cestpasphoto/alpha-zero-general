@@ -23,23 +23,7 @@ game = None
 # any difference. Experiments ABOUT the search profile (sims, cpuct, fpu,
 # universes) need a deliberately asymmetric pit: opt-in via --asymmetric,
 # labelled in the report. A side-specific value overrides the shared one.
-_SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes',
-              'a': 'flat_answer', 't': 'trade_filter'}
-
-
-def _root_options(args, player_id, sims):
-	"""Root-only search options (Catan trade, see catan/CatanTrade.py). Off unless
-	asked; the filter parameters are shared by both sides, and only read by a side
-	whose trade_filter is on."""
-	return {
-		'flat_answer'     : bool(_per_side(args, player_id, 'a', args.flat_answer)),
-		'trade_filter'    : bool(_per_side(args, player_id, 't', args.trade_filter)),
-		'trade_k'         : args.trade_k,
-		'trade_sel_worlds': args.trade_sel_worlds,
-		'trade_worlds'    : args.trade_worlds,
-		'trade_resp_sims' : args.trade_resp_sims if args.trade_resp_sims else sims,
-		'trade_min_gain'  : args.trade_min_gain,
-	}
+_SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes'}
 
 
 def _per_side(args, player_id, letter, fallback):
@@ -126,7 +110,6 @@ def create_player(name, args, player_id):
 			'forced_playouts_k': 1.5,
 			'no_mem_optim'     : False,
 		})
-		mcts_args.update(_root_options(args, player_id, sims))
 		# eval temperature: 0.5 -> 0, half-life 4 plies
 		return _mcts_player_factory(net, mcts_args, lambda n: 0.5 * (0.5 ** (n / 4.0))), mcts_args
 
@@ -152,7 +135,6 @@ def create_player(name, args, player_id):
 		'forced_playouts_k': additional_keys.get('forced_playouts_k', 1.5),
 		'no_mem_optim'    : False,
 	})
-	mcts_args.update(_root_options(args, player_id, sims))
 
 	def temp_for_game(n):
 		# half-life read from temperature[3], fallback 10 for older checkpoints
@@ -378,20 +360,6 @@ def main():
 	side.add_argument('--f2'                   , action='store', default=None, type=float, help='fpu for player 2 only')
 	side.add_argument('--u1'                   , action='store', default=None, type=int  , choices=range(9), help='universes for player 1 only')
 	side.add_argument('--u2'                   , action='store', default=None, type=int  , choices=range(9), help='universes for player 2 only')
-	side.add_argument('--a1'                   , action='store', default=None, type=int  , choices=(0, 1), help='flat_answer for player 1 only')
-	side.add_argument('--a2'                   , action='store', default=None, type=int  , choices=(0, 1), help='flat_answer for player 2 only')
-	side.add_argument('--t1'                   , action='store', default=None, type=int  , choices=(0, 1), help='trade_filter for player 1 only')
-	side.add_argument('--t2'                   , action='store', default=None, type=int  , choices=(0, 1), help='trade_filter for player 2 only')
-
-	# Root-only search options, Catan trade (catan/CatanTrade.py). Off by default.
-	trade = parser.add_argument_group('Catan trade (root-only search options)')
-	trade.add_argument('--flat-answer'     , action='store', default=0   , type=int, choices=(0, 1), help='A: uniform root prior when answering a trade offer, so that the answer follows Q')
-	trade.add_argument('--trade-filter'    , action='store', default=0   , type=int, choices=(0, 1), help='B: at a trade decision the root keeps a single offer vetted against searching responders, or none')
-	trade.add_argument('--trade-k'         , action='store', default=3   , type=int  , help='B: offers pre-selected by the one-ply rule')
-	trade.add_argument('--trade-sel-worlds', action='store', default=16  , type=int  , help='B: worlds of the one-ply pre-selection')
-	trade.add_argument('--trade-worlds'    , action='store', default=4   , type=int  , help='B: worlds each pre-selected offer is played in')
-	trade.add_argument('--trade-resp-sims' , action='store', default=None, type=int  , help='B: sims of the simulated responders (default: the side\'s -m)')
-	trade.add_argument('--trade-min-gain'  , action='store', default=0.01, type=float, help='B: an offer is allowed only above this searched gain (net value)')
 
 	parser.add_argument('game'                        , action='store', default='splendor', help='The name of the game to play')
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
@@ -405,7 +373,7 @@ def main():
 	args = parser.parse_args()
 
 	if _any_per_side(args) and not args.asymmetric:
-		raise SystemExit('[FATAL] per-side overrides (--m1/--m2/--c1/--c2/--f1/--f2/--u1/--u2/--a1/--a2/--t1/--t2) given without '
+		raise SystemExit('[FATAL] per-side overrides (-m1/-m2/-c1/-c2/-f1/-f2/-u1/-u2) given without '
 		                 '--asymmetric.\n        Declare the asymmetry explicitly, or drop them.')
 	if args.asymmetric and not _any_per_side(args):
 		print('[WARNING] --asymmetric given but no per-side override: the pit is symmetric.')
