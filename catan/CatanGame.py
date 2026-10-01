@@ -102,3 +102,13 @@ class CatanGame(Game):
 		self.board.copy_state(observation, True)
 		self.board.sample_world(random_seed)
 		return self.board.get_state()
+
+	# --- Root-only search options (MCTS args flat_answer / trade_filter) -----
+	# Opt-in from pit.py; Coach never sets them. See CatanTrade.py.
+	def flatRootPrior(self, board):
+		from .CatanTrade import is_answer_node
+		return is_answer_node(board)
+
+	def rootMoveFilter(self, board, nnet, args, memo):
+		from .CatanTrade import root_move_filter
+		return root_move_filter(self, nnet, np.copy(board), args, memo)

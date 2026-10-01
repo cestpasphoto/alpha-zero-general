@@ -675,12 +675,18 @@ class Board():
 			s = int(self.globals_[1, GB_SETUP_STEP])
 			if s == 0:
 				return 0
+			# GB_TURN_PLAYER stays on the first player during setup, and it is
+			# relative to index 0 of the current frame: frame-independent
 			P = int(self.num_players)
 			cur_abs = s if s < P else 2*P - 1 - s
-			prev_abs = (s - 1) if (s - 1) < P else 2*P - 1 - (s - 1)
-			return (cur_abs - prev_abs) % P
+			return (int(self.globals_[1, GB_TURN_PLAYER]) + cur_abs) % P
 		if phase == PHASE_DISCARD:
-			for p in range(self.num_players):
+			# in seat order from the turn player, so that the order does not depend
+			# on the frame of the board (index order would differ between the
+			# absolute and the canonical frames)
+			t = int(self.globals_[1, GB_TURN_PLAYER])
+			for i in range(self.num_players):
+				p = (t + i) % self.num_players
 				if self.players[4*p + 2, PC_DISCARD_LEFT] > 0:
 					return p
 		# Trade: nothing is stored about whose turn it is to speak, it is read
@@ -1006,8 +1012,7 @@ class Board():
 	def _advance_setup(self, player, random_seed):
 		self.globals_[1, GB_SETUP_STEP] += 1
 		if self.globals_[1, GB_SETUP_STEP] >= 2*self.num_players:
-			self.globals_[1, GB_TURN_PLAYER] = 0
-			self._start_turn(0)
+			self._start_turn(int(self.globals_[1, GB_TURN_PLAYER]))   # the first player opens
 		else:
 			self.globals_[0, GA_PHASE] = PHASE_SETUP_SETTLEMENT
 
