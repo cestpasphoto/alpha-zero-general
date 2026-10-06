@@ -3,6 +3,7 @@ from numba import njit
 import numba
 
 from .AkropolisConstants import *
+from Stochastic import hashed_draw
 
 ############################## BOARD DESCRIPTION ##############################
 #
@@ -229,6 +230,18 @@ for p in range(N_PATTERNS):
 			if neighbor >= 0 and neighbor not in triplet:
 				neighbors_set.add(neighbor)
 	PATTERN_NEI[p, :len(neighbors_set)] = sorted(neighbors_set)
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _search_tile_index(random_seed, round_number, slot, tiles_bitpack, n):
+	"""Search-time draw (random_seed != 0): index in [0, n), pure function of
+	(seed, remaining deck, round, slot). Same position -> same draw, so the tree
+	stays consistent. Two chained hashed_draw calls rather than one summed
+	counter: bitpack + round would collide (removing tile bit 1 while round +1)."""
+	deck = np.uint64(0)
+	for b in tiles_bitpack:                       # PACKED_TILES_BYTES = 8 -> exactly 64 bits
+		deck = (deck << np.uint64(8)) | np.uint64(np.uint8(b))
+	deck_seed = hashed_draw(random_seed, np.int64(deck), 2147483647) + 1
+	return hashed_draw(deck_seed, np.int64(round_number) * CONSTR_SITE_SIZE + slot, n)
 
 # Constants chosen for mapping
 SWITCH_SCORE = 182        # scores <= 182 -> step 1; >= 183 -> step 3
@@ -507,10 +520,8 @@ class Board():
 			if initial_draw or random_seed == 0:
 				tile_id = np.random.choice(available_tiles)
 			else:
-				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-				# m=61, c=42, a=2013+1
-				rnd_value = (2014 * (random_seed+np.int64(self.misc[0])) + 42) % 61
-				tile_id = available_tiles[rnd_value%len(available_tiles)]
+				# deterministic search-time draw (A7 fix: the former LCG had a = 2014 = 1 mod 61)
+				tile_id = available_tiles[_search_tile_index(random_seed, self.misc[0], i, self.tiles_bitpack, len(available_tiles))]
 
 			self.construction_site[i, :3] = TILES_DATA[tile_id, :3]
 			self.construction_site[i, 3] = tile_id

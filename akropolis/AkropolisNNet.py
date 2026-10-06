@@ -5,21 +5,10 @@ import torch.nn.functional as F
 from torchvision.models._utils import _make_divisible
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
 
-from .AkropolisConstants import N_COLORS, CITY_SIZE, CITY_AREA, CONSTR_SITE_SIZE, CODES_LIST, NEIGHBORS
+from .AkropolisConstants import N_COLORS, CITY_SIZE, CITY_AREA, CONSTR_SITE_SIZE, CODES_LIST
+from .AkropolisLogicNumba import NEIGHBORS
 
 # --- HELPER CLASSES FOR NEW ARCHITECTURES ---
-
-class FiLMLayer(nn.Module):
-	"""Feature-wise Linear Modulation"""
-	def __init__(self, channels):
-		super().__init__()
-		self.channels = channels
-
-	def forward(self, x, gamma, beta):
-		# x: (N, C, H, W), gamma/beta: (N, C)
-		gamma = gamma.unsqueeze(-1).unsqueeze(-1)
-		beta = beta.unsqueeze(-1).unsqueeze(-1)
-		return x * gamma + beta
 
 class GlobalContextMLP(nn.Module):
 	"""Processes dynamic heterogeneous global data into a fixed-size context vector"""
@@ -197,126 +186,6 @@ class AkropolisNNet(nn.Module):
 			self.additive_param_prefixes = tuple(prefixes)
 
 		# =====================================================================
-		# V40: FiLM-Conditioned MobileNet (Attention Contextuelle)
-		# =====================================================================
-		elif self.version == 40:
-			D = 8         # Embedding dimension for hex descriptions
-			C_sp = 24     # Spatial channels (kept very small for < 2 MFLOPs)
-			C_ctx = 64    # Global context dimension
-			
-			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
-			self.global_extractor = GlobalContextMLP(self.num_players, D, C_ctx)
-			
-			# Spatial stem for Player 0 only (Embedding D + Height 1)
-			self.stem = nn.Sequential(
-				nn.Conv2d(D + 1, C_sp, kernel_size=3, padding=1, bias=False),
-				nn.BatchNorm2d(C_sp),
-				nn.Hardswish()
-			)
-			
-			# Spatial Blocks with FiLM
-			self.block1 = inverted_residual(C_sp, C_sp*3, C_sp, False, "RE")
-			self.film1_gamma = nn.Linear(C_ctx, C_sp)
-			self.film1_beta  = nn.Linear(C_ctx, C_sp)
-			self.film1 = FiLMLayer(C_sp)
-			
-			self.block2 = inverted_residual(C_sp, C_sp*3, C_sp, True, "HS")
-			self.film2_gamma = nn.Linear(C_ctx, C_sp)
-			self.film2_beta  = nn.Linear(C_ctx, C_sp)
-			self.film2 = FiLMLayer(C_sp)
-
-			# Policy Head (Einsum approach, factorized)
-			self.proj_board = nn.Conv2d(C_sp, C_sp, kernel_size=1)
-			self.proj_tile = nn.Linear(3 * D, C_sp)
-			self.proj_orient = nn.Linear(C_sp, 6 * C_sp)
-			
-			# Value Head (Dynamic output size = num_players)
-			self.val_head = nn.Sequential(
-				nn.Linear(C_sp + C_ctx, 32),
-				nn.Hardswish(),
-				nn.Linear(32, self.num_players)
-			)
-
-		# =====================================================================
-		# V41: Early-Broadcast Bottleneck (Compression Brutale)
-		# =====================================================================
-		elif self.version == 41:
-			D = 8
-			C_ctx = 16    # Tiny broadcast vector
-			C_sp = 24     # Spatial channels
-
-			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
-			self.global_extractor = GlobalContextMLP(self.num_players, D, C_ctx)
-			
-			# Bottleneck mixing Broadcasted Context (C_ctx) + Spatial P0 (D + 1)
-			self.bottleneck = nn.Sequential(
-				nn.Conv2d(D + 1 + C_ctx, C_sp, kernel_size=1, bias=False),
-				nn.BatchNorm2d(C_sp),
-				nn.Hardswish()
-			)
-			
-			# Standard Spatial Blocks
-			self.spatial_trunk = nn.Sequential(
-				inverted_residual(C_sp, C_sp*3, C_sp, False, "RE"),
-				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
-				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS")
-			)
-
-			# Policy Head
-			self.proj_board = nn.Conv2d(C_sp, C_sp, kernel_size=1)
-			self.proj_tile = nn.Linear(3 * D, C_sp)
-			self.proj_orient = nn.Linear(C_sp, 6 * C_sp)
-			
-			# Value Head
-			self.val_head = nn.Sequential(
-				nn.Linear(C_sp + C_ctx, 32),
-				nn.Hardswish(),
-				nn.Linear(32, self.num_players)
-			)
-
-		# =====================================================================
-		# V42: Asymmetric Dual-Stream DEEP
-		# =====================================================================
-		elif self.version == 42:
-			D = 16        # Increased to 16 for very rich categorical representation
-			C_sp = 16     # Must be a multiple of 8. Kept at 16 to allow more depth.
-			C_ctx = 64    # Global context dimension
-
-			self.embed = nn.Embedding(num_embeddings=len(CODES_LIST), embedding_dim=D)
-			self.global_extractor = GlobalContextMLP(self.num_players, D, C_ctx)
-			
-			# Deep analytical MLP for Global Data
-			self.deep_ctx = nn.Sequential(
-				nn.Linear(C_ctx, C_ctx),
-				nn.Hardswish(),
-				nn.Linear(C_ctx, C_ctx)
-			)
-
-			# Spatial Stream for Player 0
-			# Deeper network (4 blocks) to maximize the receptive field on the 13x13 grid
-			self.spatial_trunk = nn.Sequential(
-				nn.Conv2d(D + 1, C_sp, kernel_size=3, padding=1, bias=False),
-				nn.BatchNorm2d(C_sp),
-				nn.Hardswish(),
-				inverted_residual(C_sp, C_sp*3, C_sp, False, "RE"),
-				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
-				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
-				inverted_residual(C_sp, C_sp*3, C_sp, True, "HS"),
-			)
-
-			# Policy Head
-			self.proj_board = nn.Conv2d(C_sp, C_sp, kernel_size=1)
-			self.proj_tile = nn.Linear(3 * D + C_ctx, C_sp) 
-			self.proj_orient = nn.Linear(C_sp, 6 * C_sp)
-			
-			# Value Head
-			self.val_head = nn.Sequential(
-				nn.Linear(C_sp + C_ctx, 32),
-				nn.Hardswish(),
-				nn.Linear(32, self.num_players)
-			)
-
-		# =====================================================================
 		# V50: Siamese Spatial Pooling (Independent opponent summary)
 		# =====================================================================
 		elif self.version == 50:
@@ -412,6 +281,9 @@ class AkropolisNNet(nn.Module):
 				nn.Linear(32, self.num_players)
 			)
 
+
+		else:
+			raise ValueError(f'Unsupported NN version {self.version} (available: 1, 30, 31, 32, 50, 51)')
 
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		self._zero_init_growth()
@@ -555,90 +427,6 @@ class AkropolisNNet(nn.Module):
 				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
 				
 				# Value
-				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1)
-				v = self.val_head(torch.cat([pooled_spatial, deep_ctx], dim=1))
-
-		elif self.version in [40, 41, 42]:
-			# --- COMMON PRE-PROCESSING ---
-			# Spatial Embedding
-			descr_long = board_descr_p0.clamp(min=0., max=len(CODES_LIST)-1).long()
-			spatial_emb = self.embed(descr_long).permute(0, 3, 1, 2) # (N, D, 13, 13)
-			spatial_p0 = torch.cat([spatial_emb, board_height_p0], dim=1) # (N, D+1, 13, 13)
-			
-			# Global Context Processing
-			ctx_vec, c_emb = self.global_extractor(scores_data, misc_data, constrs_site) # ctx_vec: (N, C_ctx), c_emb: (N, CS, 3, D)
-			flat_tiles = c_emb.flatten(start_dim=2) # (N, CS, 3*D)
-			
-			# --- ARCHITECTURE SPECIFIC FORWARD ---
-			if self.version == 40: # FiLM-Conditioned MobileNet
-				feat = self.stem(spatial_p0)
-				
-				# Block 1 + FiLM
-				feat = self.block1(feat)
-				g1, b1 = self.film1_gamma(ctx_vec), self.film1_beta(ctx_vec)
-				feat = self.film1(feat, g1, b1)
-				
-				# Block 2 + FiLM
-				feat = self.block2(feat)
-				g2, b2 = self.film2_gamma(ctx_vec), self.film2_beta(ctx_vec)
-				feat = self.film2(feat, g2, b2)
-				
-				# Policy computation
-				board_features = self.proj_board(feat).permute(0, 2, 3, 1).unsqueeze(1) # (N, 1, 13, 13, C_sp)
-				tile_features = self.proj_tile(flat_tiles) # (N, CS, C_sp)
-				orient_features = self.proj_orient(tile_features).view(tile_features.shape[0], tile_features.shape[1], 6, -1) # (N, CS, 6, C_sp)
-				
-				prod = board_features.unsqueeze(2) * orient_features.unsqueeze(3).unsqueeze(4) # (N, CS, 6, 13, 13, C_sp)
-				logits = prod.sum(dim=-1).permute(0, 1, 3, 4, 2) # (N, CS, 13, 13, 6)
-				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
-				
-				# Value computation
-				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1) # (N, C_sp)
-				v = self.val_head(torch.cat([pooled_spatial, ctx_vec], dim=1))
-				
-			elif self.version == 41: # Early-Broadcast Bottleneck
-				# Broadcast ctx_vec to spatial dimensions
-				broadcast_ctx = ctx_vec.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, CITY_SIZE, CITY_SIZE)
-				mixed_input = torch.cat([spatial_p0, broadcast_ctx], dim=1) # (N, D+1+C_ctx, 13, 13)
-				
-				feat = self.bottleneck(mixed_input)
-				feat = self.spatial_trunk(feat)
-				
-				# Policy computation
-				board_features = self.proj_board(feat).permute(0, 2, 3, 1).unsqueeze(1)
-				tile_features = self.proj_tile(flat_tiles)
-				orient_features = self.proj_orient(tile_features).view(tile_features.shape[0], tile_features.shape[1], 6, -1)
-				
-				prod = board_features.unsqueeze(2) * orient_features.unsqueeze(3).unsqueeze(4)
-				logits = prod.sum(dim=-1).permute(0, 1, 3, 4, 2)
-				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
-				
-				# Value computation
-				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1)
-				v = self.val_head(torch.cat([pooled_spatial, ctx_vec], dim=1))
-
-			elif self.version == 42: # Asymmetric Dual-Stream
-				# Deep context stream
-				deep_ctx = self.deep_ctx(ctx_vec)
-				
-				# Spatial stream
-				feat = self.spatial_trunk(spatial_p0)
-				
-				# Policy computation (Late fusion of deep_ctx into tile embeddings)
-				board_features = self.proj_board(feat).permute(0, 2, 3, 1).unsqueeze(1)
-				
-				# Inject global understanding into the tiles before projection
-				ctx_expanded = deep_ctx.unsqueeze(1).expand(-1, CONSTR_SITE_SIZE, -1) # (N, CS, C_ctx)
-				fused_tiles = torch.cat([flat_tiles, ctx_expanded], dim=-1) # (N, CS, 3*D + C_ctx)
-				
-				tile_features = self.proj_tile(fused_tiles)
-				orient_features = self.proj_orient(tile_features).view(tile_features.shape[0], tile_features.shape[1], 6, -1)
-				
-				prod = board_features.unsqueeze(2) * orient_features.unsqueeze(3).unsqueeze(4)
-				logits = prod.sum(dim=-1).permute(0, 1, 3, 4, 2)
-				pi = torch.where(valid_actions, logits.flatten(1), self.lowvalue)
-				
-				# Value computation
 				pooled_spatial = F.adaptive_avg_pool2d(feat, 1).flatten(1)
 				v = self.val_head(torch.cat([pooled_spatial, deep_ctx], dim=1))
 

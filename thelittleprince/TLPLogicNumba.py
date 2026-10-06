@@ -67,8 +67,9 @@ def uint_to_int8(x):
 
 @njit(cache=True, fastmath=True, nogil=True)
 def int8_to_uint(x):
-	x_ = np.uint64(x)
-	return x_+256 if x_ < 0 else x_
+	# reinterpret the int8 byte as uint8 (two's complement): -1 -> 255.
+	# The former np.uint64(x) + 256 mixed uint64 and int64, which numba types as float64.
+	return np.uint8(np.int16(x) & 0xFF)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def slots_in_planet(card_type):
