@@ -8,8 +8,10 @@ this [page](README_features.md).
 ## Supported games
 
 * [Abalone](#abalone)
+* [Akropolis](#akropolis)
 * [Azul](#azul)
 * [Botanik](#botanik)
+* [Catan](#catan)
 * [Machi Koro (a.k.a. Minivilles)](#machi-koro--minivilles)
 * [Santorini (with basic gods)](#santorini)
 * [Small World](#small-world)
@@ -102,6 +104,19 @@ Games are limited to 127 moves, and winner is the one with highest score even if
 
 About 90+% winrate against Aba-Pro level 6 even though Aba-Pro took much longer at each move. I tried a game versus Aba-Pro level 9 but it took 4+ hours for 127 moves, so I stopped there (was winning 3 to 1).
 
+### Catan
+
+* [x] Support of [Catan](https://boardgamegeek.com/boardgame/13/catan) (base game) with 2-4 players
+* [x] Random board at each game, with the official rule forbidding two adjacent 6/8
+* [x] Hidden information is respected: the AI never sees the opponents' resource and development cards, nor the content of the development deck.
+* [x] Player-to-player trade: once per turn, the current player broadcasts an offer (asking for 1-3 cards, giving 1-3 other cards) and each opponent accepts or declines in turn
+
+Main limitations compared to real rules:
+* No counter-offers, and only one trade offer per turn
+* At most 6 bank/port trades per turn, to keep the search depth bounded
+
+About 90+% winrate against a simple greedy player.
+
 ---
 
 ## Installation
@@ -180,3 +195,11 @@ one at a time, meaning it still uses 1 CPU core. The downside is the bigger memo
 
 #### HyperParameter Optimisation
 You can use Ray to run HPO (especially Population Based Training "PBT"). This is still new so it may change but currently process is to configure first `rayConfig.py` and `useRay.py`, then call the latest.
+
+---
+
+## License
+
+Code inherited from [alpha-zero-general](https://github.com/suragnair/alpha-zero-general) stays under its MIT license;
+all other code is under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).
+See [LICENSE](LICENSE) for details. For a commercial use, please get in touch.
