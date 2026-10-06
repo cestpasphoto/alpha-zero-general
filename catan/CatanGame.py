@@ -16,11 +16,6 @@ if sys.getrecursionlimit() < 20000:
 
 
 class CatanGame(Game):
-	# Read by MCTS: chance (dice, draws, steals) is re-drawn at every simulation,
-	# a universe only fixes the invented hidden hands. Few chance outcomes here,
-	# so the tree does not fragment.
-	chance_per_sim = True
-
 	def __init__(self):
 		self.board = Board(NUMBER_PLAYERS)
 		self.num_players = NUMBER_PLAYERS

@@ -37,12 +37,10 @@ def _any_per_side(args):
 
 def _universes_note(u):
 	# u=0 and u=1 both explore a SINGLE fixed chance stream; u>=2 cycles several
-	# (8 seeds exist). Games with chance_per_sim re-draw chance at every
-	# simulation, and u then only fixes the invented hidden information.
+	# (8 seeds exist). For hidden-information games, each seed also fixes one
+	# invented world.
 	if u is None:
 		return ''
-	if getattr(game, 'chance_per_sim', False):
-		return f' (chance re-drawn at every simulation; u={u} hidden-information world(s))'
 	if u <= 0:
 		return ' (u=0: ONE fixed dice stream, seed -1 -- not real randomness)'
 	if u == 1:

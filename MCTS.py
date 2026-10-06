@@ -5,8 +5,6 @@ import gc
 import numpy as np
 from numba import njit
 
-from Stochastic import hashed_draw
-
 EPS = 1e-8
 NAN = -42.
 MINFLOAT = float('-inf')
@@ -49,12 +47,6 @@ class MCTS():
         # The net is then always queried on the observation of the player to move,
         # which is what it is trained on.
         self.hidden_info = hasattr(self.game, 'getObservation')
-        # A game may ask for a fresh chance stream at every simulation: the tree
-        # then averages over dice / draws instead of planning against one known
-        # future, and a universe only fixes the invented hidden information.
-        # Only worth it when chance events have few outcomes, otherwise the tree
-        # fragments into many rarely visited nodes.
-        self.chance_per_sim = bool(getattr(self.game, 'chance_per_sim', False))
         self._fp_warned = False
 
     def getActionProb(self, canonicalBoard, temp=1, force_full_search=False):
@@ -75,19 +67,20 @@ class MCTS():
             self.nodes_data = {}
             self.last_cleaning = 0
 
-        # Hidden information: one invented world per universe, dealt once from the
-        # observation, then searched as a perfect-information game. The tree key is
-        # the board, so two universes inventing the same world share one root node.
+        # A universe is one seed: it fixes the chance stream inside the tree (dice,
+        # draws) and, for hidden-information games, the invented world, dealt once
+        # from the observation then searched as a perfect-information game. The
+        # tree key is the board, so two universes inventing the same world share
+        # one root node.
         universe_roots = {}
         root_keys = set()
         if self.hidden_info:
             obs = self.game.getObservation(canonicalBoard, 0)
-        chance_base = int(self.rng.integers(1, 2147483647)) if self.chance_per_sim else 0
 
         for self.step in range(nb_MCTS_sims):
-            world_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
             # never 0: 0 means true randomness in the game logic
-            self.random_seed = (1 + hashed_draw(chance_base, self.step, 2147483646)) if self.chance_per_sim else world_seed
+            world_seed = magic_seeds[self.step % self.args.universes] if self.args.universes > 0 else -1
+            self.random_seed = world_seed
             if self.hidden_info:
                 is_new_root = False
                 if world_seed not in universe_roots:

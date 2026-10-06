@@ -130,6 +130,8 @@ class CatanNNet(nn.Module):
 		self.dim, self.rank = d, rank
 		self.num_players = game.num_players if game is not None else N_PLAYERS
 		P = self.num_players
+		self.board_size = (N_ROWS, N_COLS)
+		self.action_size = N_ACTIONS
 
 		self.fast = bool(cfg.get('fast', False))
 
