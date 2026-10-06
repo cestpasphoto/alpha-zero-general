@@ -2,6 +2,7 @@ import numpy as np
 from numba import njit
 import numba
 import random
+from Stochastic import hashed_draw
 
 ############################## BOARD DESCRIPTION ##############################
 # Board is described by a 55x15 array (1st dim is larger with 4+ players).
@@ -32,8 +33,8 @@ import random
 # Next player can be current player when selecting last card of market. Type of
 # card is randomly chosen by logic not by players.
 
-# REPEATABLE_RANDOM like in splendor/SplendorLogicNumba.py doesn't seem to help
-# for this game, probably because too much randomness...
+# Chance (market refill) follows the framework contract: random_seed == 0 ->
+# np.random, otherwise a deterministic hashed_draw of (seed, round, slot).
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
@@ -114,7 +115,7 @@ class Board():
 		# Initialize available cards
 		self.round_and_state[3:13] = uint_to_int8(uint_to_int8(my_packbits(np.ones(8, dtype=np.bool_))))
 		# Initialise market
-		self._fill_market_if_needed()
+		self._fill_market_if_needed(0)
 		
 	def get_state(self):
 		return self.state
@@ -139,7 +140,7 @@ class Board():
 		next_player = (player + player_delta) % self.num_players
 		self._take_card(card_to_take, player)
 		self._update_score(player)
-		self._fill_market_if_needed()
+		self._fill_market_if_needed(random_seed)
 		self._player_cant_play_again_this_turn(player)
 
 		self.round_and_state[0] += 1
@@ -361,7 +362,7 @@ class Board():
 			character = max(card_type - CORNER, 0)
 			_compute_score(character, sum_attributes)
 
-	def _fill_market_if_needed(self):
+	def _fill_market_if_needed(self, random_seed):
 		if np.any(self.market[:, CARD_TYPE] != EMPTY) or np.all(self.players_cards[:, CARD_TYPE] > 0):
 			return
 		# Market is empty, need to refill it. First, chose randomly one of 4 categories of cards
@@ -373,11 +374,20 @@ class Board():
 		]
 		# the simpler code below is not supported by numba
 		#type_with_room_player0 = [self.players_cards[location, CARD_TYPE] == EMPTY for location in [10,14,13,15]]
-		card_type = my_random_choice_and_normalize(np.array(type_with_room_player0))
+		round_ctr = np.int64(np.uint8(self.round_and_state[0])) * 16   # slot 0 = card type, 1.. = cards
+		if random_seed == 0:
+			card_type = my_random_choice_and_normalize(np.array(type_with_room_player0))
+		else:
+			candidates = np.flatnonzero(np.array(type_with_room_player0))
+			card_type = candidates[hashed_draw(random_seed, round_ctr, candidates.size)]
 		available_cards = self._available_cards()
 		# Chose randomly cards among these categories
 		for i in range(self.num_players):
-			card_index = my_random_choice_and_normalize(available_cards[20*card_type:20*(card_type+1)])
+			if random_seed == 0:
+				card_index = my_random_choice_and_normalize(available_cards[20*card_type:20*(card_type+1)])
+			else:
+				candidates = np.flatnonzero(available_cards[20*card_type:20*(card_type+1)])
+				card_index = candidates[hashed_draw(random_seed, round_ctr + 1 + i, candidates.size)]
 			self.market[i, :] = np_all_cards[card_type][card_index, :]
 			available_cards[20*card_type + card_index] = False
 		self._set_available_cards(available_cards)

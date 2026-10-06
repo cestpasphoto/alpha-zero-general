@@ -1,6 +1,16 @@
 import numpy as np
 from numba import njit
 import numba
+from Stochastic import hashed_draw
+
+# Chance-event families for hashed_draw: each family gets its own counter domain,
+# so e.g. the people and the power of one draw are independent.
+CHANCE_DICE, CHANCE_PEOPLE, CHANCE_POWER = 1, 2, 3
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _ctr(family, counter_int8):
+	# int8 counters stored in the state wrap at 256: keep their 8 bits, tag the family
+	return np.int64(family) * 256 + (np.int64(counter_int8) & 0xFF)
 
 from .SmallworldConstants import *
 from .SmallworldMaps import *
@@ -376,10 +386,7 @@ class Board():
 			if random_seed == 0:
 				dice = np.random.choice(DICE_VALUES)
 			else:
-				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-				# m=6, c=5, a=1980+1
-				rnd_value = (1981 * (random_seed+np.int64(self.invisible_deck[5])) + 5) % 6
-				dice = DICE_VALUES[rnd_value]
+				dice = DICE_VALUES[hashed_draw(random_seed, _ctr(CHANCE_DICE, self.invisible_deck[5]), 6)]
 			self.invisible_deck[5] += 1
 			if nb_ppl_of_player + dice < minimum_ppl_for_attack:
 				self.round_status[player, 4] = PHASE_CONQ_WITH_DICE
@@ -1146,10 +1153,7 @@ class Board():
 			if random_seed == 0:
 				dice = np.random.choice(DICE_VALUES)
 			else:
-				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-				# m=6, c=5, a=1980+1
-				rnd_value = (1981 * (random_seed+np.int64(self.invisible_deck[5])) + 5) % 6
-				dice = DICE_VALUES[rnd_value]
+				dice = DICE_VALUES[hashed_draw(random_seed, _ctr(CHANCE_DICE, self.invisible_deck[5]), 6)]
 			self.invisible_deck[5] += 1
 			current_ppl[4] = dice + 2**6
 		else:
@@ -1325,12 +1329,8 @@ class Board():
 				chosen_ppl = np.random.choice(avail_people_id)
 				chosen_power = np.random.choice(avail_power_id)
 			else:
-				# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-				# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
-				rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_people_id.size
-				chosen_ppl = avail_people_id[rnd_value]
-				rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_power_id.size
-				chosen_power = avail_power_id[rnd_value]
+				chosen_ppl   = avail_people_id[hashed_draw(random_seed, _ctr(CHANCE_PEOPLE, self.invisible_deck[6]), avail_people_id.size)]
+				chosen_power = avail_power_id [hashed_draw(random_seed, _ctr(CHANCE_POWER , self.invisible_deck[6]), avail_power_id.size)]
 			self.invisible_deck[6] += 1
 			nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]
 		self.visible_deck[DECK_SIZE-1, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]
@@ -1368,12 +1368,8 @@ class Board():
 						chosen_ppl = np.random.choice(avail_people_id)
 						chosen_power = np.random.choice(avail_power_id)		
 					else:
-						# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-						# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
-						rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_people_id.size
-						chosen_ppl = avail_people_id[rnd_value]
-						rnd_value = (4594591 * (random_seed+np.int64(self.invisible_deck[6]))) % avail_power_id.size
-						chosen_power = avail_power_id[rnd_value]
+						chosen_ppl   = avail_people_id[hashed_draw(random_seed, _ctr(CHANCE_PEOPLE, self.invisible_deck[6]), avail_people_id.size)]
+						chosen_power = avail_power_id [hashed_draw(random_seed, _ctr(CHANCE_POWER , self.invisible_deck[6]), avail_power_id.size)]
 					self.invisible_deck[6] += 1
 					nb_of_ppl = initial_nb_people[chosen_ppl] + initial_nb_power[chosen_power]						
 					self.visible_deck[i, :] = [nb_of_ppl, chosen_ppl, chosen_power, 0, 0, 0, 0, -1]

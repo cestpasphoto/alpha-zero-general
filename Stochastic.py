@@ -1,7 +1,7 @@
 """
 Deterministic, counter-based randomness for the search.
 
-Contract shared by MCTS.py and every game logic:
+Contract shared by every game logic (getNextState / make_move):
   random_seed == 0  -> TRUE randomness (np.random), used for the real games
                        (Arena, Coach self-play).
   random_seed != 0  -> DETERMINISTIC: the outcome of a chance event is a pure
@@ -41,19 +41,3 @@ def hashed_draw(random_seed, counter, m):
     x *= _M3
     x ^= x >> np.uint64(31)
     return int(x % np.uint64(m))
-
-
-@njit(cache=True, nogil=True)
-def stream_seed(base_seed, stream_index, universes):
-    """Seed of chance stream number `stream_index` for the current move.
-
-    universes  > 0 : `universes` distinct streams, cycled (stream_index % universes)
-    universes  < 0 : unlimited, every index is its own stream
-    universes == 0 : legacy deterministic mode, single fixed stream (seed -1)
-    The result is never 0 (0 means true randomness in the game logic).
-    """
-    if universes == 0:
-        return np.int64(-1)
-    idx = stream_index % universes if universes > 0 else stream_index
-    # 2**31-1 keeps the value in a comfortable int range for the game logic
-    return np.int64(1 + hashed_draw(base_seed, np.int64(idx), 2147483647))

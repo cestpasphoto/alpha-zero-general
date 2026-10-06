@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
 import numba
+from Stochastic import hashed_draw
 
 ############################## BOARD DESCRIPTION ##############################
 # Board is described by a 58x2 array (1st dim is larger with 3+ players). 2nd
@@ -94,7 +95,7 @@ class Board():
 		# self.players_monuments[:,:] = 0
 
 		# Simulate the very first dice roll for Player 0
-		self.last_dice[0], _ = self._roll_dice(0)
+		self.last_dice[0], _ = self._roll_dice(0, 0, False)
 		self._dice_effect(self.last_dice[0], player_who_rolled=0)
 		#self.player_state[0] = 0
 		
@@ -142,7 +143,7 @@ class Board():
 			
 		# Roll dice for next player
 		# print('  ', self.players_money[:,0], end=' ')
-		self.last_dice[0], identical_dices = self._roll_dice(next_player)
+		self.last_dice[0], identical_dices = self._roll_dice(next_player, random_seed, move == 19)
 		self._dice_effect(self.last_dice[0], player_who_rolled=next_player)
 		# print('  ', self.players_money[:,0], end=' ')
 
@@ -229,11 +230,12 @@ class Board():
 			data[:,0] = data[:,1]
 		self.round[0] = self.round[1]
 
-	def _roll_dice(self, player_who_rolled):
-		dice = np.random.randint(1, 6)
+	def _roll_dice(self, player_who_rolled, random_seed, reroll):
+		ctr = (np.int64(np.uint8(self.round[0])) * 2 + (1 if reroll else 0)) * 2
+		dice = np.random.randint(1, 7) if random_seed == 0 else 1 + hashed_draw(random_seed, ctr, 5)
 		identical = False
 		if self.players_monuments[4*player_who_rolled+0,0] > 0: # Has he got the train station allowing 2 dices?
-			dice2 = np.random.randint(1, 6)
+			dice2 = np.random.randint(1, 7) if random_seed == 0 else 1 + hashed_draw(random_seed, ctr + 1, 5)
 			identical = (dice == dice2)
 			# print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice) + ' ' + str(dice2) + ('*' if identical else ''), end='')
 			dice += dice2

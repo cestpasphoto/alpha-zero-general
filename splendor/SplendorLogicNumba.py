@@ -2,6 +2,7 @@ from .SplendorLogic import np_all_nobles, np_all_cards_1, np_all_cards_2, np_all
 import numpy as np
 from numba import njit
 import numba
+from Stochastic import hashed_draw
 
 ############################## BOARD DESCRIPTION ##############################
 # Board is described by a 56x7 array (1st dim is larger with 3-4 players)
@@ -314,11 +315,10 @@ class Board():
 			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
 			card_index = my_random_choice(remaining_cards/remaining_cards.sum())		
 		else:
-			# https://stackoverflow.com/questions/3062746/special-simple-random-number-generator
-			# m=avail_people_id.size, c=0, a=2*3*5*7*9*11*13*17+1
+			# deterministic draw: pure function of (seed, tier, remaining deck of this tier)
 			remaining_cards_all = [ (c,i) for c in range(5) for i,b in enumerate(my_unpackbits(self.nb_deck_tiers[2*tier+1, c])) if b]
-			seed = (self.nb_deck_tiers[2*tier+1, :idx_gold].astype(np.uint8) * mask2).sum()
-			fake_random_index = (4594591 * (random_seed+seed)) % len(remaining_cards_all)
+			deck_id = (self.nb_deck_tiers[2*tier+1, :idx_gold].astype(np.uint8) * mask2).sum()
+			fake_random_index = hashed_draw(random_seed, np.int64(deck_id) * 4 + tier, len(remaining_cards_all))
 			color, card_index = remaining_cards_all[fake_random_index]
 			remaining_cards = my_unpackbits(self.nb_deck_tiers[2*tier+1, color])
 

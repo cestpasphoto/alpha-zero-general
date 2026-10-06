@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
 import numba
+from Stochastic import hashed_draw
 
 from .BotanikConstants import *
 
@@ -157,8 +158,8 @@ class Board():
 			self.misc[3:, color] = enable_all_cards
 		# Draw 5 cards for middle row
 		for i in range(5):
-			self.middle_reg[i,:] = self._draw_cards(1)[0,:]
-		self._draw_cards_to_arrival_zone()
+			self.middle_reg[i,:] = self._draw_cards(1, 0)[0,:]
+		self._draw_cards_to_arrival_zone(0)
 		# Init machines with a source card
 		self._init_machines()
 	
@@ -216,7 +217,7 @@ class Board():
 		# Update arrival zone if needed
 		if new_state == PLAYER_TO_PUT_TO_REGISTER:
 			if (_is_empty_card(self.arrival_cards[0,:]) and _is_empty_card(self.arrival_cards[1,:]) and _is_empty_card(self.arrival_cards[2,:])):
-				self._draw_cards_to_arrival_zone()
+				self._draw_cards_to_arrival_zone(random_seed)
 
 		# Update number of rounds + main player, and select player for next action
 		if new_state == PLAYER_TO_PUT_TO_REGISTER:
@@ -411,7 +412,7 @@ class Board():
 	def get_round(self):
 		return self.misc[0,0]
 
-	def _draw_cards(self, how_many):
+	def _draw_cards(self, how_many, random_seed):
 		result = np.zeros((how_many, 7), dtype=np.int8)
 		# Translate list of available cards to a simple format
 		available_cards = np.zeros((5, 13), dtype=np.bool_)
@@ -426,7 +427,13 @@ class Board():
 				return None
 			# Choose random card amongst available ones
 			available_cards_flat = available_cards.flatten()
-			choice = my_random_choice(available_cards_flat / available_cards_flat.sum())
+			if random_seed == 0:
+				choice = my_random_choice(available_cards_flat / available_cards_flat.sum())
+			else:
+				# deterministic draw: pure function of (seed, round, card index in this draw)
+				candidates = np.flatnonzero(available_cards_flat)
+				ctr = np.int64(np.uint8(self.misc[0,0])) * 8 + i
+				choice = candidates[hashed_draw(random_seed, ctr, candidates.size)]
 			choice = divmod(choice, 13)
 
 			available_cards[choice] = False
@@ -437,8 +444,8 @@ class Board():
 			self.misc[3:, color] = packedUint_to_int8(my_packbits(available_cards[color, :]))
 		return result
 
-	def _draw_cards_to_arrival_zone(self):
-		cards = self._draw_cards(3)
+	def _draw_cards_to_arrival_zone(self, random_seed):
+		cards = self._draw_cards(3, random_seed)
 		if cards is not None:
 			self.arrival_cards[:3,:] = cards
 
