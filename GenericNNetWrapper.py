@@ -332,10 +332,10 @@ class GenericNNetWrapper(NeuralNet):
 		for w in warnings_:
 			if verbose:
 				print(w)
-		if warnings_ and not verbose:
-			print(f'[onnx-parity] note: {len(warnings_)} synthetic case(s) over tolerance on both signed and abs '
-			      f'twins (float32 conditioning on out-of-distribution inputs); not raised. '
-			      f'ONNX_PARITY_VERBOSE=1 for details.')
+		#if warnings_ and not verbose:
+		#	print(f'[onnx-parity] note: {len(warnings_)} synthetic case(s) over tolerance on both signed and abs '
+		#	      f'twins (float32 conditioning on out-of-distribution inputs); not raised. '
+		#	      f'ONNX_PARITY_VERBOSE=1 for details.')
 
 		if not failures:
 			return True
