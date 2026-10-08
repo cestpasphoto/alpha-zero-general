@@ -68,7 +68,7 @@ class Coach():
 		curPlayer = 0
 		episodeStep = 0
 		opening_sequence = []
-		DEPTH_OPENING = 2 * abs(self.args.tempThreshold)   # abs(): tempThreshold < 0 means step mode
+		DEPTH_OPENING = abs(self.args.tempThreshold)   # abs(): tempThreshold < 0 means step mode
 
 		while True:
 			episodeStep += 1
@@ -76,7 +76,9 @@ class Coach():
 			pi, q, is_full_search = mcts_list[curPlayer].getActionProb(canonicalBoard, temp=1.0)
 			action = random_pick(pi, temperature=self.temp_for_selfplay(episodeStep))
 			if episodeStep <= DEPTH_OPENING:
-				opening_sequence.append(action)
+				# Key on (state, action): in games with chance, identical actions do not mean identical games (dice differ)
+				opening_sequence.append((zlib.crc32(board.tobytes()), int(action)))
+
 
 			if is_full_search:
 				valids = my_game.getValidMoves(canonicalBoard, 0)

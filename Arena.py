@@ -14,6 +14,8 @@ def report_opening_uniqueness(n_distinct, n_played, what):
     """
     Share of distinct openings, printed only below 90%: near-duplicate games
     shrink the effective sample size far below the number of games played.
+    An opening is the sequence of (state, action) of the first plies, so that
+    chance outcomes count: same actions with different dice are different games.
     """
     if n_played == 0:
         return
@@ -90,7 +92,7 @@ class Arena():
             canonical_board = self.game.getCanonicalForm(board, curPlayer)
             action = players[curPlayer](canonical_board, it)
             if len(opening) < 10:
-                opening.append(int(action))
+                opening.append((zlib.crc32(board.tobytes()), int(action)))
             valids = self.game.getValidMoves(canonical_board, 0)
 
             if verbose:
