@@ -104,7 +104,8 @@ def my_random_choice(prob):
 @njit(cache=True, fastmath=True, nogil=True)
 def my_packbits(array):
 	product = np.multiply(array.astype(np.uint8), mask[:len(array)])
-	return product.sum()
+	s = np.int64(product.sum())
+	return s - 256 if s > 127 else s   # int8 range, same bits as numba's silent wrap-around
 
 @njit(cache=True, fastmath=True, nogil=True)
 def my_unpackbits(value):

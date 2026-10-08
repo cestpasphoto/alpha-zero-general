@@ -150,6 +150,26 @@ class MinivillesNNet(nn.Module):
 				nn.Linear(64, self.num_players)
 			)
 
+		elif self.version == 84:
+			# V84: per-player tokens (shared encoder) + global token, small self-attention,
+			# value read per player token (seat-equivariant), policy from global + current player.
+			n, d = self.num_players, 64
+			self.p_feat = 2 * 20 + 4  # (money, 15 cards, 4 monuments) x 2 slots + 4 combo products
+			scale = torch.ones(self.nb_vect)
+			scale[0], scale[1], scale[2] = 1/64, 1/12, 1/3   # round, last dice, player_state
+			scale[3:18] = 1/6                                 # market
+			scale[18:18+n] = 1/32                             # money
+			scale[18+n:18+16*n] = 1/4                         # cards
+			self.register_buffer('row_scale', scale.view(1, -1, 1))
+			self.glob_enc   = nn.Sequential(nn.Linear(18 * 2, d), nn.LayerNorm(d), nn.SiLU(), nn.Linear(d, d))
+			self.player_enc = nn.Sequential(nn.Linear(self.p_feat, d), nn.LayerNorm(d), nn.SiLU(), nn.Linear(d, d))
+			self.seat_emb   = nn.Parameter(0.02 * torch.randn(n, d))
+			layer = nn.TransformerEncoderLayer(d, nhead=4, dim_feedforward=2*d, dropout=0.0, batch_first=True, norm_first=True)
+			self.mixer = nn.TransformerEncoder(layer, num_layers=2, enable_nested_tensor=False)
+			self.out_norm = nn.LayerNorm(d)
+			self.output_layers_PI = nn.Sequential(nn.Linear(2*d, d), nn.SiLU(), nn.Linear(d, self.action_size))
+			self.output_layers_V  = nn.Sequential(nn.Linear(d, d//2), nn.SiLU(), nn.Linear(d//2, 1))
+
 		self.register_buffer('lowvalue', torch.FloatTensor([-1e8]))
 		def _init(m):
 			if type(m) == nn.Linear:
@@ -172,11 +192,39 @@ class MinivillesNNet(nn.Module):
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
 			
 		elif self.version == 83:
-			x = F.dropout(self.trunk(x), p=self.args.get('dropout', 0.1), training=self.training)
+			x = F.dropout(self.trunk(x.flatten(1)), p=self.args.get('dropout', 0.1), training=self.training) # was missing flatten
 			v = self.output_layers_V(x)
 			pi = torch.where(valid_actions, self.output_layers_PI(x), self.lowvalue)
+
+		elif self.version == 84:
+			v, pi_logits = self._forward_v84(x)
+			pi = torch.where(valid_actions, pi_logits, self.lowvalue)
 
 		else:
 			raise Exception(f'Unsupported NN version {self.version}')
 
 		return F.log_softmax(pi, dim=1), torch.tanh(v)
+
+	def _forward_v84(self, x):
+		# x: (N, R, 2) raw counts, canonical form (current player is seat 0)
+		n = self.num_players
+		x = x * self.row_scale
+		glob  = x[:, :18, :].flatten(1)                                   # (N, 36)
+		money = x[:, 18:18+n, :]                                          # (N, n, 2)
+		cards = x[:, 18+n:18+16*n, :].reshape(-1, n, 15, 2)               # (N, n, 15, 2)
+		monum = x[:, 18+16*n:18+20*n, :].reshape(-1, n, 4, 2)             # (N, n, 4, 2)
+		c = cards[..., 0]
+		# Multiplicative income terms an MLP learns poorly (indexes from MinivillesLogicNumba)
+		combos = torch.stack([
+			c[..., 9]  * c[..., 1],                                       # cheese factory x ranch
+			c[..., 10] * (c[..., 5] + c[..., 11]),                        # furniture x (forest + mine)
+			c[..., 14] * (c[..., 0] + c[..., 13]),                        # market x (wheat + orchard)
+			monum[..., 1, 0] * (c[..., 2] + c[..., 3] + c[..., 4] + c[..., 12]),  # mall x (cup + bread)
+		], dim=-1)                                                        # (N, n, 4)
+		p = torch.cat([money, cards.flatten(2), monum.flatten(2), combos], dim=-1)  # (N, n, 44)
+		tokens = torch.cat([self.glob_enc(glob).unsqueeze(1), self.player_enc(p) + self.seat_emb], dim=1)
+		h = self.out_norm(self.mixer(tokens))                             # (N, n+1, d)
+		h = F.dropout(h, p=self.args.get('dropout', 0.), training=self.training)
+		v = self.output_layers_V(h[:, 1:, :]).squeeze(-1)                 # (N, n)
+		pi = self.output_layers_PI(torch.cat([h[:, 0, :], h[:, 1, :]], dim=-1))
+		return v, pi

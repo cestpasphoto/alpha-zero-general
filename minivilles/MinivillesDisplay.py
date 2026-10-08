@@ -9,10 +9,14 @@ def move_to_str(move):
 	elif move < 15+4:
 		i = move-15
 		return f'enable {monuments_description[i][-1]}'
-	elif move == 15+4:
+	elif move == 19:
 		return f'roll dice(s) again'
-	else:
+	elif move == 20:
 		return f'do nothing'
+	elif move == 21:
+		return f'roll 1 die'
+	else:
+		return f'roll 2 dice'
 
 ############################# NAMES ######################################
 
@@ -35,10 +39,10 @@ cards_description = [
 ]
 
 monuments_description = [
-	(Back.YELLOW, Fore.BLACK, 4,  '2 dés'                      , 'gare'               ), # 0
+	(Back.YELLOW, Fore.BLACK, 4,  'choix 1 ou 2 dés'           , 'gare'               ), # 0
 	(Back.YELLOW, Fore.BLACK, 10, 'bonus c2-3 & 3 & 4 & 9-10'  , 'centre commercial'  ), # 1
-	(Back.YELLOW, Fore.BLACK, 16, 'tour bonus si double'       , 'tour radio'         ), # 2
-	(Back.YELLOW, Fore.BLACK, 22, 'peut relancer dés'          , 'parc d\'attractions'), # 3
+	(Back.YELLOW, Fore.BLACK, 16, 'tour bonus si double'       , 'parc d\'attractions'), # 2
+	(Back.YELLOW, Fore.BLACK, 22, 'peut relancer dés'          , 'tour radio'         ), # 3
 ]
 
 ############################# PRINT GAME ######################################
@@ -81,8 +85,16 @@ def _print_money_and_misc(board):
 	for p in range(board.num_players):
 		print(f'{Style.BRIGHT}{board.players_money[p,0]:2}$   ', end='')
 	print(f'       ', end='')
-	print(f'{Style.DIM}dice {Style.RESET_ALL}{board.last_dice[0]}  ', end='')
-	print(f'{Style.DIM}state {Style.RESET_ALL}{board.player_state[0]}', end='')
+	state = board.player_state[0]
+	if state & 4:
+		print(f'{Style.BRIGHT}choose 1 or 2 dice{Style.RESET_ALL}', end='')
+	else:
+		nb_dice = board.last_dice[1]
+		print(f'{Style.DIM}dice ({nb_dice}){Style.RESET_ALL} {Style.BRIGHT}{board.last_dice[0]}{Style.RESET_ALL}', end='')
+		if state & 2:
+			print(f' {Style.BRIGHT}double{Style.RESET_ALL}', end='')
+	if state & 1:
+		print(f' {Style.DIM}(rerolled){Style.RESET_ALL}', end='')
 	print()
 
 def _print_main(board):

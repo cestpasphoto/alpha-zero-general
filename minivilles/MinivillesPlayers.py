@@ -9,7 +9,7 @@ class RandomPlayer():
 
 	def play(self, board, nb_moves):
 		valids = self.game.getValidMoves(board, player=0)
-		action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int), k=1)[0]
+		action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int64), k=1)[0]
 		return action
 
 

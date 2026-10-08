@@ -12,21 +12,25 @@ from Stochastic import hashed_draw
 # overal board.
 ##### Index  Shortcut              	Meaning
 #####   0    self.round  			Round number
-#####   1    self.last_dice      	Value of last dice(s) roll (sum if 2 dices)
-#####   2    self.player_state		Usually 0. Is 2 if current player plays again (amusement park). Add 1 if player rolls dices again (radio tower)
+#####   1    self.last_dice      	[0] value of last roll (sum if 2 dice, 0 while awaiting the dice choice), [1] number of dice used
+#####   2    self.player_state		Bit field: +1 dice were rerolled this turn (radio tower), +2 last roll was a double
+#####       	                 	(extra turn only with amusement park), +4 awaiting the 1-or-2 dice choice (train station)
 #####  3-17  self.market			Numbers of remaining cards in main deck for each of 15 card types
 ##### 18-19  self.players_money		Money for each player
 ##### 20-49  self.players_cards		Number of cards for each player (P0-card0, P0-card1, ... P1-card0, P1-card1, ...)
-##### 50-58  self.players_monuments	Number of monuments for each player
+##### 50-57  self.players_monuments	Number of monuments for each player
 # Indexes above are assuming 2 players, you can have more details in copy_state().
 # Limitations of monuments:
-#   Train station: 	always roll 2 dices, no question asked
-#   Stadium: 		choose the most expensive building from richest player, and
-#            		swap it with my cheapest card
-# 	TV channel: 	take the $5 from the richest
+#   Train station: 	owner chooses to roll 1 or 2 dice (actions 21/22) at the start of each
+#   	        	turn; non-owners roll 1 die automatically. A reroll (radio tower) rerolls
+#   	        	all dice with the same number of dice as the first roll.
+#   Business center: always swap my cheapest non-major establishment with the
+#                    most expensive one of the richest opponent (no choice)
+#   TV channel:      take $5 from the richest opponent among those having $5
+#   Ties are broken deterministically in seat order after the roller (no RNG).
 
 ############################## ACTION DESCRIPTION #############################
-# There are 21 actions. Here is description of each action:
+# There are 23 actions. Here is description of each action:
 ##### Index  Meaning
 #####   0    Buy a card of type 0 (CHAMPS)
 #####   1    Buy a card of type 1 (FERME)
@@ -34,9 +38,11 @@ from Stochastic import hashed_draw
 #####  14    Buy a card of type 14 (MARCHE)
 #####  15    Buy monument of type 0 (GARE)
 #####  ...
-#####  18    Buy monument of type 4 (PARC)
+#####  18    Buy monument of type 3 (RADIO)
 #####  19    Roll dice(s) again
 #####  20    No move
+#####  21    Roll 1 die  (only while awaiting the dice choice)
+#####  22    Roll 2 dice (only while awaiting the dice choice)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):
@@ -44,13 +50,19 @@ def observation_size(num_players):
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
-	return 21
+	return 23
 
 @njit(cache=True, fastmath=True, nogil=True)
-def my_random_choice_and_normalize(prob):
-	normalized_prob = prob / prob.sum()
-	result = np.searchsorted(np.cumsum(prob), np.random.random(), side="right")
-	return result
+def first_true_after(mask, start):
+	# Deterministic, frame-invariant tie-break: first True index in seat order
+	# strictly after `start` (wrapping around). Consumes no RNG, so it respects
+	# the Stochastic.py contract (outcome fixed by state + action + seed).
+	n = mask.size
+	for k in range(1, n + 1):
+		i = (start + k) % n
+		if mask[i]:
+			return i
+	return -1
 
 spec = [
 	('num_players'         , numba.int8),
@@ -89,21 +101,23 @@ class Board():
 		self.market[6:9,:] = 4 # Special case with purple cards
 		self.players_money[:,:] = 3
 		for p in range(self.num_players):
-			self.players_cards[15*p + 0,:] = 1
-			self.players_cards[15*p + 1,:] = 1
+			self.players_cards[15*p + CHAMPS     ,:] = 1
+			self.players_cards[15*p + BOULANGERIE,:] = 1 # official rules: wheat field + bakery
 
 		# self.players_monuments[:,:] = 0
 
-		# Simulate the very first dice roll for Player 0
-		self.last_dice[0], _ = self._roll_dice(0, 0, False)
-		self._dice_effect(self.last_dice[0], player_who_rolled=0)
-		#self.player_state[0] = 0
+		# Very first turn of player 0 (no train station yet, so 1 die is rolled automatically)
+		self._start_turn(0, 0, 0)
 		
 	def get_state(self):
 		return self.state
 
 	def valid_moves(self, player):
-		result = np.zeros(21, dtype=np.bool_)
+		result = np.zeros(23, dtype=np.bool_)
+		if self.player_state[0] & 4: # must first choose how many dice to roll
+			result[21] = True
+			result[22] = True
+			return result
 		result[0   :15]     = self._valid_buy_card(player)
 		result[15  :15+4]   = self._valid_buy_monument(player)
 		result[15+4:15+4+1] = self._valid_diceagain(player)
@@ -111,6 +125,11 @@ class Board():
 		return result
 
 	def make_move(self, move, player, random_seed):
+		# Dice choice (train station owner): roll, apply effects, same player then buys
+		if move >= 21:
+			self._roll_and_apply(player, random_seed, self.player_state[0] & 1, move == 22)
+			return player
+
 		# Actual move
 		if   move < 15:
 			self._buy_card(player, move)
@@ -121,37 +140,36 @@ class Board():
 		elif move == 20:
 			pass
 
-		# Decide next player and increase number of rounds
-		# print(f'P={player}, round={self.round[0]}       ', end='')
-		if move == 19: # decide to re-roll dices
-			next_player = player
-		elif self.player_state[0] >= 2: # player had identical dices values
-			self.round[0] += 1
-			next_player = player
+		if move == 19: # reroll ALL dice, same number as the first roll (no new choice, no die kept)
+			self._roll_and_apply(player, random_seed, 1, self.last_dice[1] == 2)
+			return player
 		else:
+			if (self.player_state[0] & 2) and self.players_monuments[4*player+PARC, 0] > 0: # doubles + amusement park
+				next_player = player
+			else:
+				next_player = (player+1)%self.num_players
 			self.round[0] += 1
-			next_player = (player+1)%self.num_players
-		# print(f'next={next_player}, round={self.round[0]}')
-
-		# Copy history from row 0 to row 1
-		if move != 19:
+			# Copy history from row 0 to row 1 (row 1 = state before the next roll)
 			for data in [self.market, self.players_money, self.players_cards, self.players_monuments]:
 				data[:,1] = data[:,0]
 			self.round[1] = self.round[0]
-			# self.last_dice[1] = self.last_dice[0]
-			# self.player_state[1] = self.player_state[0]
-			
-		# Roll dice for next player
-		# print('  ', self.players_money[:,0], end=' ')
-		self.last_dice[0], identical_dices = self._roll_dice(next_player, random_seed, move == 19)
-		self._dice_effect(self.last_dice[0], player_who_rolled=next_player)
-		# print('  ', self.players_money[:,0], end=' ')
 
-		# Note down whether player has re-rolled dices or has played a new turn
-		self.player_state[0]  = 1 if move == 19      else 0
-		self.player_state[0] += 2 if identical_dices else 0
-
+		self._start_turn(next_player, random_seed, 0)
 		return next_player
+
+	def _start_turn(self, player, random_seed, rerolled):
+		# Owner of the train station chooses the number of dice; others roll 1 die now
+		if self.players_monuments[4*player+GARE, 0] > 0:
+			self.last_dice[0], self.last_dice[1] = 0, 0
+			self.player_state[0] = 4 + rerolled
+		else:
+			self._roll_and_apply(player, random_seed, rerolled, False)
+
+	def _roll_and_apply(self, player, random_seed, rerolled, two_dice):
+		self.last_dice[0], identical_dices = self._roll_dice(random_seed, rerolled, two_dice)
+		self.last_dice[1] = 2 if two_dice else 1
+		self._dice_effect(self.last_dice[0], player_who_rolled=player)
+		self.player_state[0] = rerolled + (2 if identical_dices else 0)
 
 	def copy_state(self, state, copy_or_not):
 		if self.state is state and not copy_or_not:
@@ -160,7 +178,7 @@ class Board():
 		n = self.num_players
 		self.round             = self.state[0              ,:]	# 1      # Round number
 		self.last_dice         = self.state[1              ,:]	# 1      # Value of last dice(s) roll
-		self.player_state      = self.state[2              ,:]	# 1      # Usually 0. Is 2 if current player plays again (amusement park). Add 1 if player rolls dices again (radio tower)
+		self.player_state      = self.state[2              ,:]	# 1      # Bit field: 1 = rerolled, 2 = double, 4 = awaiting dice choice
 		self.market            = self.state[3      :18     ,:]	# 15     # Numbers of remaining cards in main deck
 		self.players_money     = self.state[18     :18+n   ,:]	# n*1    # Numbers of money for each player
 		self.players_cards     = self.state[18+n   :18+16*n,:]	# n*15   # Number of cards for each player (P0-card0, P0-card1, ... P1-card0, P1-card1, ...)
@@ -212,8 +230,8 @@ class Board():
 		return np.logical_and(self.players_money[player,0] >= monuments_cost, self.players_monuments[4*player:4*(player+1),0] == 0)
 
 	def _valid_diceagain(self, player):
-		# player must have 'radio' monument and not have played twice
-		return self.players_monuments[4*player+3,0] and self.player_state[0]%2 == 0
+		# player must have 'radio tower' monument and not have rerolled yet this turn
+		return self.players_monuments[4*player+RADIO,0] > 0 and (self.player_state[0] & 1) == 0
 	
 	def _buy_card(self, player, card):
 		self._add_money(player, -cards_cost[card])
@@ -230,17 +248,15 @@ class Board():
 			data[:,0] = data[:,1]
 		self.round[0] = self.round[1]
 
-	def _roll_dice(self, player_who_rolled, random_seed, reroll):
+	def _roll_dice(self, random_seed, reroll, two_dice):
+		# Counters are unique per (round, reroll, die index); hashed_draw(.., m) is in [0, m)
 		ctr = (np.int64(np.uint8(self.round[0])) * 2 + (1 if reroll else 0)) * 2
-		dice = np.random.randint(1, 7) if random_seed == 0 else 1 + hashed_draw(random_seed, ctr, 5)
+		dice = np.random.randint(1, 7) if random_seed == 0 else 1 + hashed_draw(random_seed, ctr, 6)
 		identical = False
-		if self.players_monuments[4*player_who_rolled+0,0] > 0: # Has he got the train station allowing 2 dices?
-			dice2 = np.random.randint(1, 7) if random_seed == 0 else 1 + hashed_draw(random_seed, ctr + 1, 5)
+		if two_dice:
+			dice2 = np.random.randint(1, 7) if random_seed == 0 else 1 + hashed_draw(random_seed, ctr + 1, 6)
 			identical = (dice == dice2)
-			# print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice) + ' ' + str(dice2) + ('*' if identical else ''), end='')
 			dice += dice2
-		# else:
-		# 	print('  Dé P' + str(player_who_rolled) + ' = ' + str(dice), end='')
 		return dice, identical
 
 	def _dice_effect(self, result, player_who_rolled):
@@ -283,17 +299,22 @@ class Board():
 			# Let's buy the most expensive one from the richest player
 			# Against one of my low cost card
 			wealths = np.array([self.get_wealth(p) for p in range(self.num_players)], dtype=np.int8)
-			wealths[player_who_rolled] = 0 # Avoid swapping with yourself
-			target_player = my_random_choice_and_normalize(wealths == wealths.max())
+			wealths[player_who_rolled] = -1 # Never target yourself
+			target_player = first_true_after(wealths == wealths.max(), player_who_rolled)
 			target_player_cards_cost = np.multiply(np.minimum(self.players_cards[15*target_player:15*(target_player+1), 0], 1), cards_cost)
 			target_player_cards_cost[STADE], target_player_cards_cost[AFFAIRES], target_player_cards_cost[CHAINE] = 0, 0, 0 # Forbid to swap these cards
-			target_building = my_random_choice_and_normalize(target_player_cards_cost == target_player_cards_cost.max())
-			# Choose a very bad card to swap with
+			if target_player_cards_cost.max() == 0:
+				return # target owns no swappable establishment
+			target_building = np.argmax(target_player_cards_cost) # card index: frame-invariant
+			# Choose my cheapest non-major establishment to give away
 			my_cards_cost = np.multiply(np.minimum(self.players_cards[15*player_who_rolled:15*(player_who_rolled+1), 0], 1), cards_cost)
+			my_cards_cost[STADE], my_cards_cost[AFFAIRES], my_cards_cost[CHAINE] = 0, 0, 0
 			for i in range(my_cards_cost.size):
 				if my_cards_cost[i] == 0:
 					my_cards_cost[i] = 99
-			my_building = my_random_choice_and_normalize(my_cards_cost == my_cards_cost.min())
+			if my_cards_cost.min() == 99:
+				return # I own no swappable establishment
+			my_building = np.argmin(my_cards_cost)
 			# Do the swap now
 			self.players_cards[15*target_player    +target_building, 0] -= 1
 			self.players_cards[15*player_who_rolled+target_building, 0] += 1
@@ -308,8 +329,11 @@ class Board():
 			moneys[player_who_rolled] = 0
 			money_max = min(moneys.max(), 5)
 			who_has_more_money = np.logical_or(moneys == money_max, moneys >= 5)
-			wealths = np.array([self.get_wealth(p) if who_has_more_money[p] else 0 for p in range(self.num_players)], dtype=np.int8)
-			target_player = my_random_choice_and_normalize(wealths == wealths.max())
+			who_has_more_money[player_who_rolled] = False
+			wealths = np.array([self.get_wealth(p) if who_has_more_money[p] else -1 for p in range(self.num_players)], dtype=np.int8)
+			target_player = first_true_after(wealths == wealths.max(), player_who_rolled)
+			if target_player < 0 or target_player == player_who_rolled:
+				return
 			# Now, take from him
 			amount = min(self.players_money[target_player, 0], 5)
 			self._add_money(target_player    , -amount)
@@ -389,8 +413,8 @@ MARCHE      = 14
 # Index of monuments
 GARE      = 0
 CENTRECOM = 1
-RADIO     = 2
-PARC      = 3
+PARC      = 2 # amusement park (16): extra turn on doubles
+RADIO     = 3 # radio tower (22): may reroll once per turn
 
 # Cost of cards
 cards_cost = np.array([1, 1, 1, 2, 2, 3, 6, 8, 7, 5, 3, 6, 3, 3, 2], dtype=np.int8)
