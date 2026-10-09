@@ -6,7 +6,11 @@ import itertools
 from .TLPLogicNumba import my_unpackbits
 
 
+stacks_name = ['center', 'uphill edge', 'downhill edge', 'character']
+
 def move_to_str(move, nb_players):
+	if move >= nb_players*nb_players:
+		return f'choose stack {stacks_name[move - nb_players*nb_players]}'
 	card_to_take, next_player = divmod(move, nb_players)
 	card_str = f'take card {card_to_take}'
 
