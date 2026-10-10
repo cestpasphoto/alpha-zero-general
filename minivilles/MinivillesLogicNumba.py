@@ -262,14 +262,14 @@ class Board():
 	def _dice_effect(self, result, player_who_rolled):
 		def _all_receive_from_bank(card_index, money):
 			for p in range(self.num_players):
-				self._add_money(p, money * self.players_cards[15*p+card_index,0])
+				self._add_money(p, np.int64(money) * np.int64(self.players_cards[15*p+card_index,0]))
 				# if self.players_cards[15*p+card_index,0]:
 				# 	print(f'  P{p} +{money}*{self.players_cards[15*p+card_index,0]} from bank', end='')
 
 		def _current_receive_from_bank(card_index, money, bonus_if_mall=False):
 			p = player_who_rolled
 			bonus = 1 if bonus_if_mall and (self.players_monuments[4*p + CENTRECOM, 0] > 0) else 0
-			self._add_money(p, (money+bonus) * self.players_cards[15*p+card_index,0])
+			self._add_money(p, (np.int64(money)+bonus) * np.int64(self.players_cards[15*p+card_index,0]))
 			# if self.players_cards[15*p+card_index,0]:
 			# 	print(f'  P{p} +{money+bonus}*{self.players_cards[15*p+card_index,0]} from bank', end='')
 
@@ -277,7 +277,7 @@ class Board():
 			for player in range(player_who_rolled+self.num_players-1, player_who_rolled, -1):
 				p = player % self.num_players
 				bonus = 1 if bonus_if_mall and (self.players_monuments[4*p + CENTRECOM, 0] > 0) else 0
-				amount = min((money+bonus) * self.players_cards[15*p+card_index,0], self.players_money[player_who_rolled,0])
+				amount = min((np.int64(money)+bonus) * np.int64(self.players_cards[15*p+card_index,0]), np.int64(self.players_money[player_who_rolled,0]))
 				self._add_money(p                , -amount)
 				self._add_money(player_who_rolled,  amount)
 				# if amount:
@@ -298,7 +298,9 @@ class Board():
 			# Current can swap a building with someone else
 			# Let's buy the most expensive one from the richest player
 			# Against one of my low cost card
-			wealths = np.array([self.get_wealth(p) for p in range(self.num_players)], dtype=np.int8)
+			wealths = np.zeros(self.num_players, dtype=np.int8)
+			for q in range(self.num_players):
+				wealths[q] = self.get_wealth(q)
 			wealths[player_who_rolled] = -1 # Never target yourself
 			target_player = first_true_after(wealths == wealths.max(), player_who_rolled)
 			target_player_cards_cost = np.multiply(np.minimum(self.players_cards[15*target_player:15*(target_player+1), 0], 1), cards_cost)
@@ -315,11 +317,7 @@ class Board():
 			if my_cards_cost.min() == 99:
 				return # I own no swappable establishment
 			my_building = np.argmin(my_cards_cost)
-			# Do the swap now
-			self.players_cards[15*target_player    +target_building, 0] -= 1
-			self.players_cards[15*player_who_rolled+target_building, 0] += 1
-			self.players_cards[15*player_who_rolled+my_building, 0]     -= 1
-			self.players_cards[15*target_player    +my_building, 0]     += 1
+			self._swap_cards(target_player, target_building, player_who_rolled, my_building)
 			# print(f'  P{player_who_rolled} swaps B{my_building} with B{target_building}-P{target_player}', end='')
 
 		def _tv_channel():
@@ -330,7 +328,10 @@ class Board():
 			money_max = min(moneys.max(), 5)
 			who_has_more_money = np.logical_or(moneys == money_max, moneys >= 5)
 			who_has_more_money[player_who_rolled] = False
-			wealths = np.array([self.get_wealth(p) if who_has_more_money[p] else -1 for p in range(self.num_players)], dtype=np.int8)
+			wealths = np.full(self.num_players, -1, dtype=np.int8)
+			for q in range(self.num_players):
+				if who_has_more_money[q]:
+					wealths[q] = self.get_wealth(q)
 			target_player = first_true_after(wealths == wealths.max(), player_who_rolled)
 			if target_player < 0 or target_player == player_who_rolled:
 				return
@@ -345,12 +346,12 @@ class Board():
 			_all_receive_from_bank(CHAMPS, 1)
 		elif result == 2:
 			_all_receive_from_bank(FERME, 1)
-			_current_receive_from_bank(BOULANGERIE, 1, bonus_if_mall=True)
+			_current_receive_from_bank(BOULANGERIE, 1, True)
 		elif result == 3:
-			_current_give(CAFE, 1, bonus_if_mall=True) # give first
-			_current_receive_from_bank(BOULANGERIE, 1, bonus_if_mall=True)
+			_current_give(CAFE, 1, True) # give first
+			_current_receive_from_bank(BOULANGERIE, 1, True)
 		elif result == 4:
-			_current_receive_from_bank(SUPERETTE, 3, bonus_if_mall=True)
+			_current_receive_from_bank(SUPERETTE, 3, True)
 		elif result == 5:
 			_all_receive_from_bank(FORET, 1)
 		elif result == 6:
@@ -365,18 +366,24 @@ class Board():
 		elif result == 8:
 			_current_receive_from_bank(MEUBLES, 3 * self._get_current_gear(player_who_rolled))
 		elif result == 9:
-			_current_give(RESTAURANT, 2, bonus_if_mall=True) # give first
+			_current_give(RESTAURANT, 2, True) # give first
 			_all_receive_from_bank(MINE, 5)
 		elif result == 10:
-			_current_give(RESTAURANT, 2, bonus_if_mall=True) # give first
+			_current_give(RESTAURANT, 2, True) # give first
 			_all_receive_from_bank(VERGER, 3)
 		elif result == 11:
 			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat(player_who_rolled))
 		elif result == 12:
 			_current_receive_from_bank(MARCHE, 2 * self._get_current_wheat(player_who_rolled))
 
+	def _swap_cards(self, target_player, target_building, my_player, my_building):
+		self.players_cards[15*target_player+target_building, 0] -= 1
+		self.players_cards[15*my_player    +target_building, 0] += 1
+		self.players_cards[15*my_player    +my_building, 0]     -= 1
+		self.players_cards[15*target_player+my_building, 0]     += 1
+
 	def _add_money(self, player, money_to_add):
-		new_money = self.players_money[player, 0] + np.int16(money_to_add)
+		new_money = np.int64(self.players_money[player, 0]) + np.int64(money_to_add)
 		if new_money > 127:
 			new_money = 127
 		if new_money < 0:
@@ -384,13 +391,13 @@ class Board():
 		self.players_money[player, 0] = new_money
 
 	def _get_current_cow(self, player_who_rolled):
-		return self.players_cards[15*player_who_rolled + FERME, 0]
+		return np.int64(self.players_cards[15*player_who_rolled + FERME, 0])
 
 	def _get_current_gear(self, player_who_rolled):
-		return self.players_cards[15*player_who_rolled + FORET, 0] + self.players_cards[15*player_who_rolled + MINE, 0]
+		return np.int64(self.players_cards[15*player_who_rolled + FORET, 0]) + np.int64(self.players_cards[15*player_who_rolled + MINE, 0])
 
 	def _get_current_wheat(self, player_who_rolled):
-		return self.players_cards[15*player_who_rolled + CHAMPS, 0] + self.players_cards[15*player_who_rolled + VERGER, 0]
+		return np.int64(self.players_cards[15*player_who_rolled + CHAMPS, 0]) + np.int64(self.players_cards[15*player_who_rolled + VERGER, 0])
 
 
 # Index of cards
