@@ -12,10 +12,12 @@ def move_to_str(move, player):
 	elif move < 35:
 		middlerow_slot = move-30
 		return f'swap mecabot with slot {middlerow_slot} of middle row'
-	elif move < 36+8*MACHINE_SIZE*MACHINE_SIZE:
+	elif move < 35+8*MACHINE_SIZE*MACHINE_SIZE:
 		card_i, move_ = divmod(move-35, 4*MACHINE_SIZE*MACHINE_SIZE)
 		slot, orient = divmod(move_, 4)
-		return f'expand machine on slot {slot} with {"first" if card_i == 0 else "second"} free card {["", "rotated 90°", "rotated 180°", "rotated -90°"][orient]}'
+		return f'expand machine on slot {divmod(slot, MACHINE_SIZE)} with {"first" if card_i == 0 else "second"} free card {["", "rotated 90°", "rotated 180°", "rotated -90°"][orient]}'
+	elif move == 35+8*MACHINE_SIZE*MACHINE_SIZE:
+		return 'throw freed cards away (no legal place in machine)'
 	else:
 		return f'Unknown move {move}'
 
@@ -67,8 +69,8 @@ def card_to_str(card):
 
 def machine_to_str(machine):
 	result = ''
-	for y in range(5):
-		for x in range(5):
+	for y in range(MACHINE_SIZE):
+		for x in range(MACHINE_SIZE):
 			result += card_to_str(machine[y,x,:])
 		result += '\n'
 	return result

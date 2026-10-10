@@ -27,8 +27,7 @@ from .BotanikConstants import *
 #####   0    self.misc                0      z=0: Round
 #####                                        z=1: Status within round
 #####                                        z=2: Main player
-#####                                        z=3: Nb of open pipes in P0 machine
-#####                                        z=4: Nb of open pipes in P1 machine
+#####                                        z=3,4: unused (were meant for nb of open pipes, never updated)
 #####                                 1      z=0: P0 score
 #####                                        z=1: P1 score
 #####                                3,4     Bitfield of available cards, see below
@@ -62,7 +61,7 @@ from .BotanikConstants import *
 # Columns 5 and 6 are unused
 
 ############################## ACTION DESCRIPTION #############################
-# We coded 236 actions, again taking some shortcuts and assuming MACHINE_SIZE=5
+# 36 + 8*MACHINE_SIZE^2 actions (428 for MACHINE_SIZE=7); indexes below assume MACHINE_SIZE=5
 # Here is description of each action:
 ##### Index  Meaning
 #####   0    Move card 0 from arrival zone to slot 0 of player register
@@ -243,9 +242,10 @@ class Board():
 		elif self.misc[1,0] < self.misc[1,1]:
 			return np.array([-1, 1], dtype=np.float32)
 		else:
-			# Same score, look at nb of cards in machines
-			nb_cards_p0 = np.count_nonzero(self.p0_machine[:,:,0])
-			nb_cards_p1 = np.count_nonzero(self.p1_machine[:,:,0])
+			# Same score: most cards IN the machine wins, i.e. connected to the
+			# source (waiting cards are removed at the end of the game)
+			nb_cards_p0 = np.count_nonzero(_reachable_from_source(self.p0_machine))
+			nb_cards_p1 = np.count_nonzero(_reachable_from_source(self.p1_machine))
 			if   nb_cards_p0 > nb_cards_p1:
 				return np.array([1, -1], dtype=np.float32)
 			elif nb_cards_p0 < nb_cards_p1:
@@ -312,8 +312,15 @@ class Board():
 					for card_i in range(2):
 						card_type = freed_cards[card_i, 2]
 						for orient in range(4):
-							# equivalent orientation after mirroring depends on card's type
-							new_orient = ([1,0,3,2] if card_type == PIPE2_ANGLE else [0,3,2,1])[orient]
+							# equivalent orientation after mirroring depends on card's type.
+							# Straight pipes only use orients 0-1 and crosses orient 0: mirroring
+							# them is the identity (orient 3 is never a legal action for them)
+							if card_type == PIPE2_ANGLE:
+								new_orient = [1,0,3,2][orient]
+							elif card_type == PIPE2_STRAIGHT or card_type == PIPE4:
+								new_orient = orient
+							else:
+								new_orient = [0,3,2,1][orient]
 							action1 = 35 + 4* (mm*card_i + (MACHINE_SIZE*y + x))
 							action2 = 35 + 4* (mm*card_i + (MACHINE_SIZE*y + m-x))
 							if m-x != x:
@@ -329,8 +336,8 @@ class Board():
 			# Update policy and valids
 			for yx in range(mm):
 				for orient in range(4):
-					action1 = 35 + 4*(25*0 + yx) + orient
-					action2 = 35 + 4*(25*1 + yx) + orient
+					action1 = 35 + 4*(mm*0 + yx) + orient
+					action2 = 35 + 4*(mm*1 + yx) + orient
 					policy[action2], policy[action1] = policy_backup[action1], policy_backup[action2]
 					valids[action2], valids[action1] = valids_backup[action1], valids_backup[action2]
 			# Update freed_cards
@@ -377,8 +384,8 @@ class Board():
 		symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
 		self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
-		# Swap 2 freed cards
-		if np.all(_are_not_empty_cards(self.freed_cards[:2])):
+		# Swap 2 freed cards (a mecabot must stay on slot 0, see _swap_mecabot)
+		if np.all(_are_not_empty_cards(self.freed_cards[:2])) and not np.any(_are_mecabots(self.freed_cards[:2])):
 			_swap_freed(self.freed_cards, policy, valids)
 			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
 			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
@@ -395,8 +402,11 @@ class Board():
 			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
 			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
-		# Swap colors (no need change bitfield)
+		# Swap colors, including the bitfield of remaining cards (column c <-> colour c+2)
 		for color_roll in [2, 4]:
+			bitfield_copy = self.misc[3:5, :5].copy()
+			for c in range(5):
+				self.misc[3:5, (c + color_roll) % 5] = bitfield_copy[:, c]
 			_roll_colors_1d(self.arrival_cards, color_roll)
 			_roll_colors_1d(self.p0_register, color_roll)
 			_roll_colors_1d(self.p1_register, color_roll)
@@ -678,8 +688,8 @@ def _are_not_mecabots(cards):
 @njit(cache=True, fastmath=True, nogil=True)
 def _compute_open_pipes(machine):
 	nb_open_pipes, m = 0, MACHINE_SIZE-1
-	for y in range(5):
-		for x in range(5):
+	for y in range(MACHINE_SIZE):
+		for x in range(MACHINE_SIZE):
 			if not _is_empty_card(machine[y, x, :]):
 				if y>0 and _is_empty_card(machine[y-1, x, :]) and machine[y, x, NORTH] > 0:
 					nb_open_pipes += 1
@@ -708,7 +718,9 @@ def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial
 		pipes_with_neighbors = np.multiply(oriented_card, optim_neighbors[NORTH:])
 		matching_pipes = np.all(pipes_with_neighbors == optim_needpipes[NORTH:])
 		if matching_pipes:
-			# Check if there still are open pipes
+			# NOT a rule of the game: deliberate pruning. Refuse a card that closes
+			# the last open pipe, since every later card could only be a waiting
+			# card that never connects (score frozen). Costs a few endgame moves.
 			card_pipes = pipes.sum() 
 			closed_pipes = pipes_with_neighbors.sum()
 			open_pipes = card_pipes - closed_pipes
@@ -718,78 +730,51 @@ def _check_card_on_machine(card, y, x, optim_needpipes, optim_neighbors, initial
 		# else False
 	return result
 
-@njit(cache=False, fastmath=True, nogil=True)
-def _compute_score(machine):
-	visited = np.zeros((machine.shape[0], machine.shape[1]), dtype=np.bool_)
-	labels  = np.ones((machine.shape[0], machine.shape[1]), dtype=np.int8) * 99
-	equivalencies        = [set([0]) for i in range(0)] # Empty list but with inferrable type
-	nb_cards_per_label   = [0 for i in range(0)]        # Empty list but with inferrable type
-	nb_flowers_per_label = [0 for i in range(0)]        # Empty list but with inferrable type
+@njit(cache=True, fastmath=True, nogil=True)
+def _reachable_from_source(machine):
+	# Cards connected to the source through pipes, source included
+	n = MACHINE_SIZE
 	src_y, src_x = MACHINE_SIZE//3, MACHINE_SIZE//2
-	_dfs(machine, src_y, src_x, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label)
-
-	# print(labels)
-	# print(equivalencies)
-
-	total_score = 0
-	visited_1d = np.zeros(len(equivalencies), dtype=np.bool_)
-	for connex_area in range(1, len(equivalencies)):
-		nb_cards, nb_flowers = _score_sum(equivalencies, nb_cards_per_label, nb_flowers_per_label, visited_1d, set([connex_area]))
-		total_score += nb_cards+nb_flowers if nb_cards >= 3 else nb_flowers
-		# print(f'{nb_cards} {nb_flowers} -> {nb_cards if nb_cards >= 3 else 0} {nb_flowers}   - {total_score=}')
-	return total_score
-
-# Implement the "faster scanning version" in
-# https://en.wikipedia.org/wiki/Connected-component_labeling#Two-pass
-@njit(cache=False, fastmath=True, nogil=True)
-def _dfs(machine, y, x, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label):
-	visited[y, x] = True
-	neighbors = []
-	m = MACHINE_SIZE-1
-	if y>0 and machine[y, x, NORTH] > 0:
-		neighbors.append((y-1, x))
-	if x<m and machine[y, x, EAST] > 0:
-		neighbors.append((y, x+1))
-	if y<m and machine[y, x, SOUTH] > 0:
-		neighbors.append((y+1, x))
-	if x>0 and machine[y, x, WEST] > 0:
-		neighbors.append((y, x-1))
-	nb_flowers = machine[y, x, 1]
-
-	# First pass: Find the neighbor (of same color) with the smallest label and
-	# assign it to the current element. If there are no neighbors (of same
-	# color), uniquely label the current element
-	neighbors_labels = [labels[ny,nx] for ny, nx in neighbors if machine[ny, nx, 0] == machine[y, x, 0]]
-	new_label = min(neighbors_labels + [99])
-	if new_label == 99:
-		new_label = len(equivalencies)
-		equivalencies.append(set([new_label]))
-		nb_cards_per_label.append(1)
-		nb_flowers_per_label.append(int(nb_flowers))
-	else:
-		for i in neighbors_labels:
-			if i != 99:
-				equivalencies[i].add(new_label)
-		nb_cards_per_label[new_label] += 1
-		nb_flowers_per_label[new_label] += int(nb_flowers)
-	labels[y, x] = new_label
-
-	# Second pass: recurrence with neighbors, whatever their colors
-	for ny, nx in neighbors:
-		if not _is_empty_card(machine[ny, nx, :]) and not visited[ny, nx]:
-			_dfs(machine, ny, nx, visited, labels, equivalencies, nb_cards_per_label, nb_flowers_per_label)
+	dys, dxs = (-1, 0, 1, 0), (0, 1, 0, -1)
+	stack = np.zeros(n*n, dtype=np.int64)   # each cell is pushed at most once (marked on push)
+	reach = np.zeros((n, n), dtype=np.bool_)
+	reach[src_y, src_x] = True
+	stack[0], top = src_y*n + src_x, 1
+	while top > 0:
+		top -= 1
+		y, x = divmod(stack[top], n)
+		for d in range(4):
+			ny, nx = y + dys[d], x + dxs[d]
+			if 0 <= ny < n and 0 <= nx < n and machine[y, x, NORTH+d] > 0 and not reach[ny, nx] and not _is_empty_card(machine[ny, nx, :]):
+				reach[ny, nx] = True
+				stack[top], top = ny*n + nx, top + 1
+	return reach
 
 @njit(cache=True, fastmath=True, nogil=True)
-def _score_sum(equivalencies, nb_cards_per_label, nb_flowers_per_label, visited, to_visit):
-	nb_cards, nb_flowers = 0, 0
-	for i in to_visit:
-		if not visited[i]:
-			nb_cards, nb_flowers = nb_cards+nb_cards_per_label[i], nb_flowers+nb_flowers_per_label[i]
-			visited[i] = True
-			# Recurrence
-			deeper_result = _score_sum(equivalencies, nb_cards_per_label, nb_flowers_per_label, visited, equivalencies[i])
-			nb_cards, nb_flowers = nb_cards+deeper_result[0], nb_flowers+deeper_result[1]
-
-	return (nb_cards, nb_flowers)
-	
-	
+def _compute_score(machine):
+	# 1. cards connected to the source through pipes (waiting cards do not score)
+	# 2. same-colour groups, pipe-connected, among them: cards (if >= 3) + flowers
+	n = MACHINE_SIZE
+	dys, dxs = (-1, 0, 1, 0), (0, 1, 0, -1)
+	stack = np.zeros(n*n, dtype=np.int64)
+	reach = _reachable_from_source(machine)
+	done = np.zeros((n, n), dtype=np.bool_)
+	total_score = 0
+	for y0 in range(n):
+		for x0 in range(n):
+			if not reach[y0, x0] or done[y0, x0] or machine[y0, x0, 0] == SOURCE:
+				continue
+			colour, nb_cards, nb_flowers = machine[y0, x0, 0], 0, 0
+			done[y0, x0] = True
+			stack[0], top = y0*n + x0, 1
+			while top > 0:
+				top -= 1
+				y, x = divmod(stack[top], n)
+				nb_cards, nb_flowers = nb_cards + 1, nb_flowers + machine[y, x, 1]
+				for d in range(4):
+					ny, nx = y + dys[d], x + dxs[d]
+					if 0 <= ny < n and 0 <= nx < n and machine[y, x, NORTH+d] > 0 and reach[ny, nx] and not done[ny, nx] and machine[ny, nx, 0] == colour:
+						done[ny, nx] = True
+						stack[top], top = ny*n + nx, top + 1
+			total_score += nb_cards + nb_flowers if nb_cards >= 3 else nb_flowers
+	return total_score
