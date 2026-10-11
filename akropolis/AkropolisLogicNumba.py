@@ -93,95 +93,6 @@ def my_unpackbits(values):
 	bools = bits_matrix.reshape(-1)
 	return bools
 
-@njit(cache=True, fastmath=True, nogil=True, inline='always')
-def rotate_cell(idx, k):
-	if idx < 0:
-		return -1
-	# coord on odd-r grid → cube coords
-	r = idx // CITY_SIZE
-	q = idx - r * CITY_SIZE
-	x = q - ((r - (r & 1)) // 2)
-	z = r
-	y = -x - z
-	# k× rotation 60° CW
-	for _ in range(k):
-		x, y, z = -z, -x, -y
-	# back to odd-r
-	r2 = z
-	q2 = x + ((r2 - (r2 & 1)) // 2)
-	if 0 <= r2 < CITY_SIZE and 0 <= q2 < CITY_SIZE:
-		return r2 * CITY_SIZE + q2
-	else:
-		return -1
-
-@njit(cache=True, fastmath=True, nogil=True, inline='always')
-def rotate_pattern(pat, k):
-	# PATTERNS est un np.ndarray (N_PATTERNS×3)
-	c0 = rotate_cell(PATTERNS[pat, 0], k)
-	c1 = rotate_cell(PATTERNS[pat, 1], k)
-	c2 = rotate_cell(PATTERNS[pat, 2], k)
-	# recherche linéaire
-	for j in range(N_PATTERNS):
-		if (PATTERNS[j, 0] == c0 and
-			PATTERNS[j, 1] == c1 and
-			PATTERNS[j, 2] == c2):
-			return j
-	return -1
-
-
-# --- Réflexion de cellule sur axe hexagonal (odd-r offset) ---
-@njit(cache=True, fastmath=True, nogil=True, inline='always')
-def reflect_cell(idx):
-	if idx < 0:
-		return -1
-	# conversion odd-r → cube coords
-	r = idx // CITY_SIZE
-	q = idx - r * CITY_SIZE
-	x = q - ((r - (r & 1)) // 2)
-	z = r
-	y = -x - z
-	# réflexion de base : inversion y ↔ z
-	y, z = z, y
-	# conversion cube → odd-r
-	r2 = z
-	q2 = x + ((r2 - (r2 & 1)) // 2)
-	if 0 <= r2 < CITY_SIZE and 0 <= q2 < CITY_SIZE:
-		return r2 * CITY_SIZE + q2
-	else:
-		return -1
-
-# --- Réflexion d'un pattern (identification de l'indice équivalent) ---
-@njit(cache=True, fastmath=True, nogil=True, inline='always')
-def reflect_pattern(pat):
-	c0 = reflect_cell(PATTERNS[pat, 0])
-	c1 = reflect_cell(PATTERNS[pat, 1])
-	c2 = reflect_cell(PATTERNS[pat, 2])
-	# recherche linéaire de l'indice de pattern réfléchi
-	for j in range(N_PATTERNS):
-		if (PATTERNS[j, 0] == c0 and
-			PATTERNS[j, 1] == c1 and
-			PATTERNS[j, 2] == c2):
-			return j
-	return -1
-
-# --- Réflexion de l'état complet ---
-@njit(cache=True, fastmath=True, nogil=True, inline='always')
-def reflect_state(state):
-	new_s = np.zeros_like(state)
-	# appliquer réflexion cellule à cellule
-	for r in range(CITY_SIZE):
-		for q in range(CITY_SIZE):
-			old = r * CITY_SIZE + q
-			nb  = reflect_cell(old)
-			if nb >= 0:
-				r2 = nb // CITY_SIZE
-				q2 = nb - r2 * CITY_SIZE
-				new_s[r2, q2, :] = state[r, q, :]
-	# conserver les couches misc (round, tiles_bitpack, etc.)
-	new_s[:, :, 3*N_PLAYERS:] = state[:, :, 3*N_PLAYERS:].copy()
-	return new_s
-
-
 # Pre-compute the list of 6 neighbours of position idx
 NEIGHBORS = np.full((CITY_AREA, 6), -1, dtype=np.int16)
 for r in range(CITY_SIZE):
@@ -231,6 +142,81 @@ for p in range(N_PATTERNS):
 				neighbors_set.add(neighbor)
 	PATTERN_NEI[p, :len(neighbors_set)] = sorted(neighbors_set)
 
+# Rotation tables, centred on the city centre (START tile), not on cell (0, 0).
+# ROT_CELL[k, idx]   = cell index after k x 60deg rotation, -1 if it leaves the grid
+# ROT_PATTERN[k, p]  = pattern index after k x 60deg rotation, -1 if it leaves the grid
+# Rotation preserves orientation, so the ordered triple (dir o, centre, dir o+1)
+# maps onto another PATTERNS row with the same ordering (checked by assert below).
+def _to_cube(idx):
+	r, q = divmod(idx, CITY_SIZE)
+	x = q - (r - (r & 1)) // 2
+	return x, -x - r, r
+
+def _from_cube(x, y, z):
+	r = z
+	q = x + (r - (r & 1)) // 2
+	if 0 <= r < CITY_SIZE and 0 <= q < CITY_SIZE:
+		return r * CITY_SIZE + q
+	return -1
+
+_CX, _CY, _CZ = _to_cube(START_TILE_R * CITY_SIZE + START_TILE_Q)
+ROT_CELL = np.full((N_ORIENTS, CITY_AREA), -1, dtype=np.int16)
+for _k in range(N_ORIENTS):
+	for _idx in range(CITY_AREA):
+		_x, _y, _z = _to_cube(_idx)
+		_x, _y, _z = _x - _CX, _y - _CY, _z - _CZ
+		for _ in range(_k):
+			_x, _y, _z = -_z, -_x, -_y
+		ROT_CELL[_k, _idx] = _from_cube(_x + _CX, _y + _CY, _z + _CZ)
+
+_PATTERN_LOOKUP = {tuple(PATTERNS[p]): p for p in range(N_PATTERNS) if PATTERNS[p, 0] >= 0}
+ROT_PATTERN = np.full((N_ORIENTS, N_PATTERNS), -1, dtype=np.int16)
+for _k in range(N_ORIENTS):
+	for _p in range(N_PATTERNS):
+		if PATTERNS[_p, 0] < 0:
+			continue
+		_cells = tuple(int(ROT_CELL[_k, c]) for c in PATTERNS[_p])
+		if min(_cells) >= 0:
+			assert _cells in _PATTERN_LOOKUP, "rotation must preserve pattern ordering"
+			ROT_PATTERN[_k, _p] = _PATTERN_LOOKUP[_cells]
+
+@njit(cache=True, fastmath=True, nogil=True)
+def _valid_patterns(heights_flat, tilesID_flat):
+	# Patterns where any tile may legally be placed (tile-independent part of the rules)
+	pattern_is_valid = np.zeros(N_PATTERNS, dtype=np.bool_)
+	for pattern_id in range(N_PATTERNS):
+		cell_a = PATTERNS[pattern_id, 0]
+		# Skip patterns that go off the board
+		if cell_a < 0:
+			continue
+		cell_b = PATTERNS[pattern_id, 1]
+		cell_c = PATTERNS[pattern_id, 2]
+
+		height_a = heights_flat[cell_a]
+		# All three cells must have the same height
+		if (height_a != heights_flat[cell_b]) or (height_a != heights_flat[cell_c]):
+			continue
+
+		if height_a == 0:
+			# On empty ground, the tile must touch the existing city
+			connected = False
+			for neighbor_idx in PATTERN_NEI[pattern_id]:
+				if neighbor_idx < 0:
+					break
+				if heights_flat[neighbor_idx] > 0:
+					connected = True
+					break
+			if not connected:
+				continue
+		else:
+			# Above ground, the tile must cover at least two different tiles
+			tileID_a = tilesID_flat[cell_a]
+			if (tileID_a == tilesID_flat[cell_b]) and (tileID_a == tilesID_flat[cell_c]):
+				continue
+
+		pattern_is_valid[pattern_id] = True
+	return pattern_is_valid
+
 @njit(cache=True, fastmath=True, nogil=True)
 def _search_tile_index(random_seed, round_number, slot, tiles_bitpack, n):
 	"""Search-time draw (random_seed != 0): index in [0, n), pure function of
@@ -242,11 +228,6 @@ def _search_tile_index(random_seed, round_number, slot, tiles_bitpack, n):
 		deck = (deck << np.uint64(8)) | np.uint64(np.uint8(b))
 	deck_seed = hashed_draw(random_seed, np.int64(deck), 2147483647) + 1
 	return hashed_draw(deck_seed, np.int64(round_number) * CONSTR_SITE_SIZE + slot, n)
-
-# Constants chosen for mapping
-SWITCH_SCORE = 182        # scores <= 182 -> step 1; >= 183 -> step 3
-OFFSET = 128              # lower mapping: v = s - OFFSET
-V_COMP_START = SWITCH_SCORE - OFFSET + 1  # first compressed code (55)
 
 # Encode scalar score (0..511) into np.int8.
 @njit(cache=True, fastmath=True, nogil=True)
@@ -365,51 +346,8 @@ class Board():
 		return (player+1)%N_PLAYERS
 
 	def valid_moves(self, player):
-		heights_flat = self.board_height[:, :, player].ravel()
-		tilesID_flat = self.board_tileID[:, :, player].ravel()
-
-		# Identify which patterns are valid placements (independent of the chosen tile)
-		pattern_is_valid = np.zeros(N_PATTERNS, dtype=np.bool_)
-		for pattern_id in range(N_PATTERNS):
-			cell_a = PATTERNS[pattern_id, 0]
-			# Skip patterns that go off the board
-			if cell_a < 0:
-				continue
-			cell_b = PATTERNS[pattern_id, 1]
-			cell_c = PATTERNS[pattern_id, 2]
-
-			height_a = heights_flat[cell_a]
-			height_b = heights_flat[cell_b]
-			height_c = heights_flat[cell_c]
-
-			# All three cells must have the same height
-			if (height_a != height_b) or (height_a != height_c):
-				continue
-
-			# If placing on empty ground, ensure connectivity to existing stacks
-			if height_a == 0:
-				connected = False
-				# Check all neighbors of the triple
-				for neighbor_idx in PATTERN_NEI[pattern_id]:
-					if neighbor_idx < 0:
-						# End of neighbor list
-						break
-					if heights_flat[neighbor_idx] > 0:
-						connected = True
-						break
-				if not connected:
-					continue
-			# Else check that building above more than a single tile
-			else:
-				tileID_a = tilesID_flat[cell_a]
-				tileID_b = tilesID_flat[cell_b]
-				tileID_c = tilesID_flat[cell_c]
-
-				if (tileID_a == tileID_b) and (tileID_a == tileID_c):
-					continue
-
-			# Pattern is valid for placement
-			pattern_is_valid[pattern_id] = True
+		pattern_is_valid = _valid_patterns(self.board_height[:, :, player].ravel(),
+		                                   self.board_tileID[:, :, player].ravel())
 
 		result = np.zeros(CONSTR_SITE_SIZE * N_PATTERNS, dtype=np.bool_)
 		# For each available tile slot, apply the valid patterns
@@ -483,33 +421,58 @@ class Board():
 		self.stones[:] = tmp_stones
 
 	def get_symmetries(self, policy, valids):
+		# Rotations around the city centre. The 13x13 grid is not rotation invariant
+		# (its corners lie outside the radius-6 hexagon), so a rotation k is kept only if
+		# it is exact for this position: no occupied cell leaves the grid, and for every
+		# player the set of legal patterns maps exactly onto the rotated legal set.
 		syms = []
-		base_s, base_p, base_v = self.state, policy, valids
+		base_s = self.state
+		valid_actions = np.flatnonzero(valids)
 
 		for k in range(N_ORIENTS):
+			if k == 0:
+				syms.append((base_s.copy(), policy.copy(), valids.copy()))
+				continue
+
 			new_s = np.zeros_like(base_s)
+			exact = True
 			for r in range(CITY_SIZE):
 				for q in range(CITY_SIZE):
-					old = r * CITY_SIZE + q
-					nb  = rotate_cell(old, k)
+					nb = ROT_CELL[k, r * CITY_SIZE + q]
 					if nb >= 0:
-						r2 = nb // CITY_SIZE
-						q2 = nb - r2 * CITY_SIZE
-						new_s[r2, q2, :] = base_s[r, q, :]
-			
-			new_s[:, :, 3*N_PLAYERS:] = base_s[:, :, 3*N_PLAYERS:].copy()
+						new_s[nb // CITY_SIZE, nb % CITY_SIZE, :3*N_PLAYERS] = base_s[r, q, :3*N_PLAYERS]
+					else:
+						for p in range(N_PLAYERS):
+							if base_s[r, q, N_PLAYERS + p] > 0:
+								exact = False
+			if not exact:
+				continue
+			# Packed scalars (plazas, districts, scores, stones, construction site, deck) are not spatial
+			new_s[:, :, 3*N_PLAYERS:] = base_s[:, :, 3*N_PLAYERS:]
 
-			new_p = np.zeros_like(base_p)
-			new_v = np.zeros_like(base_v)
-			for a in range(base_p.size):
-				if base_v[a]: # Optimization: only rotate valid moves
-					cs = a // N_PATTERNS
-					pt = a % N_PATTERNS
-					rp = rotate_pattern(pt, k)
-					ni = cs * N_PATTERNS + rp
-					new_p[ni] = base_p[a]
-					new_v[ni] = base_v[a]
+			for p in range(N_PLAYERS):
+				old_ok = _valid_patterns(base_s[:, :, N_PLAYERS + p].ravel(), base_s[:, :, 2*N_PLAYERS + p].ravel())
+				new_ok = _valid_patterns(new_s[:, :, N_PLAYERS + p].ravel(), new_s[:, :, 2*N_PLAYERS + p].ravel())
+				n_old = 0
+				for pt in np.flatnonzero(old_ok):
+					rp = ROT_PATTERN[k, pt]
+					if rp < 0 or not new_ok[rp]:
+						exact = False
+						break
+					n_old += 1
+				if not exact or n_old != new_ok.sum():
+					exact = False
+					break
+			if not exact:
+				continue
 
+			new_p = np.zeros_like(policy)
+			new_v = np.zeros_like(valids)
+			for a in valid_actions:
+				cs = a // N_PATTERNS
+				ni = cs * N_PATTERNS + ROT_PATTERN[k, a % N_PATTERNS]
+				new_p[ni] = policy[a]
+				new_v[ni] = valids[a]
 			syms.append((new_s, new_p, new_v))
 		return syms
 

@@ -99,7 +99,8 @@ map_display = [
 
 
 def check_map():
-	assert(not np.any(np.transpose(connexity_matrix) - connexity_matrix))
+	assert(all(i in connexity_list[j] for i in range(NB_AREAS) for j in connexity_list[i]))
+	assert(all(len(set(l)) == len(l) for l in connexity_list))
 
 	assert(len(map_display) == DISPLAY_HEIGHT)
 	assert(len(map_display[0]) == DISPLAY_WIDTH)

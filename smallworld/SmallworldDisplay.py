@@ -1,6 +1,7 @@
 import numpy as np
 from colorama import Style, Fore, Back
 from copy import deepcopy
+from types import SimpleNamespace
 from .SmallworldConstants import *
 from .SmallworldMaps import *
 
@@ -17,7 +18,9 @@ terrains_str = [
 powers_str = [' ', '⅏','ℵ', '⍎']
 
 ppl_str      = [' ', 'A' , 'D' , 'E', 'g', 'G' , 'h', 'H' , 'O' , 'R' , 's', 'S' , 't', 'T' , 'W' , 'l']
-ppl_decl_str = [' ', '🄐', '🄓', '🄔', '🄖', '🄖', '🄗', '🄗', '🄞', '🄡', '🄢', '🄢', '🄣', '🄣', '🄦', '🄛']
+# Lowercase short names (ghoul, halfling, skeleton, triton) get a lowercase glyph, so that
+# each declined people stays distinct from its uppercase twin (giant, human, sorcerer, troll)
+ppl_decl_str = [' ', '🄐', '🄓', '🄔', '⒢', '🄖', '⒣', '🄗', '🄞', '🄡', '⒮', '🄢', '⒯', '🄣', '🄦', '🄛']
 ppl_long_str = [' ', 'AMAZON','DWARF','ELF','GHOUL','GIANT','HALFLING','HUMAN','ORC','RATMAN','SKELETON','SORCERER','TRITON','TROLL','WIZARD', 'LOST_TRIBE']
 power_long_str = [' ','ALCHEMIST','BERSERK','BIVOUACKING','COMMANDO','DIPLOMAT','DRAGONMASTER', 'FLYING','FOREST','FORTIFIED','HEROIC','HILL','MERCHANT','MOUNTED','PILLAGING','SEAFARING','SPIRIT','STOUT','SWAMP','UNDERWORLD','WEALTHY']
 ac_or_dec_str = ['decline-spirit ppl', 'decline ppl', 'active ppl', '']
@@ -32,9 +35,22 @@ status_str = [
 	'redeployed',
 	'to decline (stout)',
 	'is waiting',
+	'redeploys tokens after losing regions',
 ]
 
 last_board, last_board_already_displayed = None, False
+
+def board_snapshot(b):
+	# Plain numpy copy of a Board, same views as Board.copy_state(): a jitclass
+	# instance cannot be deep-copied (TypeError: cannot pickle 'Board' object)
+	s = b.state.copy()
+	snap = SimpleNamespace(state=s)
+	snap.territories  = s[:NB_AREAS]
+	snap.peoples      = s[NB_AREAS:NB_AREAS+3*NUMBER_PLAYERS].reshape((NUMBER_PLAYERS, 3, 8))
+	snap.visible_deck = s[NB_AREAS+3*NUMBER_PLAYERS:NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE]
+	snap.round_status = s[NB_AREAS+3*NUMBER_PLAYERS+DECK_SIZE:NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE]
+	snap.game_status  = s[NB_AREAS+4*NUMBER_PLAYERS+DECK_SIZE:NB_AREAS+5*NUMBER_PLAYERS+DECK_SIZE]
+	return snap
 
 def generate_background():
 	display_matrix = deepcopy(map_display)
@@ -107,6 +123,9 @@ def add_legend(display_matrix, peoples):
 					pplinfo_str = str(pplinfo) if pplinfo < 64 else (str(pplinfo%64)+'*')
 					pwrinfo_str = str(powerinfo) if powerinfo < 64 else (str(powerinfo%64)+'*')
 					legend_ppl += f' ({pplinfo_str}-{pwrinfo_str})'
+				# Between turns, diplomat stores the target relative to its owner
+				if j == ACTIVE and power == DIPLOMAT and 0 < powerinfo < 64:
+					legend_ppl += f' peace with P{(i + powerinfo) % NUMBER_PLAYERS}'
 				legend_ppl += f', '
 	display_matrix[2].append([Style.RESET_ALL, '', legend_ppl])
 
@@ -121,7 +140,8 @@ def add_players_status(display_matrix, peoples, round_status, game_status):
 		if peoples[p,DECLINED_SPIRIT,1] != NOPPL:
 			description += f' and "{ppl_decl_str[-peoples[p,DECLINED_SPIRIT,1]]}"'
 		if round_status[p, 4] != PHASE_WAIT:
-			description += f', {ac_or_dec_str[game_status[p, 4]]} {status_str[round_status[p, 4]]}'
+			ppl_kind = ac_or_dec_str[game_status[p, 4]] if game_status[p, 4] >= 0 else ''
+			description += f', {ppl_kind} {status_str[round_status[p, 4]]}'
 		display_matrix[6+p].append([Style.RESET_ALL, '', description])
 	return display_matrix
 
@@ -147,11 +167,20 @@ def disp_to_str(display_matrix):
 		disp_str += ('\n' if y < len(display_matrix)-1 else '')
 	return disp_str
 
+def player_to_move(b):
+	# Same rule as Board._player_to_move(): defenders first, then current player
+	current = int(np.flatnonzero(b.game_status[:, 4] >= 0)[0])
+	for i in range(NUMBER_PLAYERS):
+		p = (current + i) % NUMBER_PLAYERS
+		if b.round_status[p, 4] == PHASE_DEFENSE_REDEPLOY:
+			return p
+	return current
+
 def which_board_to_print(prev_board, cur_board):
 	if prev_board is None:
 		return cur_board
 
-	prev_player = np.argwhere(prev_board.round_status[:, 4] != PHASE_WAIT)[0][0]
+	prev_player = player_to_move(prev_board)
 	prev_phase, cur_phase = prev_board.round_status[prev_player, 4], cur_board.round_status[prev_player, 4]
 	if prev_phase == cur_phase or (prev_phase, cur_phase) in [(PHASE_ABANDON, PHASE_CONQUEST)]:
 		return None
@@ -175,7 +204,7 @@ def print_board(b):
 		last_board_already_displayed = np.array_equal(board_to_print.state, b.state)		
 	else:
 		last_board_already_displayed = False
-	last_board = deepcopy(b)
+	last_board = board_snapshot(b)
 
 # Used for debug purposes
 def print_valids(p, valids_attack, valids_special, valids_abandon, valids_redeploy, valids_specialpwr, valids_choose, valid_decline, valid_end):
@@ -245,6 +274,10 @@ def move_to_str(move, player=0):
 		return f'People capacity on area {area}'
 	elif move < 4*NB_AREAS:
 		area = move - 3*NB_AREAS
+		if area < NUMBER_PLAYERS:
+			# Diplomat param is a player id relative to the mover
+			diplo = f'peace with P{(player + area) % NUMBER_PLAYERS}' if area > 0 else 'no peace'
+			return f'Power capacity on area {area} (if diplomat: {diplo})'
 		return f'Power capacity on area {area}'
 	elif move < 5*NB_AREAS+MAX_REDEPLOY:
 		param = move - 4*NB_AREAS

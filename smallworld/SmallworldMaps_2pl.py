@@ -51,7 +51,7 @@ connexity_list = [
 	[11, 9, 7, 10, 14, 17, 15],  # 12
 	[8, 11, 16, 18],             # 13
 	[10, 12, 17],                # 14
-	[16, 11, 12, 17, 21, 20, 16],# 15
+	[16, 11, 12, 17, 21, 20, 22],# 15
 	[13, 11, 15, 22, 18],        # 16
 	[14, 12, 15, 21, 19],        # 17
 	[13, 16, 22],                # 18
@@ -83,7 +83,8 @@ map_display = [
 
 
 def check_map():
-	assert(not np.any(np.transpose(connexity_matrix) - connexity_matrix))
+	assert(all(i in connexity_list[j] for i in range(NB_AREAS) for j in connexity_list[i]))
+	assert(all(len(set(l)) == len(l) for l in connexity_list))
 
 	assert(len(map_display) == DISPLAY_HEIGHT)
 	assert(len(map_display[0]) == DISPLAY_WIDTH)

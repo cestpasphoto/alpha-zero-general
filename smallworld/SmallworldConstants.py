@@ -42,6 +42,7 @@ PHASE_ABANDON_AMAZONS  = 6 # Forced to give back some amazons (no more attack al
 PHASE_REDEPLOY         = 7 # Include redeploy, specialpower
 PHASE_STOUT_TO_DECLINE = 8 # Going to decline for stout (count score now), temporary status
 PHASE_WAIT             = 9 # End of turn (after redeploy, or decline)
+PHASE_DEFENSE_REDEPLOY = 10 # Redeploy tokens got back after losing regions, at end of attacker's turn
 
 ############################# PEOPLE CONSTANTS #############################
 

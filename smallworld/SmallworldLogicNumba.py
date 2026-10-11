@@ -199,6 +199,11 @@ class Board():
 
 	def valid_moves(self, player):
 		result = np.zeros(action_size(), dtype=np.bool_)
+		# A defender can only redeploy the tokens it got back during the attacker's turn
+		if self.round_status[player, 4] == PHASE_DEFENSE_REDEPLOY:
+			result[4*NB_AREAS:5*NB_AREAS+MAX_REDEPLOY] = self._valids_defense_redeploy(player)
+			return result
+
 		result[                       :  NB_AREAS]              = self._valids_abandon(player)
 		result[  NB_AREAS             :2*NB_AREAS]              = self._valids_attack(player)
 		result[2*NB_AREAS             :3*NB_AREAS]              = self._valids_special_actionppl(player)
@@ -211,7 +216,10 @@ class Board():
 		return result
 
 	def make_move(self, move, player, random_seed):
-		current_ppl, _ = self._current_ppl(player)
+		# A defender redeploys the tokens it got back during the attacker's turn
+		if self.round_status[player, 4] == PHASE_DEFENSE_REDEPLOY:
+			self._do_defense_redeploy(player, move - 4*NB_AREAS)
+			return self._player_to_move()
 
 		if   move < NB_AREAS:
 			area = move
@@ -238,9 +246,7 @@ class Board():
 		else:
 			print('Unknown move', move)
 
-		if self.game_status[player, 4] >= 0:
-			return player
-		return (player+1)%NUMBER_PLAYERS
+		return self._player_to_move()
 
 	def get_state(self):
 		return self.state
@@ -286,10 +292,15 @@ class Board():
 		symmetries = [(self.state.copy(), policy.copy(), valids.copy())]
 		state_backup, policy_backup, valids_backup = symmetries[0]
 
-		# Whatever the score difference is
+		# Only score differences decide the outcome, but coins are also the currency
+		# of _valids_choose_ppl: shift scores only while every player can afford
+		# every deck slot, before and after the shift
 		scores = self.game_status[:, 6]
+		min_coins = np.int16(DECK_SIZE - 1)
+		if np.int16(scores.min()) + SCORE_OFFSET < min_coins:
+			return symmetries
 		for _ in range(2):
-			mini, maxi = -np.int16(127)-scores.min(), np.int16(127)-scores.max()
+			mini, maxi = min_coins - SCORE_OFFSET - np.int16(scores.min()), np.int16(127)-scores.max()
 			if mini >= maxi:
 				print('symmetrie scores:', mini, maxi)
 			else:
@@ -478,6 +489,65 @@ class Board():
 		self._update_round_status(current_ppl, player)
 		self._end_turn_if_possible(player, current_ppl, random_seed)
 
+	def _defense_ppl_id(self, player):
+		# People of player holding tokens in hand while still owning regions: these
+		# tokens were given back by an attacker and must be redeployed. -1 if none.
+		for ppl_id in range(ACTIVE, -1, -1):
+			ppl = self.peoples[player, ppl_id, :]
+			if ppl[1] != NOPPL and ppl[0] > 0 and np.any(self._are_occupied_by(ppl)):
+				return ppl_id
+		return -1
+
+	def _player_to_move(self):
+		# Defenders redeploy first, in turn order starting from the current player
+		# (the one right after the attacker); otherwise the current player plays
+		current = 0
+		for p in range(NUMBER_PLAYERS):
+			if self.game_status[p, 4] >= 0:
+				current = p
+		for i in range(NUMBER_PLAYERS):
+			p = (current + i) % NUMBER_PLAYERS
+			if self.round_status[p, 4] == PHASE_DEFENSE_REDEPLOY:
+				return p
+		return current
+
+	def _valids_defense_redeploy(self, player):
+		valids = np.zeros(NB_AREAS + MAX_REDEPLOY, dtype=np.bool_)
+		ppl_id = self._defense_ppl_id(player)
+		if ppl_id < 0:
+			return valids
+		ppl = self.peoples[player, ppl_id, :]
+		territories_of_ppl = self._are_occupied_by(ppl)
+		nb_territories = np.count_nonzero(territories_of_ppl)
+		# All tokens must be redeployed: no skip (valids[0] stays False)
+		for ppl_to_deploy in range(1, MAX_REDEPLOY):
+			valids[ppl_to_deploy] = (ppl[0] >= ppl_to_deploy * nb_territories)
+		for area in range(NB_AREAS):
+			valids[MAX_REDEPLOY + area] = territories_of_ppl[area]
+		return valids
+
+	def _do_defense_redeploy(self, player, param):
+		ppl_id = self._defense_ppl_id(player)
+		ppl = self.peoples[player, ppl_id, :]
+		if param < MAX_REDEPLOY:
+			# Deploy X ppl on each region of this people
+			territories_of_ppl = self._are_occupied_by(ppl)
+			ppl[0] -= param * np.count_nonzero(territories_of_ppl)
+			self.territories[:, 0] += param*territories_of_ppl
+			self.territories[:, 5] += param*territories_of_ppl
+		else:
+			# Deploy 1 ppl on 1 area
+			area = param - MAX_REDEPLOY
+			ppl[0]                    -= 1
+			self.territories[area, 0] += 1
+			self.territories[area, 5] += 1
+		self._update_round_status(ppl, player)
+
+		if self._defense_ppl_id(player) < 0:
+			# Back to the phase set by _switch_to_next(): READY for the player who
+			# starts its turn now, WAIT for the others
+			self.round_status[player, 4] = PHASE_READY if self.game_status[player, 4] >= 0 else PHASE_WAIT
+
 	def _valid_decline(self, player):
 		# Going to decline permitted only for active_ppl
 		if self.game_status[player, 4] != ACTIVE or self.peoples[player, ACTIVE, 1] == NOPPL:
@@ -485,7 +555,11 @@ class Board():
 		# Going to decline permitted only on 1st move (except for stout)
 		if self.round_status[player, 4] != PHASE_READY:
 			if self.round_status[player, 4] in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_REDEPLOY] and self.peoples[player, ACTIVE, 2] == STOUT:
-				pass # Exception
+				# Exception. Stout declines after its turn: ghouls, which keep every
+				# token on the board, must have redeployed their hand first
+				current_ppl = self.peoples[player, ACTIVE, :]
+				if current_ppl[1] == GHOUL and current_ppl[0] > 0 and np.any(self._are_occupied_by(current_ppl)):
+					return False
 			else:
 				return False
 		return True
@@ -653,6 +727,9 @@ class Board():
 			# Check that opponent isn't protected by a campment
 			if loser_ppl[2] == BIVOUACKING and self.territories[area, 4] > 0:
 				return False
+			# Replacing a token is a conquest: diplomat peace applies
+			if self.territories[area, 2] == DIPLOMAT and loser_ppl[4] == (player - loser) % NUMBER_PLAYERS:
+				return False
 
 			return True
 
@@ -670,12 +747,16 @@ class Board():
 			self.territories[area,:] = [1, SORCERER, current_ppl[2], 0, 0, 0, 0, player]
 			# Note that loser have been 'sorcerized'
 			current_ppl[3] |= 2**( (player-loser)%NUMBER_PLAYERS )
+			# Its active people was attacked: no peace with it this turn
+			if current_ppl[2] == DIPLOMAT:
+				current_ppl[4] |= 2**( (player-loser)%NUMBER_PLAYERS )
 			# Update winner's status and #NETWDT
 			self.round_status[player, 4] = PHASE_CONQUEST
 			self.round_status[player, 3] += 1
 
-			self._update_territory_after_win_or_decline(loser_ppl, loser, area)
 			self._update_territory_after_win_or_decline(current_ppl, player, area)
+			if loser_ppl is not None:
+				self._update_round_status(loser_ppl, loser)
 			self._update_round_status(current_ppl, player)
 		else:
 			raise Exception('Should not happen')
@@ -734,8 +815,12 @@ class Board():
 				valids[area] = self._valid_special_actionpwr_area(player, area, current_ppl)
 
 		elif current_ppl[2] == DIPLOMAT:
-			# Chose when it's the time
-			if self.round_status[player, 4] not in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE]:
+			# Chose when it's the time (end of turn, i.e. after conquests)
+			if self.round_status[player, 4] not in [PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_REDEPLOY]:
+				return valids
+
+			# Only once per turn: flag is set until an ally is chosen
+			if not _split_pwr_data(current_ppl[4])[1]:
 				return valids
 
 			# Check there are enough amazons
@@ -754,8 +839,8 @@ class Board():
 			if current_ppl[4] > 0:
 				return valids
 
-			# Check at least 1 ppl remaining
-			if current_ppl[0] < 1:
+			# Check at least 1 ppl available, counting the ones gathered when conquest starts
+			if self._ppl_virtually_available(player, current_ppl, PHASE_CONQUEST) < 1:
 				return valids
 
 			for area in range(NB_AREAS):
@@ -789,10 +874,12 @@ class Board():
 			return True
 
 		elif current_ppl[2] == DIPLOMAT:
-			# Param is actually id of other player
-			other_player_relative_id = (player - area) % NUMBER_PLAYERS
+			# Param is the id of the other player RELATIVE to the mover (actions are
+			# chosen on the canonical board). Attacked players are noted with bit
+			# (mover - target) % N, i.e. (-param) % N: valid in any frame.
+			attacked_bit = (-area) % NUMBER_PLAYERS
 			# Check not attacked during this turn
-			if current_ppl[4] & 2**other_player_relative_id:
+			if current_ppl[4] & 2**attacked_bit:
 				return False
 			return True
 
@@ -807,10 +894,18 @@ class Board():
 			# Check no full immunity
 			if self.territories[area, 3] >= IMMUNITY or self.territories[area, 4] >= IMMUNITY:
 				return False
-			# Check that territory is close to another owned territory or is on the edge
-			neighbor_areas = connexity_matrix[area]
-			if not np.any(np.logical_and(neighbor_areas, territories_of_player)):
+			# Same reachability as a regular conquest: edge (anywhere for halflings)
+			# for the first region, else adjacent to an owned region
+			if np.count_nonzero(territories_of_player) == 0:
+				if current_ppl[1] != HALFLING and descr[area, 5] == 0:
+					return False
+			elif not np.any(np.logical_and(connexity_matrix[area], territories_of_player)):
 				return False
+			# Diplomat peace applies to dragon conquests too
+			if self.territories[area, 2] == DIPLOMAT:
+				loser_ppl, loser_id = self._ppl_owner_of(area)
+				if loser_ppl[4] == (player - loser_id) % NUMBER_PLAYERS:
+					return False
 			return True
 
 		else:
@@ -853,12 +948,13 @@ class Board():
 			self._update_round_status(current_ppl, player)
 
 		elif current_ppl[2] == DIPLOMAT:
-			other_player_relative_id = area
+			other_player_relative_id = area # already relative to the mover, see _valid_special_actionpwr_area()
 			# Set diplomacy
 			current_ppl[4] = other_player_relative_id
 
 			self._prepare_for_new_status(player, current_ppl, PHASE_REDEPLOY, random_seed)
 			self.round_status[player, 4] = PHASE_REDEPLOY
+			self._end_turn_if_possible(player, current_ppl, random_seed)
 
 		elif current_ppl[2] == DRAGONMASTER:
 			# Remove previous dragon
@@ -938,6 +1034,12 @@ class Board():
 		result = np.any(np.logical_and(neighbor_areas, areas_with_terrain)).item()
 		return result
 
+	def _is_area_border_of_own_mountain(self, area, current_ppl):
+		# Giants: -1 only next to a Mountain region that they occupy
+		own_mountains = np.logical_and(self._are_occupied_by(current_ppl), descr[:, 0] == MOUNTAIN)
+		result = np.any(np.logical_and(connexity_matrix[area], own_mountains)).item()
+		return result
+
 	def _minimum_ppl_for_attack(self, area, current_ppl):
 		minimum_ppl_for_attack = self.territories[area, 5] + 2
 
@@ -945,7 +1047,7 @@ class Board():
 		#   mounted + hill|farm, underworld + cavern, 
 		if current_ppl[1] == TRITON and self._is_area_border_of(area, WATER):
 			minimum_ppl_for_attack -= 1
-		if current_ppl[1] == GIANT  and self._is_area_border_of(area, MOUNTAIN):
+		if current_ppl[1] == GIANT  and self._is_area_border_of_own_mountain(area, current_ppl):
 			minimum_ppl_for_attack -= 1
 		if current_ppl[2] == COMMANDO:
 			minimum_ppl_for_attack -= 1
@@ -984,8 +1086,8 @@ class Board():
 				loser_ppl[4] += self.territories[area, 4]
 			elif self.territories[area, 2] == HEROIC and self.territories[area, 4] > 0:
 				loser_ppl[4] += 1
-			# Note successful attack if diplomat
-			if winner_ppl[2] == DIPLOMAT:
+			# Note successful attack if diplomat (only an attack on the ACTIVE people forbids peace)
+			if winner_ppl[2] == DIPLOMAT and self.territories[area, 1] > 0:
 				winner_ppl[4] |= 2**( (player-loser_id)%NUMBER_PLAYERS )
 
 		# Install people from the winner
@@ -1096,6 +1198,10 @@ class Board():
 		if current_ppl[2] in [BIVOUACKING, FORTIFIED, HEROIC] and current_ppl[4] > 0:
 			return False
 
+		# Diplomat may want to choose an ally
+		if current_ppl[2] == DIPLOMAT and _split_pwr_data(current_ppl[4])[1]:
+			return False
+
 		# Check proper phase and non-negative number of amazons
 		if not self._valid_end_aux(player, current_ppl):
 			return False
@@ -1121,7 +1227,8 @@ class Board():
 				current_ppl[3] = 1 # We write that we gave additional ppl already
 
 	def _switch_status_bivouacking(self, player, current_ppl, old_status, next_status):
-		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
+		# First conquest or first redeploy of the turn: campments can be moved every turn
+		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status in [PHASE_CONQUEST, PHASE_REDEPLOY]:
 			# Gather back all campments
 			for area in self._are_occupied_by(current_ppl).nonzero()[0]:
 				if self.territories[area, 4] > 0:
@@ -1130,7 +1237,8 @@ class Board():
 					self.territories[area, 4] = 0
 
 	def _switch_status_heroic(self, player, current_ppl, old_status, next_status):
-		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
+		# First conquest or first redeploy of the turn: heroes can be moved every turn
+		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status in [PHASE_CONQUEST, PHASE_REDEPLOY]:
 			# Gather back heros
 			for area in self._are_occupied_by(current_ppl).nonzero()[0]:
 				if self.territories[area, 4] > 0:
@@ -1139,7 +1247,10 @@ class Board():
 					self.territories[area, 4] = 0
 
 	def _switch_status_diplomat(self, player, current_ppl, old_status, next_status):
-		if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
+		if next_status in [PHASE_READY, PHASE_CHOOSE]:
+			# Peace lasts until my next turn: start it with no ally, noting which players I attack
+			current_ppl[4] = 2**6
+		elif old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON] and next_status == PHASE_CONQUEST:
 			# Start noting which players I attacked
 			current_ppl[4] = 2**6
 		elif old_status != PHASE_WAIT and next_status == PHASE_WAIT:
@@ -1148,6 +1259,9 @@ class Board():
 				current_ppl[4] = 0
 
 	def _switch_status_berserk(self, player, current_ppl, old_status, next_status, random_seed):
+		# Abandoning a region is not a conquest: keep the pending die (no free reroll)
+		if next_status == PHASE_ABANDON and _split_pwr_data(current_ppl[4])[1]:
+			return
 		if next_status in [PHASE_READY, PHASE_ABANDON, PHASE_CHOOSE, PHASE_CONQUEST]:
 			# pre-run dice
 			if random_seed == 0:
@@ -1185,7 +1299,7 @@ class Board():
 		elif current_ppl[1] == SKELETON:
 			if old_status in [PHASE_READY, PHASE_CHOOSE, PHASE_ABANDON, PHASE_CONQUEST, PHASE_CONQ_WITH_DICE, PHASE_ABANDON_AMAZONS] and next_status == PHASE_REDEPLOY:
 				if current_ppl[3] == 0:
-					how_many_ppl_available += self._limit_added_ppl(current_ppl, current_ppl[3] // 2, MAX_SKELETONS, player_territories)
+					how_many_ppl_available += self._limit_added_ppl(current_ppl, self.round_status[player, 3] // 2, MAX_SKELETONS, player_territories)
 		return how_many_ppl_available		
 
 	def _switch_to_next(self, player, current_ppl, random_seed):
@@ -1239,6 +1353,15 @@ class Board():
 		self.round_status[next_player, 4] = PHASE_READY
 		# self._prepare_for_new_status(next_player, next_ppl, PHASE_READY, random_seed) # Numba doesn't allow recursion on jitclass
 		self._prepare_for_ready(next_player, next_ppl, random_seed)
+
+		# End of attacker's turn (not between a ghoul turn and the active turn of
+		# the same player): players who got tokens back redeploy them now, the
+		# next player included before it starts its turn, and the attacker too
+		# (its active people may have conquered regions of its declined ghouls)
+		if next_player != player:
+			for p in range(NUMBER_PLAYERS):
+				if self._defense_ppl_id(p) >= 0:
+					self.round_status[p, 4] = PHASE_DEFENSE_REDEPLOY
 
 	def _compute_and_update_score(self, player):
 		current_ppl, _ = self._current_ppl(player)
