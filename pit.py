@@ -9,7 +9,7 @@ import numpy as np
 import Arena
 from MCTS import MCTS
 from utils import *
-from GameSwitcher import import_game
+from GameSwitcher import import_game, class_names_dict
 
 """
 use this script to play any two agents against each other, or play manually with
@@ -24,6 +24,40 @@ game = None
 # universes) need a deliberately asymmetric pit: opt-in via --asymmetric,
 # labelled in the report. A side-specific value overrides the shared one.
 _SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes'}
+
+
+def _checkpoint_game(path):
+	"""provenance.game of a .pt (a folder stands for its best.pt); None if unknown or old format."""
+	from torch import load as torch_load
+	p = _resolve_player_path(path)
+	if not os.path.isfile(p):
+		return None
+	try:
+		prov = torch_load(p, map_location='cpu', weights_only=True).get('provenance')
+		return prov.get('game') if isinstance(prov, dict) else None
+	except Exception:
+		return None
+
+
+def resolve_game(args, paths):
+	"""args.game as given on the command line, otherwise read from the checkpoints (they must agree)."""
+	found = {}
+	for p in paths:
+		g = _checkpoint_game(p)
+		if g:
+			found.setdefault(g, p)
+	if args.game:
+		for g, p in found.items():
+			if g != args.game:
+				print(f'[WARNING] {p} was saved by game "{g}" but this pit runs "{args.game}"')
+		return
+	if len(found) != 1:
+		raise SystemExit('[FATAL] cannot tell the game from the checkpoints '
+		                 + (f'(they disagree: {found})' if found else '(none is a new-format file with a game name; '
+		                                                              'old-format files must be converted)')
+		                 + ': give it explicitly, e.g. pit.py splendor a.pt b.pt')
+	args.game = next(iter(found))
+	print(f'game: {args.game} (read from the checkpoint)')
 
 
 def _per_side(args, player_id, letter, fallback):
@@ -79,8 +113,13 @@ def create_player(name, args, player_id):
 
 	# set default values but will be overloaded when loading checkpoint
 	from torch import load as torch_load
-	nn_version = torch_load(name, map_location='cpu', weights_only=False)['nn_version']
-	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=nn_version)
+	from GenericNNetWrapper import checkpoint_version
+	ckpt = torch_load(name, map_location='cpu', weights_only=False)
+	checkpoint_version(ckpt)   # raises a clear error on an old-format file (convert_checkpoint.py)
+	# the net is rebuilt with the nn_args it was trained with (including any --nn-opt key)
+	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, learn_rate=None, no_compression=False, q_weight=0.)
+	nn_args.update(ckpt['provenance']['nn_args'])
+	del ckpt
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(name)
 	additional_keys = net.load_checkpoint(cpt_dir, cpt_file)
@@ -251,6 +290,7 @@ def play_age(args):
 		['find', args.compare, '-name', 'best.pt', '-mmin', '-' + str(args.compare_age * 60)])
 	players = players.decode('utf-8').strip().split('\n')
 	print(players)
+	resolve_game(args, players)
 	list_tasks = list(itertools.combinations(players, 2))
 	plays(list_tasks, args)
 
@@ -359,7 +399,7 @@ def main():
 	side.add_argument('--u1'                   , action='store', default=None, type=int  , choices=range(9), help='universes for player 1 only')
 	side.add_argument('--u2'                   , action='store', default=None, type=int  , choices=range(9), help='universes for player 2 only')
 
-	parser.add_argument('game'                        , action='store', default='splendor', help='The name of the game to play')
+	parser.add_argument('game'                        , action='store', nargs='?', default=None, help='The name of the game to play (optional: read from the checkpoints)')
 	parser.add_argument('players'                     , metavar='player', nargs='*', help='list of players to test (either file, or "human" or "random")')
 	parser.add_argument('--reference'          , '-r' , metavar='ref'   , nargs='*', help='list of reference players')
 	parser.add_argument('--vs-ref-only'        , '-z' , action='store_true', help='Use this option to prevent games between players, only players vs references')
@@ -369,6 +409,16 @@ def main():
 	parser.add_argument('--max-compare-threads', '-T' , action='store', default=1           , help='No of threads to run comparison on', type=int)
 
 	args = parser.parse_args()
+
+	# the game name is optional: when the first positional is not a game, it is a player
+	if args.game and args.game not in class_names_dict:
+		if os.path.exists(args.game) or args.game in ('random', 'greedy', 'human'):
+			args.players.insert(0, args.game)
+			args.game = None
+		else:
+			raise SystemExit(f'[FATAL] "{args.game}" is neither a game ({", ".join(class_names_dict)}) nor a player')
+	if not args.compare_age:   # with --compare-age the players are only known once found, see play_age()
+		resolve_game(args, args.players + (args.reference or []))
 
 	if _any_per_side(args) and not args.asymmetric:
 		raise SystemExit('[FATAL] per-side overrides (-m1/-m2/-c1/-c2/-f1/-f2/-u1/-u2) given without '

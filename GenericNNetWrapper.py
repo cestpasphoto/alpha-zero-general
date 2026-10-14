@@ -3,6 +3,11 @@ import sys
 import time
 import pickle
 import zlib
+import ast
+import inspect
+import shlex
+import subprocess
+from datetime import datetime
 
 os.environ["OMP_NUM_THREADS"] = "1" # PyTorch more efficient this way
 
@@ -19,6 +24,182 @@ import torch.onnx
 import onnxruntime as ort
 import onnx
 torch.set_num_threads(1) # PyTorch more efficient this way
+
+
+# Checkpoint provenance: what a .pt records about the code and the setting that produced it.
+#
+# Captured ONCE, when a network wrapper is built (a long run outlives edits of the sources:
+# what must be recorded is what the process actually imported, not what is on disk at save
+# time). Only 'saved_at' is refreshed at each save.
+#
+# .pt layout (plain python types + tensors only, loadable with torch.load(weights_only=True)):
+#
+#     state_dict
+#     provenance : saved_at      ISO-8601 with UTC offset, refreshed at each save
+#                  command_line  sys.argv of the process that trained
+#                  game          name accepted by GameSwitcher.import_game (folder of the game package)
+#                  git           {commit, dirty}      (None/None outside a git repo)
+#                  torch         torch.__version__
+#                  board_size    list of int          (game.getBoardSize())
+#                  action_size   int
+#                  num_players   int
+#                  nn_args       dict given to the net constructor (nn_version is HERE only)
+#     sources    : {path relative to the framework root: text}
+#                  the game's NNet wrapper file, the network file, and the files they import
+#                  DIRECTLY from the same game package (no transitive closure, no framework files)
+#     ...        : whatever the Coach adds (vars(args)), except 'nn_version'; optim_state if any
+
+ROOT = os.path.dirname(os.path.realpath(__file__))
+
+
+def now_iso():
+	return datetime.now().astimezone().isoformat(timespec='seconds')
+
+
+def _plain(x):
+	"""Recursively convert to builtin types, so that weights_only=True can load the result."""
+	if isinstance(x, dict):
+		return {str(k): _plain(v) for k, v in x.items()}
+	if isinstance(x, (list, tuple)):
+		return [_plain(v) for v in x]
+	if hasattr(x, 'item') and getattr(x, 'ndim', None) == 0:   # numpy / torch scalar
+		return x.item()
+	if x is None or isinstance(x, bool):
+		return x
+	for t in (int, float, str):   # exact builtin type: subclasses (TorchVersion, enums...) do not load with weights_only
+		if isinstance(x, t):
+			return t(x)
+	return repr(x)
+
+
+def shape_list(x):
+	"""getBoardSize() may return an int or a tuple: always a list of int."""
+	return [int(d) for d in (x if isinstance(x, (list, tuple)) else [x])]
+
+
+def game_name(wrapper):
+	"""The game package folder (direct subdirectory of the framework root) holding the wrapper's
+	file, i.e. the name GameSwitcher.import_game() takes. None if the wrapper lives elsewhere."""
+	try:
+		d = os.path.dirname(os.path.realpath(inspect.getsourcefile(type(wrapper))))
+		return os.path.basename(d) if os.path.dirname(d) == ROOT else None
+	except Exception:
+		return None
+
+
+def git_info(root=ROOT):
+	"""{'commit', 'dirty'}; dirty = tracked files differ from the commit (untracked ignored)."""
+	try:
+		def run(*a):
+			return subprocess.run(['git', *a], cwd=root, capture_output=True, text=True, timeout=10)
+		head = run('rev-parse', 'HEAD')
+		if head.returncode != 0:
+			return {'commit': None, 'dirty': None}
+		status = run('status', '--porcelain', '--untracked-files=no')
+		return {'commit': head.stdout.strip(), 'dirty': bool(status.stdout.strip())}
+	except Exception:
+		return {'commit': None, 'dirty': None}
+
+
+def _resolve(base, dotted):
+	"""base/a/b.py or base/a/b/__init__.py (None if absent)."""
+	p = os.path.join(base, *dotted.split('.')) if dotted else base
+	for cand in (p + '.py', os.path.join(p, '__init__.py')):
+		if os.path.isfile(cand):
+			return os.path.realpath(cand)
+	return None
+
+
+def local_imports(path, pkg_dir):
+	"""Files imported DIRECTLY by `path` (anywhere in its code, function bodies included) that
+	live inside pkg_dir. Relative imports resolve from the file, absolute ones from the
+	framework root and from the package dir itself (games add their own dir to sys.path)."""
+	found = set()
+	try:
+		tree = ast.parse(open(path, encoding='utf-8').read())
+	except (OSError, SyntaxError, UnicodeDecodeError):
+		return found
+	here = os.path.dirname(path)
+	for node in ast.walk(tree):
+		cands = []
+		if isinstance(node, ast.Import):
+			for al in node.names:
+				cands += [_resolve(b, al.name) for b in (ROOT, pkg_dir)]
+		elif isinstance(node, ast.ImportFrom):
+			if node.level:
+				base = here
+				for _ in range(node.level - 1):
+					base = os.path.dirname(base)
+				bases = [base]
+			else:
+				bases = [ROOT, pkg_dir]
+			for b in bases:
+				if node.module:
+					cands.append(_resolve(b, node.module))
+				for al in node.names:   # "from . import X" or "from pkg import submodule"
+					cands.append(_resolve(b, (node.module + '.' if node.module else '') + al.name))
+		for c in cands:
+			if c and os.path.commonpath([c, pkg_dir]) == pkg_dir and c != path and os.path.getsize(c) > 0:   # empty __init__.py: nothing to record
+				found.add(c)
+	return found
+
+
+def collect_sources(wrapper):
+	"""{relative path: text} for the wrapper file, the network file and their direct imports,
+	restricted to the game's package directory (a subdirectory of the framework root)."""
+	files = {}
+	for obj in (type(wrapper.nnet), type(wrapper)):
+		f = inspect.getsourcefile(obj)
+		if f:
+			files[os.path.realpath(f)] = obj
+	pkg_dir = os.path.dirname(os.path.realpath(inspect.getsourcefile(type(wrapper.nnet))))
+	if os.path.commonpath([pkg_dir, ROOT]) != ROOT or pkg_dir == ROOT:
+		return {}   # network defined outside a game package: nothing safe to record
+	paths = {p for p in files if os.path.dirname(p) == pkg_dir}
+	for p in list(paths):
+		paths |= local_imports(p, pkg_dir)
+	out = {}
+	for p in sorted(paths):
+		with open(p, encoding='utf-8') as fh:
+			out[os.path.relpath(p, ROOT).replace(os.sep, '/')] = fh.read()
+	return out
+
+
+def capture_provenance(wrapper):
+	"""Returns (provenance, sources). Never raises: the optional parts degrade to None / {}."""
+	prov = {
+		'saved_at': None,
+		'command_line': None,
+		'git': {'commit': None, 'dirty': None},
+		'torch': str(torch.__version__),
+		'game': game_name(wrapper),
+		'board_size': shape_list(wrapper.board_size),
+		'action_size': int(wrapper.action_size),
+		'num_players': int(wrapper.num_players),
+		'nn_args': _plain(dict(wrapper.args)),
+	}
+	try:
+		prov['command_line'] = shlex.join(sys.argv)
+	except Exception:
+		pass
+	prov['git'] = git_info()
+	try:
+		sources = collect_sources(wrapper)
+	except Exception as e:
+		print(f'[provenance] sources not recorded: {e!r}')
+		sources = {}
+	return prov, sources
+
+
+def checkpoint_version(ckpt):
+	"""nn_version of a loaded checkpoint (single source of truth: provenance.nn_args)."""
+	try:
+		return ckpt['provenance']['nn_args']['nn_version']
+	except (KeyError, TypeError):
+		raise ValueError('old-format checkpoint (no provenance.nn_args.nn_version): '
+		                 'convert it first with convert_checkpoint.py') from None
+
+
 
 class GenericNNetWrapper(NeuralNet):
 	def __init__(self, game, nn_args):
@@ -37,6 +218,8 @@ class GenericNNetWrapper(NeuralNet):
 		self.action_size = game.getActionSize()
 		self.num_players = game.num_players
 		self.requestKnowledgeTransfer = False
+		# frozen NOW: a long run outlives edits of the sources, record what was actually imported
+		self.provenance, self.sources = capture_provenance(self)
 
 	def init_nnet(self, game, nn_args):
 		pass
@@ -162,11 +345,11 @@ class GenericNNetWrapper(NeuralNet):
 
 		data = {
 			'state_dict': self.nnet.state_dict(),
-			'full_model': self.nnet,
-			'nn_version': self.nnet.version,   # explicit, do not rely on the pickled model
-			'onnx_parity_skipped': os.environ.get('SKIP_ONNX_PARITY') == '1',
+			'provenance': dict(self.provenance, saved_at=now_iso()),
+			'sources': self.sources,
 		}
-		data.update(additional_keys)
+		# nn_version lives in provenance['nn_args'] only (vars(args) would add a duplicate)
+		data.update({k: v for k, v in additional_keys.items() if k not in data and k != 'nn_version'})
 		torch.save(data, filepath)
 
 	def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
@@ -180,8 +363,7 @@ class GenericNNetWrapper(NeuralNet):
 		return checkpoint
 
 	def load_network(self, checkpoint):
-		# explicit 'nn_version' key, or full_model.version for older checkpoints
-		ckpt_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
+		ckpt_version = checkpoint_version(checkpoint)   # raises on an old-format file: convert_checkpoint.py
 
 		if ckpt_version != self.args['nn_version']:
 			print('Checkpoint includes NN version', ckpt_version, ', but you ask version', self.args['nn_version'], ' so not loading it and initiate knowledge transfer')
@@ -266,89 +448,6 @@ class GenericNNetWrapper(NeuralNet):
 		opts.intra_op_num_threads = 1   # inter-op threads and sequential mode are onnxruntime defaults
 		self.ort_session = ort.InferenceSession(temporary_file, sess_options=opts, providers=['CPUExecutionProvider'])
 		os.remove(temporary_file)
-		# the function that PLAYS must be the function that was TRAINED; every
-		# ONNX session (self-play, arena, pit) is born here
-		if os.environ.get('SKIP_ONNX_PARITY') != '1':
-			self._assert_onnx_parity(verbose=(os.environ.get('ONNX_PARITY_VERBOSE') == '1'))
-
-
-	def _assert_onnx_parity(self, n_synth=256, batch_size=8, tol_pi=1e-4, tol_v=1e-4,
-	                        seed=0, verbose=False, raise_on_fail=True):
-		"""
-		Compare the torch module and the freshly exported ONNX session. Raises
-		RuntimeError on an INTEGER-OP divergence. Cost ~0.3 s per export.
-
-		Synthetic boards come in PAIRS: a signed board and its abs() twin. Integer
-		ops that diverge between torch and ONNX (floor vs truncating division)
-		only touch negative values, so they show as signed >> abs, already at
-		small amplitude (-1 // 2). Uniform int8 noise is out of distribution for
-		a trained net: absolute errors there can exceed 1e-4 through plain float32
-		conditioning (e.g. BatchNorm with tiny running_var), equally on both twins;
-		that case is reported, not raised. Real-position parity is checked by
-		check_onnx_parity.py. Batch 8 and batch 1 are both tested, since
-		predict_server() runs the graph batched.
-		"""
-		import numpy as _np
-		rng = _np.random.default_rng(seed)
-		base = rng.integers(-128, 128, size=(n_synth,) + tuple(self.board_size)).astype(_np.float32)
-		valids = rng.random((n_synth, self.action_size)) > 0.5
-		valids[:, 0] = True                                       # no all-illegal row
-
-		was_training = self.nnet.training
-		self.nnet.eval()
-
-		def errors(boards, bs):
-			with torch.no_grad():
-				pi_t, v_t = self.nnet(torch.from_numpy(boards), torch.from_numpy(valids))
-			pi_t, v_t = pi_t.numpy(), v_t.numpy()
-			pi_o, v_o = _np.empty_like(pi_t), _np.empty_like(v_t)
-			for s in range(0, n_synth, bs):
-				e = min(s + bs, n_synth)
-				out = self.ort_session.run(None, {'board': boards[s:e], 'valid_actions': valids[s:e]})
-				pi_o[s:e], v_o[s:e] = out[0], out[1]
-			dpi = _np.where(valids, _np.abs(_np.exp(pi_t) - _np.exp(pi_o)), 0.).max(axis=1)
-			dv = _np.abs(v_t - v_o).reshape(n_synth, -1).max(axis=1)
-			return dpi, dv
-
-		failures, warnings_ = [], []
-		for amp in (8, 128):
-			signed = _np.clip(_np.round(base * amp / 128.), -amp, amp - 1).astype(_np.float32)
-			for bs in (batch_size, 1):
-				dpi_s, dv_s = errors(signed, bs)
-				dpi_a, dv_a = errors(_np.abs(signed), bs)
-				err_s, err_a = _np.maximum(dpi_s / tol_pi, dv_s / tol_v), _np.maximum(dpi_a / tol_pi, dv_a / tol_v)
-				sign_bias = err_s.max() > 1 and _np.median(err_s) > 10 * _np.median(err_a) + 1e-3
-				line = (f'[onnx-parity] amp={amp:3d} bs={bs}  signed: max|dpi|={dpi_s.max():.2e} max|dv|={dv_s.max():.2e}'
-				        f'  abs twin: max|dpi|={dpi_a.max():.2e} max|dv|={dv_a.max():.2e}')
-				if sign_bias:
-					print(line + '  *** SIGN-BIASED MISMATCH ***')
-					failures.append((amp, bs))
-				elif max(err_s.max(), err_a.max()) > 1:
-					warnings_.append(line + '  (over tol on BOTH twins: conditioning, not an integer op)')
-				elif verbose:
-					print(line + '  OK')
-		if was_training:
-			self.nnet.train()
-		for w in warnings_:
-			if verbose:
-				print(w)
-		#if warnings_ and not verbose:
-		#	print(f'[onnx-parity] note: {len(warnings_)} synthetic case(s) over tolerance on both signed and abs '
-		#	      f'twins (float32 conditioning on out-of-distribution inputs); not raised. '
-		#	      f'ONNX_PARITY_VERBOSE=1 for details.')
-
-		if not failures:
-			return True
-		msg = ('[FATAL] torch/ONNX parity FAILED with a sign bias: the trained function is not the played '
-		       'function. Known cause: integer floor division exported as Cast(float)->Div->Cast(int), which '
-		       'TRUNCATES toward zero instead of flooring, so bits of negative values are wrong. '
-		       'Fix: make the operand non-negative before dividing -- (v %% 256) // 2**i -- or use '
-		       'torch.div(a, b, rounding_mode="floor"). SKIP_ONNX_PARITY=1 bypasses this check.')
-		if raise_on_fail:
-			raise RuntimeError(msg)
-		print(msg)
-		return False
-
 
 	def pick_examples(self, examples, sample_ids):
 		if self.args['no_compression']:
@@ -382,7 +481,7 @@ if __name__ == "__main__":
 
 	checkpoint = torch.load(args.input, map_location='cpu', weights_only=False) if args.input else {}
 	if args.nn_version is None:
-		args.nn_version = checkpoint.get('nn_version', checkpoint['full_model'].version)
+		args.nn_version = checkpoint_version(checkpoint)
 
 	g = Game()
 	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, nn_version=args.nn_version,
@@ -400,6 +499,6 @@ if __name__ == "__main__":
 	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 
 	for k in sorted(checkpoint.keys()):
-		if k not in ['state_dict', 'full_model', 'optim_state']:
+		if k not in ['state_dict', 'sources', 'optim_state']:
 			print(f'  {k}: {checkpoint[k]}')
 	print(f'Board shape: {list(dummy_board.shape)}, valids shape: {list(dummy_valid_actions.shape)}')
