@@ -86,7 +86,7 @@ from Stochastic import hashed_draw
 
 idx_white, idx_blue, idx_green, idx_red, idx_black, idx_gold, idx_points = range(7)
 mask = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)
-mask2 = 2**(5*np.arange(idx_gold))
+mask2 = 2**(8*np.arange(idx_gold, dtype=np.int64))
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size(num_players):

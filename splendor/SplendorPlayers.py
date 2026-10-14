@@ -9,7 +9,7 @@ class RandomPlayer():
 
 	def play(self, board, nb_moves):
 		valids = self.game.getValidMoves(board, player=0)
-		action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int), k=1)[0]
+		action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int64), k=1)[0]
 		return action
 
 
@@ -75,7 +75,7 @@ class GreedyPlayer():
 		initial_score = self.game.getScore(board, 0)
 		for m in [m_ for m_, v in enumerate(valids) if v>0]:
 			nextBoard, _ = self.game.getNextState(board, 0, m)
-			score = self.game.getScore(nextBoard, 1)
+			score = self.game.getScore(nextBoard, 0)
 			candidates += [(score, m)]
 		max_score = max(candidates, key=lambda x: x[0])[0]
 		if max_score == initial_score:

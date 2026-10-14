@@ -49,30 +49,6 @@ def move_to_str(move, short=False):
 	else:
 		return f'nothing' if short else f'do nothing'
 
-def row_to_str(row, n=2):
-	if row < 1:
-		return 'bank'
-	if row < 25:
-		tier, index = divmod(row-1, 4)
-		cost_or_value = ((row-1)%2 == 0)
-		return f'Card in tier {tier} index {index//2} ' + ('cost' if cost_or_value else 'value')
-	if row < 28:
-		return f'Nb cards in deck of tier {row-25}'
-	if row < 29+n:
-		return f'Nobles num {row-28}'
-	if row < 29+2*n:
-		return f'Nb of gems of player {row-29-n}/{n}'
-	if row < 29+5*n:
-		player, index = divmod(row-29-2*n, 3)
-		return f'Noble {index} earned by player {player}/{n}'
-	if row < 29+6*n:
-		return f'Cards of player {row-29-5*n}/{n}'
-	if row < 29+12*n:
-		player, index = divmod(row-29-6*n, 6)
-		cost_or_value = (index%2 == 0)
-		return f'Reserve {index//2} of player {player}/{n} ' + ('cost' if cost_or_value else 'value')
-	return f'unknown row {row}'
-
 def _gen_list_of_different_gems(max_num_gems):
 	gems = [ np.array([int(i==c) for i in range(7)], dtype=np.int8) for c in range(5) ]
 	results = []
@@ -351,7 +327,7 @@ def _print_players(board):
 	# NOBLES
 	print(' '*9, end='')
 	for p in range(n):
-		for noble in board.players_nobles[3*p:3*p+3]:
+		for noble in board.players_nobles[board.num_nobles*p:board.num_nobles*(p+1)]:
 			if noble[idx_points] > 0:
 				print(f'  < {Style.BRIGHT}{noble[idx_points]}{Style.RESET_ALL} >  ', end='')
 			else:
