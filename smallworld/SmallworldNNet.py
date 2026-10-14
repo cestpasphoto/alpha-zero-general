@@ -190,7 +190,7 @@ class SmallworldNNet(nn.Module):
 				d_model=D, nhead=3, dim_feedforward=D*4, 
 				dropout=self.args.get('dropout', 0.1), batch_first=True
 			)
-			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=3)
+			self.trunk = nn.TransformerEncoder(encoder_layer, num_layers=3, enable_nested_tensor=False)
 			# Static map / token-identity injection (position, terrain, adjacency),
 			# additive and zero-initialised: see StaticMapEmbedding
 			self.map_emb = StaticMapEmbedding(D, self.nb_vect, self.head.nb_areas)
