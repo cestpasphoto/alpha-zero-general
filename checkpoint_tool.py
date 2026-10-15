@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
 """
-verify_checkpoints.py -- read-only health check of ONE checkpoint file (.pt), new format.
+checkpoint_tool.py -- read-only health check of ONE checkpoint file (.pt).
 
-  python verify_checkpoints.py [<game>] <ckpt.pt> [--complexity] [--onnx FILE]
-                               [--onnx-opset 21,20,19,18,17,native] [--diff] [--restore DIR]
-                               [--other-keys [main.py]]
+  python checkpoint_tool.py [<game>] <ckpt.pt> [--complexity] [--onnx FILE]
+                            [--onnx-opset 21,20,19,18,17,native] [--diff] [--restore DIR]
+                            [--args [main.py]]
 
 Run from the framework root (next to GameSwitcher.py and GenericNNetWrapper.py). One line is printed per
 test, as soon as it is done. Exit code: 0 no FAIL (WARN allowed), 2 FAIL or stopped run.
-<game> is optional: it is read from provenance.game (pass it for a converted file, or to override
-a renamed game folder: a different name then gives a WARN).
+<game> is optional: it is read from the 'game' key (pass it for a converted file that has none, or to
+override a renamed game folder: a different name then gives a WARN).
 The file is loaded with torch.load(weights_only=True): plain types and tensors only, no game code
-is needed to read it. An old-format file (pickled full_model) is refused: convert_checkpoint.py.
+is needed to read it. An old-format file (pickled full_model) or the previous layout (board_size,
+nn_args... inside provenance) is refused: convert_checkpoint.py.
 
-Standard keys (see GenericNNetWrapper.py)                                   status if wrong
+Keys (layout: see GenericNNetWrapper.py)                                     status if wrong
   state_dict                 non-empty dict of tensors                FAIL
-  provenance.nn_args         dict with int nn_version >= 1            FAIL
-  provenance.board_size      list of positive ints                    FAIL
-  provenance.action_size     int >= 1                                 FAIL
-  provenance.num_players     int >= 2                                 FAIL
-  provenance.saved_at        shown ('-' if absent), never a warning   ignored
-  provenance.game            name for GameSwitcher; absent -> <game> required   FAIL if needed
-  provenance.git/command_line/torch, sources   shown on the 'provenance' line;
-                             dirty git or no sources -> WARN (not for converted files)
-  nn_version at the root     duplicate of provenance.nn_args          WARN
+  nn_args                    dict with int nn_version >= 1            FAIL
+  board_size                 list of positive ints                    FAIL
+  action_size                int >= 1                                 FAIL
+  num_players                int >= 2                                 FAIL
+  game                       name for GameSwitcher; absent -> <game> required   FAIL if needed
+  args                       the Coach's args (see --args)            WARN if not a dict
+  provenance                 saved_at (shown, '-' if absent, never a warning), command_line, python,
+                             torch, numpy, numba, onnx, onnxruntime, converted: shown on the 'provenance' line
+  sources                    uint8 tensor = zlib(JSON {path: text}); absent -> WARN (not for converted files)
+  any other root key         WARN
 
 Tests, in this order: load, attributes, provenance, weights NaN/Inf, code (same interface as the
 current game?), nn_version (constructible by the current code?), sources (stored vs current
@@ -33,21 +35,21 @@ forward (dummy + real positions), [--complexity], [--onnx].
 "Does this checkpoint still match my code?" is answered by three independent layers:
   code        board_size / action_size / num_players recorded at save time vs the current game
   state_dict  keys and shapes of the current net vs the stored weights (what torch would load)
-  sources     stored copy of the network files vs the files on disk (same text / formatting only /
-              changed). A changed file with an identical state_dict layout is a WARN: the weights
-              load, but the function they compute may not be the one that was trained.
+  sources     stored copy of the *.py files (framework root + game package) vs the files on disk (same
+              text / formatting only / changed / added since). A changed file with an identical
+              state_dict layout is a WARN: the weights load, but the function they compute may not be
+              the one that was trained.
 
 Rules
   - The checkpoint is only READ. The player count is never overridden: the current code
     (NUMBER_PLAYERS) must match the checkpoint, otherwise the run STOPS -- edit the constant by
     hand, delete the stale __pycache__ dirs (numba caches action_size()/observation_size()).
-  - Net construction uses provenance.nn_args. Optional branches whose flag is not stored there
+  - Net construction uses nn_args. Optional branches whose flag is not stored there
     show up as 'unexpected keys'.
 
 --diff: unified diff stored sources -> current files, for the files that really changed.
 --restore DIR: write the stored sources under DIR (same relative paths; absolute or '..' paths are
-refused, existing files are never overwritten). Running an old net from them also needs the game
-code of that time (rules, encoding): the git commit is printed for that (git worktree add).
+refused, existing files are never overwritten).
 
 --complexity: parameters (exact) and FLOPs of one forward pass (batch 1, torch's FlopCounterMode:
 matmul/conv/bmm/attention only, FLOPs = 2 x MACs, so a lower bound).
@@ -59,10 +61,10 @@ integer floor-division bugs only hit negative values) and (2) a torch/ORT compar
 positions (WARN > 1e-4, FAIL > 1e-2). FILE is written only after the tests passed; an existing
 FILE is overwritten with a warning.
 
---other-keys [main.py]: root keys other than the standard ones (Coach saves vars(args)), only when
-different from the defaults of main.py (parsed with ast, never imported; the post-processing of
-main() is mirrored for tempThreshold, maxlenOfQueue, stop_after_N_fail, load_model). Without
-usable defaults, every key is shown. Put this option last.
+--args [main.py] (alias --other-keys): the Coach's args stored in the file, only those that differ
+from the defaults of main.py (parsed with ast, never imported; the post-processing of main() is
+mirrored for tempThreshold, maxlenOfQueue, stop_after_N_fail, load_model). Without usable defaults,
+every key is shown. Put this option last.
 """
 
 import argparse
@@ -71,12 +73,14 @@ import contextlib
 import difflib
 import gc
 import io
+import json
 import os
 import re
 import sys
 import tempfile
 import warnings
 import zipfile
+import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault('OMP_NUM_THREADS', '1')
@@ -90,12 +94,12 @@ N_GAMES, MAX_PLIES, MAX_POS = 3, 400, 64         # random games used to get real
 TOL_WARN, TOL_FAIL = 1e-4, 1e-2                   # torch/ONNX: max |d pi| over legal moves, max |d v|
 GUARD_TOL, GUARD_N = 1e-4, 256                    # synthetic sign-bias test
 OBSOLETE_RE = re.compile(r'unsupported|supports nn-version|not supported|unknown (nn[ -])?version', re.I)
-STANDARD_KEYS = {'state_dict', 'provenance', 'sources', 'optim_state'}
+STANDARD_KEYS = {'state_dict', 'game', 'board_size', 'action_size', 'num_players', 'nn_args', 'args', 'provenance', 'sources'}
 DEFAULT_NN_ARGS = dict(lr=None, dropout=0., epochs=None, batch_size=None, learn_rate=None,
                        no_compression=False, q_weight=0.)
 MISSING = object()
 STATUSES = []
-CTX = {}                                          # ckpt / drift report shared with --diff, --restore
+CTX = {}                                          # stored sources / drift report shared with --diff, --restore
 
 
 class Stop(Exception):
@@ -116,6 +120,25 @@ def cut(s, n):
 	s = str(s)
 	return s if len(s) <= n else s[:n - 1] + '…'
 
+
+
+def unpack_sources(tensor):
+	"""uint8 tensor = zlib(JSON {path: text}) -> dict (same as GenericNNetWrapper.unpack_sources)."""
+	d = json.loads(zlib.decompress(tensor.numpy().tobytes()).decode('utf-8'))
+	if not (isinstance(d, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in d.items())):
+		raise ValueError('not a {path: text} dict')
+	return d
+
+
+def current_paths(game):
+	"""Relative paths of the files a checkpoint saved NOW would store: *.py of the framework root and
+	of the game package (not recursive, empty files skipped)."""
+	out = set()
+	for d in [ROOT] + ([os.path.join(ROOT, game)] if game else []):
+		if os.path.isdir(d):
+			out |= {os.path.relpath(os.path.join(d, n), ROOT).replace(os.sep, '/') for n in os.listdir(d)
+			        if n.endswith('.py') and os.path.isfile(os.path.join(d, n)) and os.path.getsize(os.path.join(d, n)) > 0}
+	return out
 
 
 # ----------------------------------------------------------------------------- loading
@@ -176,7 +199,7 @@ def check_attributes(ckpt):
 	"""Standard keys. Returns the resolved values (None where unusable)."""
 	n0 = len(STATUSES)
 	A = dict(version=None, actions=None, players=None, shape=None, nn_args=None, sd_ok=False,
-	         prov={}, sources=None, converted=False, game=None)
+	         prov={}, sources=None, converted=False, game=None, args={}, bad_layout=False)
 
 	sd = ckpt.get('state_dict', MISSING)
 	if sd is MISSING:
@@ -187,42 +210,52 @@ def check_attributes(ckpt):
 		A['sd_ok'] = True
 
 	prov = ckpt.get('provenance', MISSING)
+	if isinstance(prov, dict) and 'nn_args' in prov and 'nn_args' not in ckpt:
+		A['bad_layout'] = True
+		say('layout', 'FAIL', 'previous layout (board_size, nn_args... inside provenance): convert it with convert_checkpoint.py')
+		return A
 	if prov is MISSING or not isinstance(prov, dict):
 		say('provenance', 'FAIL', 'absent' if prov is MISSING else f'unexpected type {type(prov).__name__}')
 		return A
 	A['prov'], A['converted'] = prov, 'converted' in prov
 
 	def field(name, lo):
-		v, st = prov.get(name, MISSING), int_state(prov.get(name, MISSING), lo)
+		v, st = ckpt.get(name, MISSING), int_state(ckpt.get(name, MISSING), lo)
 		if st == 'ok':
 			return int(v)
-		say(f'provenance.{name}', 'FAIL', st if v is MISSING else f'{st} ({v!r})')
+		say(name, 'FAIL', st if v is MISSING else f'{st} ({v!r})')
 
 	A['actions'], A['players'] = field('action_size', 1), field('num_players', 2)
-	bs = prov.get('board_size', MISSING)
+	bs = ckpt.get('board_size', MISSING)
 	if shape_state(bs) == 'ok':
 		A['shape'] = tuple(int(x) for x in bs)
 	else:
-		say('provenance.board_size', 'FAIL', f'{shape_state(bs)} ({bs!r})' if bs is not MISSING else 'absent')
-	na = prov.get('nn_args', MISSING)
+		say('board_size', 'FAIL', f'{shape_state(bs)} ({bs!r})' if bs is not MISSING else 'absent')
+	na = ckpt.get('nn_args', MISSING)
 	if isinstance(na, dict) and int_state(na.get('nn_version', MISSING), 1) == 'ok':
 		A['nn_args'], A['version'] = dict(na), int(na['nn_version'])
 	else:
-		say('provenance.nn_args', 'FAIL', 'absent, or without an int nn_version')
+		say('nn_args', 'FAIL', 'absent, or without an int nn_version')
 
-	g = prov.get('game')
+	g = ckpt.get('game')
 	if isinstance(g, str) and g:
 		A['game'] = g
 	elif g is not None:
-		say('provenance.game', 'WARN', f'unexpected value {g!r}')
-	if 'nn_version' in ckpt:                                     # the wrapper filters it out of vars(args)
-		say('nn_version', 'WARN', f'duplicate root key ({ckpt["nn_version"]!r}); the only source is provenance.nn_args')
+		say('game', 'WARN', f'unexpected value {g!r}')
+	args = ckpt.get('args', MISSING)
+	if isinstance(args, dict):
+		A['args'] = args
+	else:
+		say('args', 'WARN', 'absent' if args is MISSING else f'unexpected type {type(args).__name__}')
 	src = ckpt.get('sources', MISSING)
 	if src is not MISSING:
-		if isinstance(src, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in src.items()):
-			A['sources'] = src
-		else:
-			say('sources', 'FAIL', 'not a {path: text} dict')
+		try:
+			A['sources'] = unpack_sources(src)
+		except Exception as e:
+			say('sources', 'FAIL', f'cannot be decoded ({short(e)})')
+	unexpected = sorted(k for k in ckpt if k not in STANDARD_KEYS)
+	if unexpected:
+		say('keys', 'WARN', f'unexpected root key(s): {", ".join(unexpected[:8])} (previous layout? convert_checkpoint.py)')
 
 	if sum(s in ('FAIL', 'WARN') for s in STATUSES[n0:]) == 0:
 		saved_at = prov.get('saved_at')
@@ -232,23 +265,17 @@ def check_attributes(ckpt):
 
 
 def check_provenance(A):
-	"""One line: git state, torch, number of stored source files, command line."""
+	"""One line: environment versions, number of stored source files, command line."""
 	p, src = A['prov'], A['sources'] or {}
-	git = p.get('git') if isinstance(p.get('git'), dict) else {}
-	commit, dirty = git.get('commit'), git.get('dirty')
-	parts = [f'git {commit[:9] if isinstance(commit, str) else "-"}' + (' (uncommitted changes)' if dirty else '')]
-	parts.append(f'torch {p.get("torch") or "-"}')
+	parts = [f'{k} {p.get(k) or "-"}' for k in ('python', 'torch', 'numpy', 'numba', 'onnx', 'onnxruntime')]
 	parts.append(f'{len(src)} source file(s)')
 	cmd = p.get('command_line')
 	parts.append(f'cmd {cut(cmd, 110)}' if isinstance(cmd, str) and cmd else 'cmd -')
 	problems = []
-	if not A['converted']:
-		if dirty:
-			problems.append('git commit alone does not reproduce the code')
-		if not src:
-			problems.append('no sources recorded')
 	if A['converted']:
 		parts.append(f'converted {str(p["converted"])[:25]}')
+	elif not src:
+		problems.append('no sources recorded')
 	say('provenance', 'WARN' if problems else 'OK', ', '.join(parts) + (f'  <- {"; ".join(problems)}' if problems else ''))
 
 
@@ -348,8 +375,8 @@ def ast_equal(a, b):
 		return False
 
 
-def compare_sources(stored, now_sources=None):
-	"""Stored copy vs the files on disk (plus, when known, the files the current code imports)."""
+def compare_sources(stored, now_paths=None):
+	"""Stored copy vs the files on disk (plus the files a checkpoint saved now would store)."""
 	r = dict(same=[], format_only=[], changed={}, missing=[], unsafe=[], new=[])
 	for rel, old in sorted(stored.items()):
 		if not safe_rel(rel):
@@ -369,17 +396,17 @@ def compare_sources(stored, now_sources=None):
 			d = [l for l in difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm='', n=0)
 			     if l[:1] in ('+', '-') and l[:3] not in ('+++', '---')]
 			r['changed'][rel] = (sum(l[0] == '+' for l in d), sum(l[0] == '-' for l in d))
-	if now_sources:
-		r['new'] = sorted(set(now_sources) - set(stored))
+	if now_paths:
+		r['new'] = sorted(set(now_paths) - set(stored))
 	return r
 
 
-def check_sources(A, now_sources):
+def check_sources(A, now_paths):
 	"""Returns True when a source file changed or vanished (explains a state_dict mismatch)."""
 	if not A['sources']:
 		say('sources', 'SKIP', 'no stored copy')
 		return False
-	r = CTX['drift'] = compare_sources(A['sources'], now_sources)
+	r = CTX['drift'] = compare_sources(A['sources'], now_paths)
 	bad = []
 	if r['changed']:
 		bad.append(f'{len(r["changed"])} changed (' + ', '.join(f'{k} +{a}/-{b}' for k, (a, b) in r['changed'].items()) + ')')
@@ -388,7 +415,7 @@ def check_sources(A, now_sources):
 	if r['unsafe']:
 		bad.append('unsafe stored paths ignored: ' + ', '.join(r['unsafe']))
 	if r['new']:
-		bad.append('imported by the current code but not stored: ' + ', '.join(r['new']))
+		bad.append(f'{len(r["new"])} file(s) in the current tree but not stored: ' + ', '.join(r['new'][:6]) + (' ...' if len(r['new']) > 6 else ''))
 	if bad:
 		say('sources', 'WARN', '; '.join(bad) + '  (--diff for details)')
 	else:
@@ -397,8 +424,7 @@ def check_sources(A, now_sources):
 	return bool(r['changed'] or r['missing'])
 
 
-def show_diff(ckpt):
-	src = ckpt.get('sources') if isinstance(ckpt.get('sources'), dict) else None
+def show_diff(src):
 	if not src:
 		return say('diff', 'SKIP', 'no stored sources')
 	r = CTX.get('drift') or compare_sources(src)
@@ -412,8 +438,7 @@ def show_diff(ckpt):
 	say('diff', 'WARN', f'{len(r["changed"])} file(s) changed, {len(r["missing"])} missing')
 
 
-def restore_sources(ckpt, dest):
-	src = ckpt.get('sources') if isinstance(ckpt.get('sources'), dict) else None
+def restore_sources(src, dest):
 	if not src:
 		return say('restore', 'FAIL', 'no stored sources in this checkpoint')
 	dest, done, exists, refused = os.path.abspath(dest), [], [], []
@@ -429,14 +454,11 @@ def restore_sources(ckpt, dest):
 		with open(out, 'w', encoding='utf-8', newline='\n') as f:
 			f.write(text)
 		done.append(rel)
-	git = (ckpt.get('provenance') or {}).get('git') or {}
 	msg = f'{len(done)} file(s) written under {dest}'
 	if exists:
 		msg += f'; NOT overwritten (already exist): {", ".join(exists)}'
 	if refused:
 		msg += f'; refused unsafe paths: {", ".join(refused)}'
-	if git.get('commit'):
-		msg += f'. Game code of that time: git worktree add <dir> {git["commit"]}' + (' (dirty at save time)' if git.get('dirty') else '')
 	say('restore', 'FAIL' if (exists or refused) else 'OK', msg)
 
 
@@ -694,8 +716,8 @@ def default_values(main_py):
 
 def print_other_keys(extra, main_py):
 	defaults = default_values(main_py) if os.path.isfile(main_py) else {}
-	print(f'\nOther keys differing from the defaults of {main_py} ({len(defaults)} defaults parsed):' if defaults
-	      else f'\nOther keys (no usable defaults in {main_py!r}: all shown):')
+	print(f'\nArgs differing from the defaults of {main_py} ({len(defaults)} defaults parsed):' if defaults
+	      else f'\nArgs (no usable defaults in {main_py!r}: all shown):')
 	shown = 0
 	for k, v in sorted(extra.items()):
 		try:
@@ -722,10 +744,12 @@ def verify(a, extra):
 	if not isinstance(ckpt, dict) or 'state_dict' not in ckpt:
 		return say('file', 'FAIL', f'not a framework checkpoint ({type(ckpt).__name__})')
 	say('load', 'OK', 'torch.load(weights_only=True) ok')
-	CTX['ckpt'] = ckpt
-	extra.update({k: v for k, v in ckpt.items() if k not in STANDARD_KEYS})
 
 	A = check_attributes(ckpt)
+	CTX['sources'], CTX['loaded'] = A['sources'], True
+	extra.update(A['args'])
+	if A['bad_layout']:
+		return
 	if A['prov']:
 		check_provenance(A)
 	sd = ckpt.get('state_dict')
@@ -734,7 +758,7 @@ def verify(a, extra):
 
 	game_name = a.game or A['game']
 	if not game_name:
-		return say('code', 'FAIL', 'no game name in the checkpoint (converted file?): pass it, e.g. verify_checkpoints.py smallworld f.pt')
+		return say('code', 'FAIL', 'no game name in the checkpoint (converted file?): pass it, e.g. checkpoint_tool.py smallworld f.pt')
 	if a.game and A['game'] and a.game != A['game']:
 		say('game', 'WARN', f'checkpoint was saved by "{A["game"]}", you ask "{a.game}"')
 	try:
@@ -742,12 +766,15 @@ def verify(a, extra):
 		Game, NNet, _, _ = import_game(game_name)
 		game = Game()
 	except Exception as e:
-		return say('code', 'FAIL', f'game code not usable: {short(e, 220)}')
+		import traceback
+		fr = traceback.extract_tb(e.__traceback__)[-1:]
+		where = f' at {os.path.relpath(fr[0].filename, ROOT)}:{fr[0].lineno} in {fr[0].name}' if fr else ''
+		return say('code', 'FAIL', f'game code not usable: {short(e, 220)}{where}')
 	env = check_environment(game)
 	if env:
 		raise Stop(env)
 	if not check_vs_code(A, game) or A['version'] is None:
-		return A['version'] is None and say('network', 'FAIL', 'no usable provenance.nn_args')
+		return A['version'] is None and say('network', 'FAIL', 'no usable nn_args')
 
 	nn_args = {**DEFAULT_NN_ARGS, **A['nn_args']}                # what the net was trained with
 	try:
@@ -761,7 +788,7 @@ def verify(a, extra):
 		return say('nn_version', 'WARN', f'obsolete version V{A["version"]}: current code builds an empty network')
 	say('nn_version', 'OK', f'V{A["version"]} supported by current code')
 
-	drifted = check_sources(A, wrapper.sources)
+	drifted = check_sources(A, current_paths(game_name))
 	if not A['sd_ok'] or not check_state_dict(module, sd, drifted):
 		return
 	used = forward_checks(module, game, np.random.default_rng(0))
@@ -776,7 +803,7 @@ def verify(a, extra):
 
 def main():
 	ap = argparse.ArgumentParser(description='Read-only verifier of one checkpoint file (.pt).')
-	ap.add_argument('game', nargs='?', default=None, help='game name (default: provenance.game of the file)')
+	ap.add_argument('game', nargs='?', default=None, help="game name (default: the file's 'game' key)")
 	ap.add_argument('checkpoint', help='explicit .pt file')
 	ap.add_argument('--complexity', action='store_true', help='parameter count and FLOPs of one forward pass')
 	ap.add_argument('--onnx', default=None, metavar='FILE',
@@ -785,8 +812,8 @@ def main():
 	                help='opsets tried in order until one loads and passes parity (native = exporter default)')
 	ap.add_argument('--diff', action='store_true', help='unified diff stored sources -> current files')
 	ap.add_argument('--restore', default=None, metavar='DIR', help='write the stored sources under DIR (never overwrites)')
-	ap.add_argument('--other-keys', nargs='?', const='main.py', default=None, metavar='MAIN_PY',
-	                help='non-standard file keys that differ from the defaults of main.py (put this option last)')
+	ap.add_argument('--args', '--other-keys', dest='other_keys', nargs='?', const='main.py', default=None, metavar='MAIN_PY',
+	                help="the Coach's args stored in the file, only those that differ from the defaults of main.py (put this option last)")
 	a = ap.parse_args()
 	if os.path.isdir(a.checkpoint):
 		ap.error('give an explicit .pt file, not a directory')
@@ -803,18 +830,18 @@ def main():
 		say('internal', 'FAIL', f'unexpected error: {short(e)}')
 	gc.collect()
 
-	if 'ckpt' in CTX:                                            # need the file only, not the game code
+	if CTX.get('loaded'):                                        # need the file only, not the game code
 		try:
 			if a.diff:
-				show_diff(CTX['ckpt'])
+				show_diff(CTX['sources'])
 			if a.restore:
-				restore_sources(CTX['ckpt'], a.restore)
+				restore_sources(CTX['sources'], a.restore)
 		except Exception as e:
 			say('internal', 'FAIL', f'--diff/--restore failed: {short(e)}')
 	if a.other_keys is not None:
 		print_other_keys(extra, a.other_keys)
 	elif extra:
-		print(f'\n{len(extra)} non-standard key(s) not shown (--other-keys [main.py] to display them)')
+		print(f'\n{len(extra)} training arg(s) stored in the file, not shown (--args [main.py] to display those that differ from main.py)')
 	worst = 'FAIL' if 'FAIL' in STATUSES else 'WARN' if 'WARN' in STATUSES else 'OK'
 	print(f'\nSTATUS  {worst}')
 	sys.exit(2 if worst == 'FAIL' else 0)

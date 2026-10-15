@@ -27,14 +27,14 @@ _SIDE_KEYS = {'m': 'numMCTSSims', 'c': 'cpuct', 'f': 'fpu', 'u': 'universes'}
 
 
 def _checkpoint_game(path):
-	"""provenance.game of a .pt (a folder stands for its best.pt); None if unknown or old format."""
+	"""'game' key of a .pt (a folder stands for its best.pt); None if unknown or old format."""
 	from torch import load as torch_load
 	p = _resolve_player_path(path)
 	if not os.path.isfile(p):
 		return None
 	try:
-		prov = torch_load(p, map_location='cpu', weights_only=True).get('provenance')
-		return prov.get('game') if isinstance(prov, dict) else None
+		g = torch_load(p, map_location='cpu', weights_only=True).get('game')
+		return g if isinstance(g, str) and g else None
 	except Exception:
 		return None
 
@@ -118,11 +118,11 @@ def create_player(name, args, player_id):
 	checkpoint_version(ckpt)   # raises a clear error on an old-format file (convert_checkpoint.py)
 	# the net is rebuilt with the nn_args it was trained with (including any --nn-opt key)
 	nn_args = dict(lr=None, dropout=0., epochs=None, batch_size=None, learn_rate=None, no_compression=False, q_weight=0.)
-	nn_args.update(ckpt['provenance']['nn_args'])
+	nn_args.update(ckpt['nn_args'])
 	del ckpt
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(name)
-	additional_keys = net.load_checkpoint(cpt_dir, cpt_file)
+	additional_keys = net.load_checkpoint(cpt_dir, cpt_file).get('args', {})   # the Coach's args stored in the file
 
 	cpuct = additional_keys.get('cpuct')
 	cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct

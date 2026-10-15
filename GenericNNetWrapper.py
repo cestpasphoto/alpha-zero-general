@@ -3,10 +3,11 @@ import sys
 import time
 import pickle
 import zlib
-import ast
+import importlib.metadata
 import inspect
+import json
+import platform
 import shlex
-import subprocess
 from datetime import datetime
 
 os.environ["OMP_NUM_THREADS"] = "1" # PyTorch more efficient this way
@@ -26,28 +27,25 @@ import onnx
 torch.set_num_threads(1) # PyTorch more efficient this way
 
 
-# Checkpoint provenance: what a .pt records about the code and the setting that produced it.
-#
-# Captured ONCE, when a network wrapper is built (a long run outlives edits of the sources:
-# what must be recorded is what the process actually imported, not what is on disk at save
-# time). Only 'saved_at' is refreshed at each save.
-#
-# .pt layout (plain python types + tensors only, loadable with torch.load(weights_only=True)):
+# Checkpoint layout: plain python types + tensors only, so that torch.load(weights_only=True)
+# reads it without any game code.
 #
 #     state_dict
-#     provenance : saved_at      ISO-8601 with UTC offset, refreshed at each save
-#                  command_line  sys.argv of the process that trained
-#                  game          name accepted by GameSwitcher.import_game (folder of the game package)
-#                  git           {commit, dirty}      (None/None outside a git repo)
-#                  torch         torch.__version__
-#                  board_size    list of int          (game.getBoardSize())
-#                  action_size   int
-#                  num_players   int
-#                  nn_args       dict given to the net constructor (nn_version is HERE only)
-#     sources    : {path relative to the framework root: text}
-#                  the game's NNet wrapper file, the network file, and the files they import
-#                  DIRECTLY from the same game package (no transitive closure, no framework files)
-#     ...        : whatever the Coach adds (vars(args)), except 'nn_version'; optim_state if any
+#     game          name accepted by GameSwitcher.import_game (folder of the game package)
+#     board_size    list of int          (game.getBoardSize())
+#     action_size   int
+#     num_players   int
+#     nn_args       dict given to the net constructor (nn_version is HERE only)
+#     args          what the Coach passes as additional_keys (vars(args) of main.py), without nn_version
+#     provenance    saved_at      ISO-8601 with UTC offset, refreshed at each save
+#                   command_line  sys.argv of the process that trained
+#                   python, torch, numpy, numba, onnx, onnxruntime   versions in use
+#     sources       uint8 tensor = zlib(JSON {path relative to the framework root: text}) of the *.py
+#                   files of the framework root and of the game package (not recursive, like the code
+#                   backup of main.py); unpack_sources() gives the dict back
+#
+# Everything but state_dict, args and saved_at is captured ONCE, when a network wrapper is built
+# (a long run outlives edits of the sources: record what the process actually imported).
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 
@@ -87,116 +85,79 @@ def game_name(wrapper):
 		return None
 
 
-def git_info(root=ROOT):
-	"""{'commit', 'dirty'}; dirty = tracked files differ from the commit (untracked ignored)."""
+def lib_version(name):
 	try:
-		def run(*a):
-			return subprocess.run(['git', *a], cwd=root, capture_output=True, text=True, timeout=10)
-		head = run('rev-parse', 'HEAD')
-		if head.returncode != 0:
-			return {'commit': None, 'dirty': None}
-		status = run('status', '--porcelain', '--untracked-files=no')
-		return {'commit': head.stdout.strip(), 'dirty': bool(status.stdout.strip())}
+		return importlib.metadata.version(name)
 	except Exception:
-		return {'commit': None, 'dirty': None}
+		return None
 
 
-def _resolve(base, dotted):
-	"""base/a/b.py or base/a/b/__init__.py (None if absent)."""
-	p = os.path.join(base, *dotted.split('.')) if dotted else base
-	for cand in (p + '.py', os.path.join(p, '__init__.py')):
-		if os.path.isfile(cand):
-			return os.path.realpath(cand)
-	return None
-
-
-def local_imports(path, pkg_dir):
-	"""Files imported DIRECTLY by `path` (anywhere in its code, function bodies included) that
-	live inside pkg_dir. Relative imports resolve from the file, absolute ones from the
-	framework root and from the package dir itself (games add their own dir to sys.path)."""
-	found = set()
-	try:
-		tree = ast.parse(open(path, encoding='utf-8').read())
-	except (OSError, SyntaxError, UnicodeDecodeError):
-		return found
-	here = os.path.dirname(path)
-	for node in ast.walk(tree):
-		cands = []
-		if isinstance(node, ast.Import):
-			for al in node.names:
-				cands += [_resolve(b, al.name) for b in (ROOT, pkg_dir)]
-		elif isinstance(node, ast.ImportFrom):
-			if node.level:
-				base = here
-				for _ in range(node.level - 1):
-					base = os.path.dirname(base)
-				bases = [base]
-			else:
-				bases = [ROOT, pkg_dir]
-			for b in bases:
-				if node.module:
-					cands.append(_resolve(b, node.module))
-				for al in node.names:   # "from . import X" or "from pkg import submodule"
-					cands.append(_resolve(b, (node.module + '.' if node.module else '') + al.name))
-		for c in cands:
-			if c and os.path.commonpath([c, pkg_dir]) == pkg_dir and c != path and os.path.getsize(c) > 0:   # empty __init__.py: nothing to record
-				found.add(c)
-	return found
-
-
-def collect_sources(wrapper):
-	"""{relative path: text} for the wrapper file, the network file and their direct imports,
-	restricted to the game's package directory (a subdirectory of the framework root)."""
-	files = {}
-	for obj in (type(wrapper.nnet), type(wrapper)):
-		f = inspect.getsourcefile(obj)
-		if f:
-			files[os.path.realpath(f)] = obj
-	pkg_dir = os.path.dirname(os.path.realpath(inspect.getsourcefile(type(wrapper.nnet))))
-	if os.path.commonpath([pkg_dir, ROOT]) != ROOT or pkg_dir == ROOT:
-		return {}   # network defined outside a game package: nothing safe to record
-	paths = {p for p in files if os.path.dirname(p) == pkg_dir}
-	for p in list(paths):
-		paths |= local_imports(p, pkg_dir)
+def collect_sources(game):
+	"""{relative path: text} of the *.py files of the framework root and of the game package
+	(not recursive, empty files skipped)."""
 	out = {}
-	for p in sorted(paths):
-		with open(p, encoding='utf-8') as fh:
-			out[os.path.relpath(p, ROOT).replace(os.sep, '/')] = fh.read()
+	for d in [ROOT] + ([os.path.join(ROOT, game)] if game else []):
+		for name in sorted(os.listdir(d)):
+			p = os.path.join(d, name)
+			if not (name.endswith('.py') and os.path.isfile(p) and os.path.getsize(p) > 0):
+				continue
+			try:
+				with open(p, encoding='utf-8') as fh:
+					out[os.path.relpath(p, ROOT).replace(os.sep, '/')] = fh.read()
+			except (OSError, UnicodeDecodeError):
+				pass
 	return out
 
 
-def capture_provenance(wrapper):
-	"""Returns (provenance, sources). Never raises: the optional parts degrade to None / {}."""
-	prov = {
-		'saved_at': None,
-		'command_line': None,
-		'git': {'commit': None, 'dirty': None},
-		'torch': str(torch.__version__),
-		'game': game_name(wrapper),
+def pack_sources(files):
+	"""{path: text} -> uint8 tensor holding zlib(JSON). A tensor weighs exactly its size in the .pt
+	(bytes weigh 1.5x, base64 1.33x)."""
+	blob = zlib.compress(json.dumps(files, ensure_ascii=False, sort_keys=True).encode('utf-8'), 9)
+	return torch.frombuffer(bytearray(blob), dtype=torch.uint8)
+
+
+def unpack_sources(tensor):
+	return json.loads(zlib.decompress(tensor.numpy().tobytes()).decode('utf-8'))
+
+
+def capture_header(wrapper):
+	"""Everything a checkpoint records besides the weights and the Coach's args.
+	Never raises: the optional parts degrade to None / absent."""
+	game = game_name(wrapper)
+	header = {
+		'game': game,
 		'board_size': shape_list(wrapper.board_size),
 		'action_size': int(wrapper.action_size),
 		'num_players': int(wrapper.num_players),
 		'nn_args': _plain(dict(wrapper.args)),
+		'provenance': {
+			'saved_at': None,
+			'command_line': None,
+			'python': platform.python_version(),
+			'torch': str(torch.__version__),
+			'numpy': lib_version('numpy'),
+			'numba': lib_version('numba'),
+			'onnx': lib_version('onnx'),
+			'onnxruntime': lib_version('onnxruntime'),
+		},
 	}
 	try:
-		prov['command_line'] = shlex.join(sys.argv)
+		header['provenance']['command_line'] = shlex.join(sys.argv)
 	except Exception:
 		pass
-	prov['git'] = git_info()
 	try:
-		sources = collect_sources(wrapper)
+		header['sources'] = pack_sources(collect_sources(game))
 	except Exception as e:
 		print(f'[provenance] sources not recorded: {e!r}')
-		sources = {}
-	return prov, sources
+	return header
 
 
 def checkpoint_version(ckpt):
-	"""nn_version of a loaded checkpoint (single source of truth: provenance.nn_args)."""
+	"""nn_version of a loaded checkpoint (single source of truth: nn_args)."""
 	try:
-		return ckpt['provenance']['nn_args']['nn_version']
+		return ckpt['nn_args']['nn_version']
 	except (KeyError, TypeError):
-		raise ValueError('old-format checkpoint (no provenance.nn_args.nn_version): '
+		raise ValueError('old-format checkpoint (no nn_args.nn_version): '
 		                 'convert it first with convert_checkpoint.py') from None
 
 
@@ -219,7 +180,7 @@ class GenericNNetWrapper(NeuralNet):
 		self.num_players = game.num_players
 		self.requestKnowledgeTransfer = False
 		# frozen NOW: a long run outlives edits of the sources, record what was actually imported
-		self.provenance, self.sources = capture_provenance(self)
+		self.header = capture_header(self)
 
 	def init_nnet(self, game, nn_args):
 		pass
@@ -343,13 +304,20 @@ class GenericNNetWrapper(NeuralNet):
 		if not os.path.exists(folder):
 			os.mkdir(folder)
 
+		h = self.header
 		data = {
 			'state_dict': self.nnet.state_dict(),
-			'provenance': dict(self.provenance, saved_at=now_iso()),
-			'sources': self.sources,
+			'game': h['game'],
+			'board_size': h['board_size'],
+			'action_size': h['action_size'],
+			'num_players': h['num_players'],
+			'nn_args': h['nn_args'],
+			# nn_version lives in nn_args only (vars(args) would add a duplicate)
+			'args': _plain({k: v for k, v in additional_keys.items() if k != 'nn_version'}),
+			'provenance': dict(h['provenance'], saved_at=now_iso()),
 		}
-		# nn_version lives in provenance['nn_args'] only (vars(args) would add a duplicate)
-		data.update({k: v for k, v in additional_keys.items() if k not in data and k != 'nn_version'})
+		if 'sources' in h:
+			data['sources'] = h['sources']
 		torch.save(data, filepath)
 
 	def load_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar'):
@@ -499,6 +467,6 @@ if __name__ == "__main__":
 	print(f'V{nnet.nnet.version} -> {flops.total()/1000000:.1f} MFlops, nb params {nnet.number_params()[0]:.2e}')
 
 	for k in sorted(checkpoint.keys()):
-		if k not in ['state_dict', 'sources', 'optim_state']:
+		if k not in ['state_dict', 'sources']:
 			print(f'  {k}: {checkpoint[k]}')
 	print(f'Board shape: {list(dummy_board.shape)}, valids shape: {list(dummy_valid_actions.shape)}')
