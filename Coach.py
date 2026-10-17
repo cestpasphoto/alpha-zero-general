@@ -217,7 +217,7 @@ class Coach():
 			shuffle(trainExamples)
 
 			# Snapshot the network BEFORE training: it is the reference of the arena
-			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt', additional_keys=vars(self.args))
+			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt', additional_keys=vars(self.args), iteration=i - 1)  # state BEFORE training iteration i
 			self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
 			self.nnet.train(trainExamples)
 			self.arena_gate_step(i)
@@ -256,9 +256,9 @@ class Coach():
 			self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
 		else:
 			log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> ACCEPTED')
-			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args))
+			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i), additional_keys=vars(self.args), iteration=i)
 			# 'best.pt' is the last ACCEPTED checkpoint, not the post-hoc best of the run
-			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args))
+			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pt', additional_keys=vars(self.args), iteration=i)
 			self.consecutive_failures = 0
 
 	def getCheckpointFile(self, iteration):
