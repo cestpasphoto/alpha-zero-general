@@ -118,7 +118,7 @@ def main():
 	parser.add_argument('--checkpoint'      , '-C' , action='store', default='./temp/', help='')
 	parser.add_argument('--load-folder-file', '-L' , action='store', default=None     , help='')
 	
-	parser.add_argument('--numEps'          , '-e' , action='store', default=500  , type=int  , help='Number of complete self-play games to simulate during a new iteration')
+	parser.add_argument('--numEps'          , '-e' , action='store', default=200  , type=int  , help='Number of complete self-play games to simulate during a new iteration')
 	parser.add_argument('--numItersHistory' , '-i' , action='store', default=5   , type=int  , help='')
 
 	parser.add_argument('--numMCTSSims'     , '-m' , action='store', default=1600 , type=int  , help='Number of moves for MCTS to simulate in FULL exploration')

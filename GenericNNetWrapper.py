@@ -38,13 +38,15 @@ torch.set_num_threads(1) # PyTorch more efficient this way
 #     nn_args       dict given to the net constructor (nn_version is HERE only)
 #     args          what the Coach passes as additional_keys (vars(args) of main.py), without nn_version
 #     provenance    saved_at      ISO-8601 with UTC offset, refreshed at each save
+#                   iteration     training iteration of the Coach loop (None if unknown; temp.pt = i-1, the
+#                                 state before training iteration i; restarts at 1 on a relaunch)
 #                   command_line  sys.argv of the process that trained
 #                   python, torch, numpy, numba, onnx, onnxruntime   versions in use
 #     sources       uint8 tensor = zlib(JSON {path relative to the framework root: text}) of the *.py
 #                   files of the framework root and of the game package (not recursive, like the code
 #                   backup of main.py); unpack_sources() gives the dict back
 #
-# Everything but state_dict, args and saved_at is captured ONCE, when a network wrapper is built
+# Everything but state_dict, args, saved_at and iteration is captured ONCE, when a network wrapper is built
 # (a long run outlives edits of the sources: record what the process actually imported).
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
@@ -299,7 +301,7 @@ class GenericNNetWrapper(NeuralNet):
 		targets = (targets_V + self.args['q_weight'] * targets_Q) / (1+self.args['q_weight'])
 		return torch.sum((targets - outputs) ** 2) / (targets_V.size()[0] * targets_V.size()[-1]) # Normalize by batch size * nb of players
 
-	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', additional_keys={}):
+	def save_checkpoint(self, folder='checkpoint', filename='checkpoint.pth.tar', additional_keys={}, iteration=None):
 		filepath = os.path.join(folder, filename)
 		if not os.path.exists(folder):
 			os.mkdir(folder)
@@ -314,7 +316,7 @@ class GenericNNetWrapper(NeuralNet):
 			'nn_args': h['nn_args'],
 			# nn_version lives in nn_args only (vars(args) would add a duplicate)
 			'args': _plain({k: v for k, v in additional_keys.items() if k != 'nn_version'}),
-			'provenance': dict(h['provenance'], saved_at=now_iso()),
+			'provenance': dict(h['provenance'], saved_at=now_iso(), iteration=None if iteration is None else int(iteration)),
 		}
 		if 'sources' in h:
 			data['sources'] = h['sources']
