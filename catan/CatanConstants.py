@@ -59,7 +59,11 @@ VP_TO_WIN = 10
 MIN_KNIGHTS_FOR_ARMY = 3
 MIN_LENGTH_FOR_ROAD = 5
 HAND_LIMIT_ON_SEVEN = 7
-MAX_ROUNDS = 400               # draw guard; stored as (lo, hi) to stay within int8
+# Draw guard, counted in player TURNS (+1 at every END_TURN, so ~133 turns
+# each at 3 players), not in full rounds; stored as (lo, hi) to stay within int8
+MAX_ROUNDS = 400
+# sample_world: max number of dev-card deals tried before keeping the last one
+MAX_DEV_DEALS = 64
 # NOT an official rule: bank trades are the only action with no natural cap,
 # and an uncapped turn can chain dozens of them, which blows up the depth of
 # MCTS's recursive search. 6 per turn is more than any sensible policy needs.
@@ -261,9 +265,10 @@ PD_TRADE_STATUS = 10           # TRADE_* below
 TRADE_NONE, TRADE_COMPOSING, TRADE_OFFERED, TRADE_REFUSED = 0, 1, 2, 3
 
 # Global row A
-GA_BANK, GA_DEV_DECK, GA_DICE, GA_PHASE = 0, 5, 10, 11
+GA_BANK, GA_DEV_DECK, GA_DICE, GA_PHASE = 0, 5, 10, 11   # GA_DICE: 0 until rolled this turn
 # Global row B
-GB_ROUND_LO, GB_ROUND_HI, GB_PENDING_COUNT = 0, 1, 2
+GB_ROUND_LO, GB_ROUND_HI = 0, 1   # turn counter, see MAX_ROUNDS
+GB_PENDING_COUNT = 2           # roads still to place after Road Building (discards: PC_DISCARD_LEFT)
 GB_TURN_PLAYER = 3             # whose TURN it is, relative to the player to move. During a
                                # discard the actor is not the turn owner, hence two fields.
 GB_SETUP_STEP = 4              # index in the snake placement order
@@ -276,8 +281,8 @@ GB_PLAYER_TRADE_DONE = 11      # 0/1, one player-trade ATTEMPT per turn (success
 # isometries): the setup vertex is DERIVED, the player's only building with no
 # road of its own.
 
-# Phases. PHASE_TRADE_OFFER covers BOTH plies of an announcement (ask, then offer):
-# which one is pending is read off the composer's PD_TRADE_RECV, so no fourth phase.
+# Phases. The ask of an announcement is A_TRADE_RECV, played from PHASE_MAIN;
+# PHASE_TRADE_OFFER is the offer ply that follows, PHASE_TRADE_ANSWER the replies.
 PHASE_SETUP_SETTLEMENT, PHASE_SETUP_ROAD = 0, 1
 PHASE_ROLL, PHASE_DISCARD, PHASE_MOVE_ROBBER, PHASE_MAIN = 2, 3, 4, 5
 PHASE_ROAD_BUILDING, PHASE_TRADE_OFFER, PHASE_TRADE_ANSWER = 6, 7, 8

@@ -90,18 +90,6 @@ def can_settle(state, v):
 	return True
 
 
-def production_pips(state, player):
-	"""Expected production of `player` over the whole board, in pips."""
-	total = 0
-	for v in range(N_VERTICES):
-		if state[v, V_OWNER] == player + 1:
-			for k in range(3):
-				h = VERTEX_TO_HEX[v, k]
-				if h != NO_HEX:
-					total += int(state[v, V_BUILDING]) * int(state[N_VERTICES + h, H_PIPS])
-	return total
-
-
 class GreedyPlayer():
 	"""Rule-based baseline, see the comment above."""
 

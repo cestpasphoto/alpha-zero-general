@@ -43,8 +43,8 @@ from Stochastic import hashed_draw
 #        rows so it rotates with its owner; the protocol state (composer, next
 #        responder) is derived from the statuses, never stored.
 #   2 global rows
-#     A  bank, dev deck per type, last roll, phase
-#     B  round (lo/hi), pending roads or discards, turn player (relative to the
+#     A  bank, dev deck per type, roll of this turn (0 = not rolled yet), phase
+#     B  turn counter (lo/hi), pending roads, turn player (relative to the
 #        player to move), setup step, dev cards played per type, chance counter,
 #        player trade done this turn
 #
@@ -57,7 +57,8 @@ from Stochastic import hashed_draw
 #   sample_world() re-deals every masked hand and the deck so that all margins
 #   hold: each total, each resource outside the bank, each dev type not played.
 #   A published offer proves its author holds what it gives: those cards are
-#   reserved before any random draw.
+#   reserved before any random draw. A hidden hand never gets enough VP cards
+#   to reach VP_TO_WIN: it would already have won (rejection, see sample_world).
 #   Legality never reads hidden information: valid_moves() is the same on the
 #   true state and on the observation.
 #   With 2 players the opponent's resources are deducible from the bank.
@@ -475,6 +476,7 @@ class Board():
 			dpool[k] = DEV_DISTRIBUTION[k] - self.globals_[1, GB_DEV_PLAYED + k]
 			if not deck_masked:
 				dpool[k] -= self.globals_[0, GA_DEV_DECK + k]
+		dev_masked = np.zeros(self.num_players, dtype=np.int8)
 		for p in range(self.num_players):
 			detail = 0
 			for k in range(N_DEV_TYPES):
@@ -482,22 +484,39 @@ class Board():
 			if detail == self.players[4*p, PA_TOTAL_DEV]:
 				for k in range(N_DEV_TYPES):
 					dpool[k] -= self.players[4*p, PA_DEV_PLAYABLE + k] + self.players[4*p + 1, PB_DEV_NEW + k]
-		for p in range(self.num_players):
-			detail = 0
+			else:
+				dev_masked[p] = 1
+		# A player reaching VP_TO_WIN wins on the spot during its own turn, and VP
+		# are only gained during one's own turn (except a longest-road transfer,
+		# ignored here): a deal where a hidden hand already totals VP_TO_WIN is
+		# impossible. Rejection of the whole dev deal keeps the exact conditional
+		# law; after MAX_DEV_DEALS failures the last deal is kept as is.
+		dpool0 = dpool.copy()
+		for _attempt in range(MAX_DEV_DEALS):
 			for k in range(N_DEV_TYPES):
-				detail += self.players[4*p, PA_DEV_PLAYABLE + k] + self.players[4*p + 1, PB_DEV_NEW + k]
-			if detail == self.players[4*p, PA_TOTAL_DEV]:
-				continue
-			nb_new = self.players[4*p + 2, PC_TOTAL_DEV_NEW]
-			for c in range(self.players[4*p, PA_TOTAL_DEV]):
-				counter += 1
-				k = self._draw_from_pool(dpool, random_seed, counter)
-				if c < nb_new:
-					self.players[4*p + 1, PB_DEV_NEW + k] += 1
-				else:
-					self.players[4*p, PA_DEV_PLAYABLE + k] += 1
-			self.players[4*p + 2, PC_VP_DEV] = (self.players[4*p, PA_DEV_PLAYABLE + VICTORY_POINT]
-			                                    + self.players[4*p + 1, PB_DEV_NEW + VICTORY_POINT])
+				dpool[k] = dpool0[k]
+			ok = True
+			for p in range(self.num_players):
+				if dev_masked[p] == 0:
+					continue
+				for k in range(N_DEV_TYPES):
+					self.players[4*p, PA_DEV_PLAYABLE + k] = 0
+					self.players[4*p + 1, PB_DEV_NEW + k] = 0
+				nb_new = self.players[4*p + 2, PC_TOTAL_DEV_NEW]
+				for c in range(self.players[4*p, PA_TOTAL_DEV]):
+					counter += 1
+					k = self._draw_from_pool(dpool, random_seed, counter)
+					if c < nb_new:
+						self.players[4*p + 1, PB_DEV_NEW + k] += 1
+					else:
+						self.players[4*p, PA_DEV_PLAYABLE + k] += 1
+				vp = (self.players[4*p, PA_DEV_PLAYABLE + VICTORY_POINT]
+				      + self.players[4*p + 1, PB_DEV_NEW + VICTORY_POINT])
+				self.players[4*p + 2, PC_VP_DEV] = vp
+				if vp > 0 and self.players[4*p + 2, PC_VP_PUBLIC] + vp >= VP_TO_WIN:
+					ok = False
+			if ok:
+				break
 		if deck_masked:
 			for k in range(N_DEV_TYPES):
 				self.globals_[0, GA_DEV_DECK + k] = dpool[k]
@@ -739,19 +758,11 @@ class Board():
 					valids[A_ROAD + e] = True
 
 		elif phase == PHASE_TRADE_OFFER:
-			# One phase, two plies: an empty PD_TRADE_RECV means the ask is still
-			# to come, otherwise the offer is. No fourth phase id needed.
-			asked = 0
-			for r in range(N_RESOURCES):
-				asked += self.players[4*player + 3, PD_TRADE_RECV + r]
-			if asked == 0:
-				for s in range(N_TRADE_SETS):
-					if self._recv_is_legal(player, s):
-						valids[A_TRADE_RECV + s] = True
-			else:
-				for s in range(N_TRADE_SETS):
-					if self._give_is_legal(player, s):
-						valids[A_TRADE_GIVE + s] = True
+			# The ask is A_TRADE_RECV, played from PHASE_MAIN: this phase is only
+			# ever entered with PD_TRADE_RECV set, so only the offer remains.
+			for s in range(N_TRADE_SETS):
+				if self._give_is_legal(player, s):
+					valids[A_TRADE_GIVE + s] = True
 
 		elif phase == PHASE_TRADE_ANSWER:
 			t = int(self.globals_[1, GB_TURN_PLAYER])
@@ -888,9 +899,11 @@ class Board():
 	############################## MAKE MOVE: PRIMITIVES ######################
 
 	def _next_counter(self):
+		# Always EVEN: a chance event owns the keys k and k+1, so the two dice of
+		# a roll (k, k+1) never share a key with any other draw (k' even).
 		c = self.globals_[1, GB_CHANCE_COUNTER]
 		self.globals_[1, GB_CHANCE_COUNTER] = (c + 1) % 100
-		return np.int64(self.get_round()) * 100 + np.int64(c)
+		return 2 * (np.int64(self.get_round()) * 100 + np.int64(c))
 
 	def _draw(self, random_seed, counter, m):
 		if random_seed == 0:
@@ -993,6 +1006,7 @@ class Board():
 		self.players[4*player + 2, PC_DEV_PLAYED_THIS_TURN] = 0
 		self.players[4*player + 2, PC_TRADES_THIS_TURN] = 0
 		self.globals_[1, GB_PLAYER_TRADE_DONE] = 0
+		self.globals_[0, GA_DICE] = 0          # 0 = dice not rolled yet this turn
 		self._refresh_totals(player)
 		self.globals_[0, GA_PHASE] = PHASE_ROLL
 
@@ -1004,7 +1018,7 @@ class Board():
 
 	def _roll_and_produce(self, player, random_seed):
 		c = self._next_counter()
-		dice = 2 + self._draw(random_seed, 2*c, 6) + self._draw(random_seed, 2*c + 1, 6)
+		dice = 2 + self._draw(random_seed, c, 6) + self._draw(random_seed, c + 1, 6)
 		self.globals_[0, GA_DICE] = dice
 		if dice == 7:
 			total = 0
@@ -1061,6 +1075,11 @@ class Board():
 		self.hexes[h, H_ROBBER] = 1
 		if t != 0:
 			victim = (player + t) % self.num_players
+			detail = 0
+			for r in range(N_RESOURCES):
+				detail += self.players[4*victim, PA_RESOURCES + r]
+			if detail != self.players[4*victim, PA_TOTAL_RES]:
+				raise ValueError("_do_robber: masked hand, make_move needs a full world")
 			c = self._next_counter()
 			pick = self._draw(random_seed, c, self.players[4*victim, PA_TOTAL_RES])
 			acc = 0
@@ -1072,7 +1091,12 @@ class Board():
 					break
 			self._refresh_totals(victim)
 			self._refresh_totals(player)
-		self.globals_[0, GA_PHASE] = PHASE_MAIN
+		# A knight played before rolling must not skip the roll. The roll is then
+		# the only legal move (one dev card per turn) and make_move resolves it.
+		if self.globals_[0, GA_DICE] == 0:
+			self.globals_[0, GA_PHASE] = PHASE_ROLL
+		else:
+			self.globals_[0, GA_PHASE] = PHASE_MAIN
 
 	def _do_monopoly(self, r, player):
 		self.players[4*player, PA_DEV_PLAYABLE + MONOPOLY] -= 1
@@ -1172,6 +1196,8 @@ class Board():
 		total = 0
 		for k in range(N_DEV_TYPES):
 			total += self.globals_[0, GA_DEV_DECK + k]
+		if total <= 0:
+			raise ValueError("_draw_dev: masked or empty deck, make_move needs a full world")
 		c = self._next_counter()
 		pick = self._draw(random_seed, c, total)
 		acc = 0
