@@ -2,8 +2,11 @@ import numpy as np
 from numba import njit
 import numba
 
-INITIAL_LAYOUT              = 1    # 0: Classic, 1: Belgian Daisy, 2: German Daisy
-ENABLE_DYNAMIC_KOMI         = False # Must disable during games, but good to enable during training
+# Starting layout: 0 = Classic, 1 = Belgian Daisy, 2 = German Daisy.
+# Either a scalar (fixed layout) or a tuple: one entry is then drawn per game,
+# repeat an entry to weight it, e.g. (1, 2, 0, 1, 2).
+INITIAL_LAYOUT              = 1    # Use (1, 2, 0, 1, 2) for training
+ENABLE_DYNAMIC_KOMI         = False # Must disable during games, but good to enable at the beginning of training
 MAX_PLIES                   = 300  # Hard cap on game length in plies (stored on 2 int8 cells, max 16383)
 NO_EJECTION_LIMIT           = 60   # Game ends after this many consecutive plies without ejection (max 127)
 
@@ -40,6 +43,9 @@ NO_EJECTION_LIMIT           = 60   # Game ends after this many consecutive plies
 #   - A movement direction (0 to 5)
 # The Anchor is always the marble in the group closest to the axis origin 
 # (minimum 'r', and if tied, minimum 'q').
+
+# Plain-Python normalisation (scalar -> 1-tuple) so that numba sees a homogeneous tuple
+_LAYOUT_POOL = tuple(int(x) for x in INITIAL_LAYOUT) if isinstance(INITIAL_LAYOUT, (tuple, list)) else (int(INITIAL_LAYOUT),)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
@@ -176,7 +182,8 @@ class Board():
 		# ====================================================================
 		# STARTING LAYOUT CONFIGURATION
 		# ====================================================================
-		if INITIAL_LAYOUT == 0:
+		layout = _LAYOUT_POOL[np.random.randint(len(_LAYOUT_POOL))]
+		if layout == 0:
 			# Classic Layout
 			self.opp_marbles[0, 4:9] = 1
 			self.opp_marbles[1, 3:9] = 1
@@ -186,7 +193,7 @@ class Board():
 			self.my_marbles[7, 0:6] = 1
 			self.my_marbles[6, 2:5] = 1
 
-		elif INITIAL_LAYOUT == 1:
+		elif layout == 1:
 			# Belgian Daisy - Clusters closer to the edges
 			# Opponent (White)
 			self.opp_marbles[0, 4:6] = 1
@@ -206,7 +213,7 @@ class Board():
 			self.my_marbles[7, 0:3] = 1
 			self.my_marbles[8, 0:2] = 1
 
-		elif INITIAL_LAYOUT == 2:
+		elif layout == 2:
 			# German Daisy - Clusters one row away from the edges
 			# Opponent (White): H4-H5, G3-G5, F3-F4 and D6-D7, C5-C7, B5-B6
 			self.opp_marbles[1, 3:5] = 1
