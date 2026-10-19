@@ -21,7 +21,7 @@ def move_to_str(move, player):
 
 def _print_round_and_scores(board):
 	print("=" * 45)
-	print(f" Round: {board.get_round()} ")
+	print(f" Round: {board.get_round()}  (plies since last ejection: {board.misc[0, 5]})")
 	print(f" {Fore.RED}Player 0 (Black){Style.RESET_ALL} score: {board.get_score(0)}/6")
 	print(f" {Fore.WHITE}Player 1 (White){Style.RESET_ALL} score: {board.get_score(1)}/6")
 	print("=" * 45)
@@ -29,8 +29,9 @@ def _print_round_and_scores(board):
 def _print_hex_grid(board):
 	"""
 	Prints the axial grid as a proper hexagon in the terminal.
-	Because r=0 has 5 cells, r=4 has 9 cells, etc., we pad the left 
+	Because r=0 has 5 cells, r=4 has 9 cells, etc., we pad the left
 	side with spaces proportional to the distance from the center row (r=4).
+	Cells are 2 characters wide, so a 1-space shift per row is half a cell.
 	"""
 	for r in range(9):
 		# Calculate padding to form the hexagonal shape
@@ -41,13 +42,13 @@ def _print_hex_grid(board):
 			if board.board_mask[r, q] == 1:
 				if board.my_marbles[r, q] == 1:
 					# Player 0 (Usually Black, printing in RED for dark terminal visibility)
-					print(f"{Fore.RED} ⬤ {Style.RESET_ALL}", end="")
+					print(f"{Fore.RED}⬤ {Style.RESET_ALL}", end="")
 				elif board.opp_marbles[r, q] == 1:
 					# Player 1 (White)
-					print(f"{Fore.WHITE} ⬤ {Style.RESET_ALL}", end="")
+					print(f"{Fore.WHITE}⬤ {Style.RESET_ALL}", end="")
 				else:
 					# Empty playable hole
-					print(f"{Fore.LIGHTBLACK_EX} + {Style.RESET_ALL}", end="")
+					print(f"{Fore.LIGHTBLACK_EX}+ {Style.RESET_ALL}", end="")
 		print() # New line for the next row
 	print()
 

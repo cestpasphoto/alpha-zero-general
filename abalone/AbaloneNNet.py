@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models.mobilenetv3 import InvertedResidualConfig, InvertedResidual
+from .AbaloneLogicNumba import MAX_PLIES, NO_EJECTION_LIMIT
 
 # =========================================================================
 # 1. BUILDING BLOCKS
@@ -178,8 +179,22 @@ class AbaloneNNet(nn.Module):
 		spatial_data = input_data[:, :, :, :3].permute(0, 3, 1, 2) # -> (Batch, 3, 9, 9)
 		
 		# Metadata is extracted from specific cells defined in AbaloneLogicNumba.py
-		# (0,0):P0 score, (0,1):P1 score, (0,2):Round, (0,3):Komi, (0,4):P0 sumito, (0,5):P1 sumito
-		meta_data = input_data[:, 0, 0:6, 3] # -> (Batch, 3)
+		# (0,0): my score, (0,1): opp score, (0,2): ply low byte, (0,3): komi,
+		# (0,4): ply high byte, (0,5): plies since last ejection
+		misc = input_data[:, 0, 0:6, 3].float()
+		plies = misc[:, 2] + 128. * misc[:, 4]
+		no_eject = misc[:, 5]
+		plies_left = torch.minimum(MAX_PLIES - plies, NO_EJECTION_LIMIT - no_eject)
+		# Inputs 0-3 keep the raw scale of the previous encoding so that old checkpoints
+		# stay valid (ply count is identical below 128); inputs 4-5 are new, scaled to [0, 1]
+		meta_data = torch.stack([
+			misc[:, 0],
+			misc[:, 1],
+			plies,
+			misc[:, 3],
+			no_eject / NO_EJECTION_LIMIT,
+			plies_left / NO_EJECTION_LIMIT,
+		], dim=1) # -> (Batch, 6)
 		
 		# 2. Process trunk
 		x_features = self.first_layer(spatial_data)

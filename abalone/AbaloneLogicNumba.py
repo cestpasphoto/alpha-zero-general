@@ -4,6 +4,8 @@ import numba
 
 INITIAL_LAYOUT              = 1    # 0: Classic, 1: Belgian Daisy, 2: German Daisy
 ENABLE_DYNAMIC_KOMI         = False # Must disable during games, but good to enable during training
+MAX_PLIES                   = 300  # Hard cap on game length in plies (stored on 2 int8 cells, max 16383)
+NO_EJECTION_LIMIT           = 60   # Game ends after this many consecutive plies without ejection (max 127)
 
 # =============================================================================
 # BOARD DESCRIPTION
@@ -18,7 +20,14 @@ ENABLE_DYNAMIC_KOMI         = False # Must disable during games, but good to ena
 #   z=3 : Miscellaneous data (misc):
 #         (0, 0) : Current player's score (ejected marbles, 0 to 6)
 #         (0, 1) : Opponent's score (0 to 6)
-#         (0, 2) : Round counter (0 to 127)
+#         (0, 2) : Ply counter, low byte (0 to 127)
+#         (0, 3) : Komi (only if ENABLE_DYNAMIC_KOMI): 1 = current player wins ties, 0 = opponent wins ties
+#         (0, 4) : Ply counter, high byte (ply = low + 128 * high)
+#         (0, 5) : Plies since last ejection (0 to NO_EJECTION_LIMIT)
+#
+# A game ends when a player has ejected 6 marbles, or when MAX_PLIES or
+# NO_EJECTION_LIMIT is reached. In the latter case the higher score wins, then
+# komi decides (if enabled), otherwise the game is a draw.
 #
 # =============================================================================
 # ACTION DESCRIPTION
@@ -31,15 +40,6 @@ ENABLE_DYNAMIC_KOMI         = False # Must disable during games, but good to ena
 #   - A movement direction (0 to 5)
 # The Anchor is always the marble in the group closest to the axis origin 
 # (minimum 'r', and if tied, minimum 'q').
-
-# Pre-computed mask for edge penalty (Idea 5)
-EDGE_MASK = np.zeros((9, 9), dtype=np.int8)
-for r in range(9):
-	for q in range(9):
-		if 4 <= r + q <= 12:
-			# Edges are the boundaries of the playable area
-			if r == 0 or r == 8 or q == 0 or q == 8 or r + q == 4 or r + q == 12:
-				EDGE_MASK[r, q] = 1
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
@@ -207,24 +207,24 @@ class Board():
 			self.my_marbles[8, 0:2] = 1
 
 		elif INITIAL_LAYOUT == 2:
-			# German Daisy - Clusters closer to the center
-			# Opponent (White)
-			self.opp_marbles[1, 4:6] = 1
-			self.opp_marbles[2, 3:6] = 1
-			self.opp_marbles[3, 3:5] = 1
-			
-			self.opp_marbles[5, 4:6] = 1
-			self.opp_marbles[6, 3:6] = 1
-			self.opp_marbles[7, 3:5] = 1
+			# German Daisy - Clusters one row away from the edges
+			# Opponent (White): H4-H5, G3-G5, F3-F4 and D6-D7, C5-C7, B5-B6
+			self.opp_marbles[1, 3:5] = 1
+			self.opp_marbles[2, 2:5] = 1
+			self.opp_marbles[3, 2:4] = 1
 
-			# Current Player (Black)
-			self.my_marbles[1, 6:8] = 1
-			self.my_marbles[2, 5:8] = 1
-			self.my_marbles[3, 5:7] = 1
-			
-			self.my_marbles[5, 2:4] = 1
-			self.my_marbles[6, 1:4] = 1
-			self.my_marbles[7, 1:3] = 1
+			self.opp_marbles[5, 5:7] = 1
+			self.opp_marbles[6, 4:7] = 1
+			self.opp_marbles[7, 4:6] = 1
+
+			# Current Player (Black): H8-H9, G7-G9, F7-F8 and D2-D3, C1-C3, B1-B2
+			self.my_marbles[1, 7:9] = 1
+			self.my_marbles[2, 6:9] = 1
+			self.my_marbles[3, 6:8] = 1
+
+			self.my_marbles[5, 1:3] = 1
+			self.my_marbles[6, 0:3] = 1
+			self.my_marbles[7, 0:2] = 1
 
 
 		if ENABLE_DYNAMIC_KOMI:
@@ -246,14 +246,22 @@ class Board():
 		self.misc        = self.state[:, :, 3]
 
 	def get_round(self):
-		return self.misc[0, 2]
+		return np.int32(self.misc[0, 2]) + 128 * np.int32(self.misc[0, 4])
+
+	def _increment_round(self):
+		# Ply counter spread over 2 int8 cells to go beyond 127 without overflow
+		if self.misc[0, 2] >= 127:
+			self.misc[0, 2] = 0
+			self.misc[0, 4] += 1
+		else:
+			self.misc[0, 2] += 1
 
 	def get_score(self, player):
 		return self.misc[0, 0] if player == 0 else self.misc[0, 1]
 
 	def valid_moves(self, player):
 		actions = np.zeros(action_size(), dtype=np.bool_)
-		opp = 1 - player # L'adversaire
+		opp = 1 - player
 
 		for r in range(9):
 			for q in range(9):
@@ -333,12 +341,13 @@ class Board():
 	def make_move(self, move, player, random_seed):
 		r, q, size, axis, d = _decode_action(move)
 		is_inline = (d == axis) or (d == (axis + 3) % 6)
-		opp = 1 - player # Cibler la bonne couche d'adversaire
+		opp = 1 - player
+		ejected = False
 
 		if size == 1 or not is_inline:
 			for i in range(size):
-				cr = r + i * DIRECTIONS[axis, 0] if size > 1 else r
-				cq = q + i * DIRECTIONS[axis, 1] if size > 1 else q
+				cr = r + i * DIRECTIONS[axis, 0]
+				cq = q + i * DIRECTIONS[axis, 1]
 				tr, tq = cr + DIRECTIONS[d, 0], cq + DIRECTIONS[d, 1]
 				self.state[cr, cq, player] = 0
 				self.state[tr, tq, player] = 1
@@ -364,13 +373,18 @@ class Board():
 				if is_on_board(curr_r, curr_q, self.board_mask):
 					self.state[curr_r, curr_q, opp] = 1 
 				else:
-					# Le score du joueur actif (0 ou 1) est incrémenté
-					self.misc[0, player] += 1 
-			
+					# Opponent marble pushed off the board: mover scores
+					self.misc[0, player] += 1
+					ejected = True
+
 			self.state[back_r, back_q, player] = 0
 			self.state[tr, tq, player] = 1
 
-		self.misc[0, 2] += 1
+		self._increment_round()
+		if ejected:
+			self.misc[0, 5] = 0
+		elif self.misc[0, 5] < 127:
+			self.misc[0, 5] += 1
 		return 1 - player
 
 	def check_end_game(self, next_player):
@@ -379,7 +393,7 @@ class Board():
 		if self.misc[0, 1] >= 6:
 			return np.array([-1.0, 1.0], dtype=np.float32)
 			
-		if self.misc[0, 2] >= 127: # Limit reached
+		if self.get_round() >= MAX_PLIES or self.misc[0, 5] >= NO_EJECTION_LIMIT:
 			if self.misc[0, 0] > self.misc[0, 1]: return np.array([1.0, -1.0], dtype=np.float32)
 			if self.misc[0, 1] > self.misc[0, 0]: return np.array([-1.0, 1.0], dtype=np.float32)
 			if ENABLE_DYNAMIC_KOMI:
