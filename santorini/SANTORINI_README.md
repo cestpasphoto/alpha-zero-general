@@ -27,48 +27,37 @@ The following must be true about a player's move for it to be legal:
 * The player cannot pass their turn. 
 * The player cannot place a build a block on a space that already has three blocks on it. The player can only build a dome on that space, or build elsewhere. 
 
-## Implementation specifics:
-Instead of treating the board as 5x5 grid, the board is treated as an array of shape (2,5,5). The first 5x5 subarray contains the locations of each player's characters. The second contains the heights of each space on the board. A player's characters are referred to internally as 1 and 2 (with -1 and -2 being the opponents), and visually represented as O and U for player 1, and X and Y for player 2 (player -1). The visualizations can be easily changed in SantorniGame.py.
+## Implementation specifics
 
-Arbitrary nxn sized boards are supported. The default is 5x5. Calling SantoriniGame(n) (see Main.py) will create games with an nxn shaped board. Internally this will be (2,n,n).
+Board is 5x5 only. Logic is in `SantoriniLogicNumba.py` (numba jitclass), constants and action encoding in `SantoriniConstants.py`.
 
-By default, Each player's pieces are positioned around the center of the board at the start of the game, rather than having them place their own pieces. This is done to simplify the game for the neural net, since the game complexity is rather high, and the net struggles considerably to learn how to play (well). As an alternative, players can have their pieces placed randomly by setting true_random_placement=True when calling SantoriniGame: SantoriniGame(board_size, true_random_placement=True). At present, no way for players to place their pieces at the start of the game has been implemented.  
+### State
+`int8` array of shape `(5, 5, 3)`, always given from the point of view of the player to move (canonical form):
+* `[:,:,0]` workers: `1`, `2` for the player to move, `-1`, `-2` for the opponent, `0` if empty.
+* `[:,:,1]` levels: `0`-`3` blocks, `4` = dome.
+* `[:,:,2]` gods and metadata, read as a flat array of 25 cells:
+  * cells 0-10: player to move, one cell per god id. Value `64` = god owned; lower bits store god-specific data during multi-step turns (Artemis/Demeter: `9*worker + direction + 1`, Prometheus: `9*worker + 1`, Hermes: number of moves already done, Athena: `1` if moved up last turn, Pan: `1` when won by moving down 2+ levels).
+  * cells 11-21: same for the opponent.
+  * cell 22: round counter (saturates at 127).
+  * cell 23: win flag, `+1`/`-1` when player 0/1 moved up onto level 3 (set in terminal states only).
 
+### Gods
+`NB_GODS` in `SantoriniConstants.py`: `1` disables gods, `11` enables no-god + Apollo, Minotaur, Atlas, Hephaestus, Artemis, Demeter, Hermes, Pan, Athena, Prometheus. At init each player receives a different random god.
+Gods with optional extra steps (Artemis, Demeter, Hermes, Prometheus) split a turn into several sub-turns in which the same player plays again.
 
-    """
-    A Santorini Board of default shape: (2,5,5)
-    
-    Board logic:
-        board shape: (2, self.n, self.n)
-           [[[ 0,  0,  0,  0,  0],
-             [ 0,  0,  1,  0,  0],
-             [ 0, -1,  0, -2,  0],
-             [ 0,  0,  2,  0,  0],
-             [ 0,  0,  0,  0,  0]]
-            
-            [[ 0,  0,  0,  0,  0],
-             [ 0,  0,  0,  0,  0],
-             [ 0,  0,  0,  0,  0],
-             [ 0,  0,  0,  0,  0],
-             [ 0,  0,  0,  0,  0]]]
-    
-    BOARD[0]: character locations
-    board[0] shape = (self.n,self.n) here this is (5,5)
-    Cannonical version of this board shows 
-    a player with their pieces as +1, +2 and opponents as -1, -2
-        
-    LOCATIONS: 
-        Locations are given as (x,y) (ROW, COLUMN) coordinates,
-        e.g. the 1 in board[0] is at location (1,2), and the 2 at (3,2), whereas
-        the -1 is at location (2,1), and the -2 at (2,3)
-    
-    ACTIONS: 
-        Actions are stored as list of tuples of the form:
-            action = [piece_location, move_location, build_location]
-                     [(x1,y1),        (x2, y2),      (x3, y3)]
-    
-    BOARD 1: Location heights
-        board shape: (self.n,self.n)
-        Cannonical board shows player height of each board space.
-        The height of each space ranges from 0,...,4 (this is independent of self.n)
- 
+### Actions
+`action = worker*(NB_GODS*81) + power*81 + move_direction*9 + build_direction`, i.e. `2*NB_GODS*81` actions.
+Directions are numbered on a 3x3 grid around the worker (`0 1 2 / 3 4 5 / 6 7 8`), `4` meaning no move / no build.
+`power` is the god power used by this action, `NO_GOD` for a plain move + build.
+
+### Initial placement
+`INIT_METHOD` in `SantoriniLogicNumba.py`:
+* `0`: fixed positions around the center,
+* `1` (default): random positions,
+* `2`: players place their workers alternately. During this phase, actions `0`-`24` are cell indices (`5*row + col`).
+
+### Winning
+A player wins by moving up onto level 3 during their own turn (a worker pushed onto level 3 by Minotaur does not win), with Pan's power, or when the opponent has no legal move.
+
+### Symmetries
+8 per position for training: identity, 3 rotations, 2 flips, swap of workers 1/2, swap of workers -1/-2 (6 during the placement phase).

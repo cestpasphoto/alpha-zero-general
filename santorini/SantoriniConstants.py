@@ -78,3 +78,17 @@ flipUD_core   = np.array([6,7,8,3,4,5,0,1,2], dtype=np.int16)
 flipUD = np.array(_generate_permutation(flipUD_core), dtype=np.int16)
 flipUD_gods = np.array(_generate_permutation_god(flipUD_core), dtype=np.int16)
 
+
+# Placement phase (INIT_METHOD=2): actions 0-24 are cells, permuted like the board
+def _generate_permutation_placement(cell_map):
+	result = list(range(NB_GODS*2*9*9))
+	for y in range(5):
+		for x in range(5):
+			new_y, new_x = cell_map(y, x)
+			result[5*y+x] = 5*new_y + new_x
+	return result
+
+rotation_place = np.array(_generate_permutation_placement(lambda y, x: (4-x, y)), dtype=np.int16) # np.rot90
+flipLR_place   = np.array(_generate_permutation_placement(lambda y, x: (y, 4-x)), dtype=np.int16) # np.fliplr
+flipUD_place   = np.array(_generate_permutation_placement(lambda y, x: (4-y, x)), dtype=np.int16) # np.flipud
+

@@ -9,10 +9,11 @@ from .SantoriniConstants import _decode_action, _encode_action
 # 2: No worker pre-set, each player has to chose their position
 # Don't forget to update NB_GODS in SantoriniConstants.py
 INIT_METHOD = 1
+WIN_CELL = 2*NB_GODS + 1 # index in gods_power.flat, see STATE description
 
 @njit(cache=True, fastmath=True, nogil=True)
 def observation_size():
-	return (5, 5, 3) # True size is 5,5,3 but other functions expects 2-dim answer
+	return (5, 5, 3) # workers, levels, gods/metadata (see STATE below)
 
 @njit(cache=True, fastmath=True, nogil=True)
 def action_size():
@@ -27,7 +28,8 @@ def action_size():
 #            G  ∅  D D D D D
 #		  G: if god power owned
 #		  DDDDD: aditional info on previous move, or move to avoid, or ... depending on god.  Reseted when starting a new round.
-#   	Cells 10-20: same with opponent. Cell 21: general information (nb of rounds)
+#   	Cells 11-21: same with opponent. Cell 22: general information (nb of rounds)
+#		Cell 23 (WIN_CELL): +1/-1 if player 0/1 moved up onto level 3 (only set in terminal states)
 #
 #	Initial status when INIT_METHOD=0 is:
 #		0  0  0  0  0        0  0  0  0  0        0  0  0  0  0
@@ -111,14 +113,14 @@ class Board():
 			for place, worker in zip(init_places, workers_list):
 				self.workers[place//5, place%5] = worker
 
-			gods = [NO_GOD, NO_GOD] if NB_GODS <= 1 else (np.random.choice(NB_GODS-1, 2, replace=False)+1)
-			self.gods_power.flat[gods[0]+NB_GODS*0] = 64
-			self.gods_power.flat[gods[1]+NB_GODS*1] = 64
-
 		elif INIT_METHOD == 2:
 			# Players decide
 			pass # Nothing to do
-		
+
+		gods = [NO_GOD, NO_GOD] if NB_GODS <= 1 else (np.random.choice(NB_GODS-1, 2, replace=False)+1)
+		self.gods_power.flat[gods[0]+NB_GODS*0] = 64
+		self.gods_power.flat[gods[1]+NB_GODS*1] = 64
+
 	def get_state(self):
 		return self.state
 
@@ -170,6 +172,8 @@ class Board():
 							if build_direction == NO_BUILD:
 								continue
 							build_position = _apply_direction(worker_new_position, build_direction)
+							if use_power and build_position == worker_old_position:
+								continue
 							if not self._able_to_build(build_position, ignore=worker_id):
 								continue
 							actions[_encode_action(worker, APOLLO if use_power else NO_GOD, move_direction, build_direction)] = True
@@ -194,6 +198,8 @@ class Board():
 							if build_direction == NO_BUILD:
 								continue
 							build_position = _apply_direction(worker_new_position, build_direction)
+							if use_power and build_position == _position_if_pushed(worker_old_position, worker_new_position):
+								continue
 							if not self._able_to_build(build_position, ignore=worker_id):
 								continue
 							actions[_encode_action(worker, MINOTAUR if use_power else NO_GOD, move_direction, build_direction)] = True
@@ -253,10 +259,18 @@ class Board():
 							worker_new_position = _apply_direction(worker_old_position, move_direction)
 							if not self._able_to_move_worker_to(worker_old_position, worker_new_position, player, no_climb=opponent_used_Athena):
 								continue
+							second_move_exists = False
+							for second_direction in range(9):
+								if second_direction == NO_MOVE or second_direction == 8 - move_direction: # No 2nd move back
+									continue
+								if self._able_to_move_worker_to(worker_new_position, _apply_direction(worker_new_position, second_direction), player, no_climb=opponent_used_Athena):
+									second_move_exists = True
+									break
 							for build_direction in range(9):
 								if build_direction == NO_BUILD:
 									# Allow no build at 1st turn but play again after
-									actions[_encode_action(worker, ARTEMIS, move_direction, build_direction)] = True
+									if second_move_exists:
+										actions[_encode_action(worker, ARTEMIS, move_direction, build_direction)] = True
 								else:
 									build_position = _apply_direction(worker_new_position, build_direction)
 									if not self._able_to_build(build_position, ignore=worker_id):
@@ -450,6 +464,7 @@ class Board():
 			# Decode move
 			worker, power, move_direction, build_direction = _decode_action(move)
 			worker_id = (worker+1) * (1 if player == 0 else -1)
+			level_before_move = self.levels[self._get_worker_position(worker_id)]
 
 			if power == NO_GOD:
 				worker_old_position = self._get_worker_position(worker_id)
@@ -540,6 +555,9 @@ class Board():
 			else:
 				print(f'Should not happen mm {power} ({move})')
 
+			if level_before_move < 3 and self.levels[self._get_worker_position(worker_id)] == 3:
+				self.gods_power.flat[WIN_CELL] = 1 if player == 0 else -1
+
 		# Increase counter of moves
 		if self.gods_power.flat[2*NB_GODS] < 127:
 			self.gods_power.flat[2*NB_GODS] += 1
@@ -553,9 +571,9 @@ class Board():
 		if INIT_METHOD == 2 and np.abs(self.workers).sum() != 6:	# workers not all set, no winner yet
 			return np.array([0, 0], dtype=np.float32)					
 
-		if self.get_score(0) == 3 or self.gods_power.flat[PAN+NB_GODS*0] > 64:	# P0 wins by being 3rd floor or Pan's power
+		if self.gods_power.flat[WIN_CELL] > 0 or self.gods_power.flat[PAN+NB_GODS*0] > 64:	# P0 wins by moving up to 3rd floor or Pan's power
 			return np.array([1, -1], dtype=np.float32)
-		if self.get_score(1) == 3 or self.gods_power.flat[PAN+NB_GODS*1] > 64:	# P1 wins by being 3rd floor or Pan's power
+		if self.gods_power.flat[WIN_CELL] < 0 or self.gods_power.flat[PAN+NB_GODS*1] > 64:	# P1 wins by moving up to 3rd floor or Pan's power
 			return np.array([-1, 1], dtype=np.float32)
 		if self.valid_moves(next_player).sum() == 0:							# P0 wins if P1 can't move, and vice versa
 			if next_player == 0:
@@ -574,6 +592,7 @@ class Board():
 		gods_power_copy = self.gods_power.copy()
 		for i in range(2*NB_GODS):
 			self.gods_power.flat[i] = gods_power_copy.flat[(i+NB_GODS)%(2*NB_GODS)]
+		self.gods_power.flat[WIN_CELL] = -self.gods_power.flat[WIN_CELL]
 
 	def get_symmetries(self, policy, valid_actions):
 		symmetries = [(self.state.copy(), policy.copy(), valid_actions.copy())]
@@ -594,11 +613,17 @@ class Board():
 						continue
 					gods_power.flat[i] = permutation_gods[gods_power.flat[i] - offset]
 
+		# During placement (INIT_METHOD=2), actions 0-24 are cells, not worker/move/build
+		placing = (INIT_METHOD == 2 and np.abs(self.workers).sum() != 6)
+		perm_rotation = rotation_place if placing else rotation
+		perm_flipLR   = flipLR_place   if placing else flipLR
+		perm_flipUD   = flipUD_place   if placing else flipUD
+
 		rotated_policy, rotated_actions = policy, valid_actions
 		for i in range(3):
 			self.workers[:,:] = np.rot90(self.workers)
 			self.levels[:,:] = np.rot90(self.levels)
-			rotated_policy, rotated_actions = _apply_permutation(rotation, rotated_policy, rotated_actions)
+			rotated_policy, rotated_actions = _apply_permutation(perm_rotation, rotated_policy, rotated_actions)
 			_apply_permutation_gods(rotation_gods, self.gods_power)
 			symmetries.append((self.state.copy(), rotated_policy.copy(), rotated_actions.copy()))
 		self.state[:,:,:] = state_backup.copy()
@@ -607,18 +632,18 @@ class Board():
 		self.workers[:,:] = np.fliplr(self.workers)
 		self.levels[:,:] = np.fliplr(self.levels)
 		_apply_permutation_gods(flipLR_gods, self.gods_power)
-		flipped_policy, flipped_actions = _apply_permutation(flipLR, policy, valid_actions)
+		flipped_policy, flipped_actions = _apply_permutation(perm_flipLR, policy, valid_actions)
 		symmetries.append((self.state.copy(), flipped_policy, flipped_actions))
 		self.state[:,:,:] = state_backup.copy()
 
 		self.workers[:,:] = np.flipud(self.workers).copy()
 		self.levels[:,:] = np.flipud(self.levels).copy()
 		_apply_permutation_gods(flipUD_gods, self.gods_power)
-		flipped_policy, flipped_actions = _apply_permutation(flipUD, policy, valid_actions)
+		flipped_policy, flipped_actions = _apply_permutation(perm_flipUD, policy, valid_actions)
 		symmetries.append((self.state.copy(), flipped_policy, flipped_actions))
 		self.state[:,:,:] = state_backup.copy()
 
-		if INIT_METHOD == 2 and np.abs(self.workers).sum() != 6:
+		if placing:
 			return symmetries # workers not all set, stopping here
 
 		# Permute worker 1 and 2
@@ -630,7 +655,7 @@ class Board():
 		def _swap_workers_gods(gods_power, player):
 			offset = 64+1
 			for i in range(NB_GODS*player, NB_GODS*(player+1)):
-				if i%NB_GODS == ARTEMIS or i%NB_GODS == DEMETER or i%NB_GODS == ATHENA:
+				if i%NB_GODS == ARTEMIS or i%NB_GODS == DEMETER or i%NB_GODS == PROMETHEUS:
 					if gods_power.flat[i] < offset:
 						continue
 					gods_power.flat[i] = (gods_power.flat[i]-offset + 9) % 18 + offset
@@ -668,8 +693,7 @@ class Board():
 		for i in np.ndindex(5, 5):
 			if self.workers[i] == searched_worker:
 				return i
-		print(f'Should not happen gwp {searched_worker}')
-		return (-1, -1)
+		raise ValueError('Santorini: searched worker not found on board')
 
 	# Same function as after because @jitclass doesn't support recursive function
 	def _able_to_move_worker_to(self, old_position, new_position, player, no_climb=False, swap_with_opponent=False, push_opponent=False):
