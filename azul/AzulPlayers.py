@@ -8,7 +8,7 @@ class RandomPlayer():
 
     def play(self, board, _nb_moves):
         valids = self.game.getValidMoves(board, player=0)
-        action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int), k=1)[0]
+        action = random.choices(range(self.game.getActionSize()), weights=valids.astype(np.int64), k=1)[0]
         return action
 
 
@@ -39,6 +39,8 @@ class GreedyPlayer():
 
     def play(self, board, _nb_moves):
         valids = self.game.getValidMoves(board, 0)
+        n = self.game.getNumberOfPlayers()
+        row_numbers_p0 = 4 + (2 * n + 1) + n  # see board description in AzulLogicNumba
         best_move = None
         best_to_line = 0
         best_to_floor = 0
@@ -52,10 +54,10 @@ class GreedyPlayer():
                     to_line = 0
                     to_floor = num_tiles
                 else:
-                    num_on_line = board[11][line]
+                    num_on_line = board[row_numbers_p0][line]
                     to_line = min(line + 1 - num_on_line, num_tiles)
                     to_floor = num_tiles - to_line
-                if not best_move:
+                if best_move is None:
                     best_move = move
                     best_to_line = to_line
                     best_to_floor = to_floor

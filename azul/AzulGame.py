@@ -13,7 +13,7 @@ class AzulGame(Game):
     def __init__(self):
         super().__init__()
         self.num_players = NUMBER_PLAYERS
-        self.board = Board()
+        self.board = Board(NUMBER_PLAYERS)
 
     def getInitBoard(self):
         self.board.init_game()
@@ -23,7 +23,7 @@ class AzulGame(Game):
         return observation_size(self.num_players)
 
     def getActionSize(self):
-        return action_size()
+        return action_size(self.num_players)
 
     def getNextState(self, board, player, action, random_seed=0):
         self.board.copy_state(board, True)
@@ -67,7 +67,7 @@ class AzulGame(Game):
         return move_to_str(move)
 
     def printBoard(self, numpy_board):
-        board = Board()
+        board = Board(self.num_players)
         board.copy_state(numpy_board, False)
         print_board(board)
         return
