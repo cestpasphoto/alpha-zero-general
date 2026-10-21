@@ -311,6 +311,8 @@ class Board():
 			elif character == LAMPLIGHTER:
 				self.players_score[p, LAMPPOST] += sum_attributes[LAMPPOST]
 			elif character == HUNTER:
+				# 3 points per species present: fox, elephant, snake, sheep (any color)
+				self.players_score[p, FOX]      += 3 if sum_attributes[FOX     ]>0 else 0
 				self.players_score[p, SNAKE]    += 3 if sum_attributes[SNAKE   ]>0 else 0
 				self.players_score[p, ELEPHANT] += 3 if sum_attributes[ELEPHANT]>0 else 0
 				# Give 3 points if any sheep specy exist, but not for each of them
