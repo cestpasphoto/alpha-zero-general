@@ -267,9 +267,10 @@ class Board():
 		self.freed_cards[:2,:] = self.freed_cards[2:4,:]
 		self.freed_cards[2:4,:] = p0_freed_copy[:]
 
-		# Update misc
-		if self.misc[0,1] > PLAYER_TO_PUT_TO_REGISTER:
-			self.misc[0,1] = (self.misc[0,1]+1)%4 + 1
+		# Update misc. Status (misc[0,1]) is relative to the main player, whose
+		# index is flipped below: it must NOT be remapped, otherwise MAINPL/OTHERP
+		# are inverted twice and stepping a canonical board (as MCTS does) gives
+		# a different next player / state than stepping the absolute board.
 		self.misc[0,2] = 1 - self.misc[0,2]
 		self.misc[1,0], self.misc[1,1] = self.misc[1,1], self.misc[1,0]
 
@@ -390,17 +391,17 @@ class Board():
 			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
 			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
-		# Permutations on arrival zone
-		for permut in permutations_arrival:
-			_permute_arrival(permut, self.arrival_cards, policy, valids)
-			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
-			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+		# # Permutations on arrival zone
+		# for permut in permutations_arrival:
+		# 	_permute_arrival(permut, self.arrival_cards, policy, valids)
+		# 	symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+		# 	self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
-		# Some permutations on registers
-		for permut in permutations_registers:
-			_permute_registers(permut, self.p0_register, self.p1_register, self.middle_reg, policy, valids)
-			symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
-			self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
+		# # Some permutations on registers
+		# for permut in permutations_registers:
+		# 	_permute_registers(permut, self.p0_register, self.p1_register, self.middle_reg, policy, valids)
+		# 	symmetries.append((self.state.copy(), policy.copy(), valids.copy()))
+		# 	self.state[:,:,:], policy, valids = state_backup.copy(), policy_backup.copy(), valids_backup.copy()
 
 		# Swap colors, including the bitfield of remaining cards (column c <-> colour c+2)
 		for color_roll in [2, 4]:
