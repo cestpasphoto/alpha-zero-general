@@ -102,7 +102,7 @@ The AI at reasonable MCTS depth seems much stronger than PJF98 (~700 rated on BG
 
 Games are limited to 127 moves, and winner is the one with highest score even if lower than 6.
 
-About 90+% winrate against Aba-Pro level 6 even though Aba-Pro took much longer at each move. I tried a game versus Aba-Pro level 9 but it took 4+ hours for 127 moves, so I stopped there (was winning 3 to 1).
+About 90+% winrate against Aba-Pro level 8 even though Aba-Pro took much longer at each move. I tried a game versus Aba-Pro level 9 but it took 4+ hours for 127 moves, so I stopped there (was winning 3 to 1).
 
 ### Catan
 
