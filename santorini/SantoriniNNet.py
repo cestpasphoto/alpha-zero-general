@@ -125,7 +125,7 @@ class SantoriniNNet(nn.Module):
 			head_V = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)] + [
 				nn.Flatten(1),
 				nn.Linear(n_filters *5*5, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players)
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
@@ -159,7 +159,7 @@ class SantoriniNNet(nn.Module):
 			head_V_2D = [inverted_residual(n_filters, n_exp_head, n_filters, True, "HS",) for i in range(head_depth)]
 			head_V_1D = [
 				nn.Linear((n_filters+1) *5*5, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players)
 			]
 			self.output_layers_V = CatInTheMiddle(nn.Sequential(*head_V_2D), nn.Sequential(*head_V_1D))

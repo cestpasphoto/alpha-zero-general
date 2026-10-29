@@ -274,7 +274,7 @@ class SplendorNNet(nn.Module):
 				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 7, True, "HS", setype='max'),
 				nn.Flatten(1),
 				nn.Linear(self.nb_vect*7, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
@@ -377,7 +377,7 @@ class SplendorNNet(nn.Module):
 				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 7, True, "HS", setype='max', use_bn=False),
 				nn.Flatten(1),
 				nn.Linear(self.nb_vect*7, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)

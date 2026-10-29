@@ -240,7 +240,7 @@ class TLPNNet(nn.Module):
 				InvertedResidual1d(self.nb_vect, 3*self.nb_vect, self.nb_vect, 15, True, "HS", setype='max'),
 				nn.Flatten(1),
 				nn.Linear(self.nb_vect*15, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
@@ -269,7 +269,7 @@ class TLPNNet(nn.Module):
 				InvertedResidual1d(self.nb_vect, 4*self.nb_vect, self.nb_vect, 15, True, "HS", setype='avg'),
 				nn.Flatten(1),
 				nn.Linear(self.nb_vect*15, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
@@ -293,7 +293,7 @@ class TLPNNet(nn.Module):
 				InvertedResidual1d(self.nb_vect, 2*self.nb_vect, self.nb_vect, 15, True, "HS", setype='max'),
 				nn.Flatten(1),
 				nn.Linear(self.nb_vect*15, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)
@@ -317,7 +317,7 @@ class TLPNNet(nn.Module):
 				InvertedResidual1d(self.nb_vect, int(1.5*self.nb_vect), self.nb_vect, 15, True, "HS", setype='max'),
 				nn.Flatten(1),
 				nn.Linear(self.nb_vect*15, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players),
 			]
 			self.output_layers_V = nn.Sequential(*head_V)

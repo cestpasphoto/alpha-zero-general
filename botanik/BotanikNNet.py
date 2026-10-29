@@ -263,7 +263,7 @@ class BotanikNNet(nn.Module):
 			)
 			self.final_layers_V = nn.Sequential(
 				nn.Linear(self.num_players, self.num_players),
-				nn.ReLU(),
+				nn.LeakyReLU(0.01),  # leaky: a num_players-wide ReLU can die and freeze the value head
 				nn.Linear(self.num_players, self.num_players),
 			)
 
