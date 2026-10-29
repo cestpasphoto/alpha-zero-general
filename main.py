@@ -173,7 +173,7 @@ def main():
 	if args.profile:
 		profiling(args)
 	else:
-		print(args)
+		# print(args)
 		run(args)
 
 

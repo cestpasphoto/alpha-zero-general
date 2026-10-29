@@ -219,6 +219,11 @@ class Coach():
 			# Snapshot the network BEFORE training: it is the reference of the arena
 			self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pt', additional_keys=vars(self.args), iteration=i - 1)  # state BEFORE training iteration i
 			self.pnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pt')
+			full_size = len(trainExamples) * self.args.numItersHistory // max(len(self.trainExamplesHistory), 1)   # expected size once the window is full
+			if full_size // self.args.batch_size < 50:
+				suggested_bs = max(32, 2 ** int(np.log2(max(full_size // 50, 1))))
+				print(f"[WARNING] full window ~{full_size} examples -> {full_size // self.args.batch_size} steps/epoch with batch {self.args.batch_size}: suggest -b {suggested_bs}")
+
 			self.nnet.train(trainExamples)
 			self.arena_gate_step(i)
 
