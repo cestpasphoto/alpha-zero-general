@@ -2,14 +2,24 @@
 """
 checkpoint_tool.py -- read-only health check of ONE checkpoint file (.pt).
 
-  python checkpoint_tool.py [<game>] <ckpt.pt> [--complexity] [--onnx FILE]
+  python checkpoint_tool.py [<game>] <ckpt.pt> [--details] [--complexity] [--onnx FILE]
                             [--onnx-opset 21,20,19,18,17,native] [--diff] [--restore DIR]
                             [--args [main.py]]
 
 Run from the framework root (next to GameSwitcher.py and GenericNNetWrapper.py). One line is printed per
-test, as soon as it is done. Exit code: 0 no FAIL (WARN allowed), 2 FAIL or stopped run.
+test, as soon as it is done; only FAIL is tagged (the other lines are untagged, WARN included). No final
+status line. Exit code: 0 no FAIL (WARN allowed), 2 FAIL or stopped run.
 <game> is optional: it is read from the 'game' key (pass it for a converted file that has none, or to
 override a renamed game folder: a different name then gives a WARN).
+
+Two levels:
+  default     fast, only needs torch (no game code, no numba): load, attributes (nn_version, game, players,
+              input, actions, saved_at), provenance, state_dict (stored layout only). It does NOT say whether
+              the checkpoint matches the current code.
+  --details   everything below ('Tests, in this order'): loads the game code (numba compilation, can take
+              from seconds to a minute) and builds the network. --complexity and --onnx need the network
+              and therefore imply --details. --diff, --restore and --args only read the file and work at
+              both levels.
 The file is loaded with torch.load(weights_only=True): plain types and tensors only, no game code
 is needed to read it. An old-format file (pickled full_model) or the previous layout (board_size,
 nn_args... inside provenance) is refused: convert_checkpoint.py.
@@ -27,10 +37,11 @@ Keys (layout: see GenericNNetWrapper.py)                                     sta
   sources                    uint8 tensor = zlib(JSON {path: text}); absent -> WARN (not for converted files)
   any other root key         WARN
 
-Tests, in this order: load, attributes, provenance, weights NaN/Inf, code (same interface as the
-current game?), nn_version (constructible by the current code?), sources (stored vs current
+Tests, in this order (--details): load, attributes, provenance, weights NaN/Inf, code (same interface as
+the current game?), nn_version (constructible by the current code?), sources (stored vs current
 files), state_dict (layout of the net built from the CURRENT code with the STORED nn_args),
-forward (dummy + real positions), [--complexity], [--onnx].
+forward (dummy + real positions), [--complexity], [--onnx]. The default level stops after provenance
+and replaces the last state_dict test by a one-line summary of the stored tensors.
 
 "Does this checkpoint still match my code?" is answered by three independent layers:
   code        board_size / action_size / num_players recorded at save time vs the current game
@@ -107,8 +118,10 @@ class Stop(Exception):
 
 
 def say(name, status, detail=''):
+	"""One line per test. Only FAIL is tagged (OK/WARN/SKIP lines are indented the same way, without a tag);
+	all statuses are still recorded: the exit code depends on them."""
 	STATUSES.append(status)
-	print(f'  {status:4s}  {name}' + (f': {detail}' if detail else ''), flush=True)
+	print(f'  {"FAIL" if status == "FAIL" else "":4s}  {name}' + (f': {detail}' if detail else ''), flush=True)
 
 
 def short(e, n=160):
@@ -331,6 +344,13 @@ def check_weights(sd):
 
 
 # ----------------------------------------------------------------------------- state_dict / sources
+
+def describe_state_dict(sd):
+	"""Default level: what is STORED (no network is built, nothing is compared with the current code)."""
+	n = sum(t.numel() for t in sd.values())
+	mb = sum(t.numel() * t.element_size() for t in sd.values()) / 1e6
+	say('state_dict', 'OK', f'{len(sd)} tensors, {fmt_count(n)} values, {mb:.1f} MB (stored layout only)')
+
 
 def check_state_dict(module, sd, drifted):
 	net_sd = module.state_dict()
@@ -753,6 +773,12 @@ def verify(a, extra):
 	if A['prov']:
 		check_provenance(A)
 	sd = ckpt.get('state_dict')
+	if not a.details:                                            # default level: the file only, no game code, no numba
+		if a.game and A['game'] and a.game != A['game']:
+			say('game', 'WARN', f'checkpoint was saved by "{A["game"]}", you ask "{a.game}"')
+		if A['sd_ok']:
+			describe_state_dict(sd)
+		return
 	if A['sd_ok']:
 		check_weights(sd)
 
@@ -805,6 +831,9 @@ def main():
 	ap = argparse.ArgumentParser(description='Read-only verifier of one checkpoint file (.pt).')
 	ap.add_argument('game', nargs='?', default=None, help="game name (default: the file's 'game' key)")
 	ap.add_argument('checkpoint', help='explicit .pt file')
+	ap.add_argument('--details', action='store_true',
+	                help='also check the file against the CURRENT code (loads the game: numba compilation, slower); '
+	                     'implied by --complexity and --onnx')
 	ap.add_argument('--complexity', action='store_true', help='parameter count and FLOPs of one forward pass')
 	ap.add_argument('--onnx', default=None, metavar='FILE',
 	                help='export to this ONNX file after torch/ORT parity tests (nothing exported if absent)')
@@ -819,6 +848,7 @@ def main():
 		ap.error('give an explicit .pt file, not a directory')
 	if a.onnx and a.onnx.lower().endswith(('.pt', '.pth', '.tar')):
 		ap.error('--onnx must not look like a checkpoint file')
+	a.details = a.details or a.complexity or bool(a.onnx)         # these two need the network built from the current code
 
 	extra = {}
 	try:
@@ -840,11 +870,14 @@ def main():
 			say('internal', 'FAIL', f'--diff/--restore failed: {short(e)}')
 	if a.other_keys is not None:
 		print_other_keys(extra, a.other_keys)
-	elif extra:
-		print(f'\n{len(extra)} training arg(s) stored in the file, not shown (--args [main.py] to display those that differ from main.py)')
-	worst = 'FAIL' if 'FAIL' in STATUSES else 'WARN' if 'WARN' in STATUSES else 'OK'
-	print(f'\nSTATUS  {worst}')
-	sys.exit(2 if worst == 'FAIL' else 0)
+	elif extra and not a.details:
+		print(f'\n{len(extra)} training arg(s) stored in the file, not shown')
+	failed = 'FAIL' in STATUSES
+	if not a.details and CTX.get('loaded') and not failed:
+		print('\nNote: compatibility with the current code was NOT tested; --details does it (loads the game, so slower).\n'
+		      'Other options: --complexity (params, FLOPs) and --onnx FILE (export + parity tests), both imply --details;\n'
+		      '--args [main.py] shows the stored training args that differ from the defaults of main.py.')
+	sys.exit(2 if failed else 0)
 
 
 if __name__ == '__main__':
