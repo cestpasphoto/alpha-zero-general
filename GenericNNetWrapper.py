@@ -201,9 +201,12 @@ class GenericNNetWrapper(NeuralNet):
 			t.set_description(f'Train ep{epoch + 1}')
 			self.nnet.train()
 			pi_losses, v_losses = AverageMeter(), AverageMeter()
+			# One permutation per epoch: np.random.choice(replace=False) permutes the whole
+			# window at EVERY batch (O(N) per batch, O(N^2/b) per epoch), which dominated training time
+			permutation = np.random.permutation(len(examples))
 	
 			for i_batch in range(batch_count):
-				sample_ids = np.random.choice(len(examples), size=self.args['batch_size'], replace=False)
+				sample_ids = permutation[i_batch*self.args['batch_size']:(i_batch+1)*self.args['batch_size']]
 				boards, pis, vs, valid_actions, qs = self.pick_examples(examples, sample_ids)
 				boards = torch.FloatTensor(np.array(boards).astype(np.float32))
 				valid_actions = torch.BoolTensor(np.array(valid_actions).astype(np.bool_))
@@ -281,8 +284,12 @@ class GenericNNetWrapper(NeuralNet):
 		self.switch_target('inference')
 		locks[0].release()
 
-		while shared_memory[-1] <= 1:
+		while True:
 			locks[-1].acquire() # Wait for all inputs
+			if shared_memory[-2] == nb_threads: # All self-play threads finished their last episode
+				shared_memory[-1] = 2
+				locks[0].release()
+				break
 
 			ort_outs = self.ort_session.run(None, {
 				'board'        : np.concatenate([shared_memory[i][0] for i in range(nb_threads)]),

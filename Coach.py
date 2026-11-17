@@ -119,7 +119,9 @@ class Coach():
 			mcts_list = self.selfplay_mcts_list(my_game, first_mcts, batch_info_nnet)
 			self.examplesQueue.put(self.executeEpisode(my_game=my_game, mcts_list=mcts_list))
 
-		while shared_memory[-1] == 1: # We received signal 1, wait for other threads to complete
+		# This thread holds the token here, so updating the counter is race-free
+		shared_memory[-2] += 1
+		while shared_memory[-1] != 2:
 			locks[i_thread+1].release()
 			locks[i_thread].acquire()
 		locks[i_thread+1].release()
@@ -139,9 +141,9 @@ class Coach():
 					log.warning(f'saturation of elements in iterationTrainExamples, think about decreasing numEps or increasing maxlenOfQueue')
 					break
 		else:
-			# N slots for NN inputs, N slots for NN ouputs, 1 slot for signaling
-			# signal: 0 = compute, 1 = stop after current episode, 2 = stop
-			shared_memory = [None] * (2*self.nb_threads) + [0]
+			# N slots for NN inputs, N slots for NN ouputs, 1 slot for counting finished threads, 1 slot for signaling
+			# signal: 0 = compute, 1 = stop after current episode, 2 = stop (only set by server)
+			shared_memory = [None] * (2*self.nb_threads) + [0, 0]
 			# list of Locks: "0;n-1" are MCTSs and "n" is the batch NN processor
 			locks = [Lock() for _ in range(self.nb_threads+1)]
 
@@ -152,25 +154,26 @@ class Coach():
 			[t.start() for t in threads_list]
 
 			progress = tqdm(total=self.args.numEps, desc="Self Play", ncols=120, smoothing=0.1, disable=None)
-			nb_episodes, max_nb_episodes = 0, self.args.numEps
+			nb_episodes = 0
 			unique_openings = set()
-			while True:
+			all_done = False
+			while not all_done:
 				sleep(1)
+				all_done = not any(t.is_alive() for t in threads_list)
 				for _ in range(self.examplesQueue.qsize()):
 					episode_examples, opening = self.examplesQueue.get_nowait()
 					iterationTrainExamples += episode_examples
 					nb_episodes += 1
 					unique_openings.add(opening)
 					progress.update()
-				# Check if we have collected enough samples
-				if nb_episodes >= self.args.numEps - self.nb_threads:
-					if nb_episodes >= max_nb_episodes:
-						shared_memory[-1] = 2 # send signal 2 = all threads can be stopped
-						break
-					elif shared_memory[-1] == 0:
-						max_nb_episodes = nb_episodes + self.nb_threads
-						progress.total = max_nb_episodes
-						shared_memory[-1] = 1 # send signal 1 = threads can stop after their current episode
+				# Ask threads to stop after their current episode; server stops once all of them are done.
+				# Also stop when the queue is full: further episodes would only push out older examples
+				saturated = len(iterationTrainExamples) >= self.args.maxlenOfQueue
+				if shared_memory[-1] == 0 and (nb_episodes >= self.args.numEps - self.nb_threads or saturated):
+					if saturated:
+						log.warning(f'iterationTrainExamples full after {nb_episodes} episodes, stopping self-play of this iteration')
+					progress.total = nb_episodes + self.nb_threads
+					shared_memory[-1] = 1
 			[t.join() for t in threads_list]
 			progress.close()
 
@@ -251,8 +254,11 @@ class Coach():
 
 		arena = Arena(make_gate_player(self.nnet), make_gate_player(self.pnet), self.game)
 		nwins, pwins, draws = arena.playGames(self.args.arenaCompare)
+		accepted = pwins + nwins > 0 and float(nwins) / (pwins + nwins) >= self.args.updateThreshold
+		with open(os.path.join(self.args.checkpoint, 'arenas.csv'), 'a') as f:   # arena history (read by scenario.py)
+			f.write(f'{i},{nwins},{pwins},{draws},{int(accepted)}\n')
 
-		if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
+		if not accepted:
 			self.consecutive_failures += 1
 			log.info(f'Iter #{i} - new vs previous: {nwins}-{pwins}  ({draws} draws) --> REJECTED ({self.consecutive_failures})')
 			if self.consecutive_failures >= self.args.stop_after_N_fail and i < self.args.numIters:
