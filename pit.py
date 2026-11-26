@@ -17,6 +17,7 @@ any agent.
 """
 
 game = None
+_loaded = {}   # player_id -> (net, args stored in its checkpoint), for the network players of the current pit
 
 
 # Per-side EVAL overrides. --strict pins ONE profile on both players and refuses
@@ -94,6 +95,25 @@ def _mcts_player_factory(net, mcts_args, temp_for_game):
 	return make_player
 
 
+def _half_life(additional_keys):
+	"""temperature[3] stored in a checkpoint (self-play half-life of the temperature), 10 for older files."""
+	return abs((additional_keys.get('temperature', [])[3:4] or [10])[0])
+
+
+def _opening_sampler(net):
+	"""Opening move drawn from the raw policy of the net (no search), at temperature 1."""
+	hidden = hasattr(game, 'getObservation')
+
+	def sample(canonical_board, valids):
+		x = game.getObservation(canonical_board, 0) if hidden else canonical_board
+		pi, _ = net.predict(x, valids)
+		p = np.asarray(pi, dtype=np.float64) * np.asarray(valids, dtype=np.float64)
+		if p.sum() <= 0:
+			p = np.asarray(valids, dtype=np.float64)
+		return int(np.random.choice(len(p), p=p / p.sum()))
+	return sample
+
+
 def create_player(name, args, player_id):
 	global game
 	global NNet
@@ -123,6 +143,7 @@ def create_player(name, args, player_id):
 	net = NNet(game, nn_args)
 	cpt_dir, cpt_file = os.path.split(name)
 	additional_keys = net.load_checkpoint(cpt_dir, cpt_file).get('args', {})   # the Coach's args stored in the file
+	_loaded[player_id] = (net, additional_keys)
 
 	cpuct = additional_keys.get('cpuct')
 	cpuct = float(cpuct[0]) if isinstance(cpuct, list) else cpuct
@@ -248,7 +269,25 @@ def play(args):
 
 	print(players[0], 'vs', players[1])
 	# create_player also returns the resolved MCTS args (None for baselines)
+	_loaded.clear()
 	(player1, m1), (player2, m2) = create_player(players[0], args, 0), create_player(players[1], args, 1)
+	openings = None
+	if getattr(args, 'openings', False):
+		if len(_loaded) != 2:
+			raise SystemExit('[FATAL] --openings needs two network players')
+		if args.state:
+			raise SystemExit('[FATAL] --openings and --state are exclusive')
+		half_lives = [_half_life(_loaded[k][1]) for k in (0, 1)]
+		n_plies = max(1, int(half_lives[1]) // 2)
+		if half_lives[0] != half_lives[1]:
+			print(f'[WARNING] temperature half-lives differ (P1 {half_lives[0]}, P2 {half_lives[1]}): '
+			      f'opening length taken from P2')
+		if args.num_games % 4:
+			args.num_games += 4 - args.num_games % 4
+			print(f'[i] --openings plays games by 4 (2 openings x 2 seatings): n raised to {args.num_games}')
+		openings = (n_plies, _opening_sampler(_loaded[0][0]), _opening_sampler(_loaded[1][0]))
+		print(f'OPENINGS: {n_plies} plies (temperature[3] // 2 of P2) drawn from the raw policy of P1 and P2 in '
+		      f'turn, each opening played twice with the seats swapped')
 	if m1 is not None and m2 is not None and m1.numMCTSSims != m2.numMCTSSims:
 		print(f"[EVAL WARNING] sim-count mismatch: P1={m1.numMCTSSims} vs P2={m2.numMCTSSims}. "
 		      f"This pit measures search budget, not network strength. Pin -m for both.")
@@ -276,7 +315,7 @@ def play(args):
 		print(f'Decision rule (one-sided, draws=1/2): superiority iff score >= {thr:.3f} '
 		      f'({thr * args.num_games:.0f}/{args.num_games}), z >= 1.645')
 	human = 'human' in players
-	arena = Arena.Arena(player1, player2, game, display=game.printBoard)
+	arena = Arena.Arena(player1, player2, game, display=game.printBoard, openings=openings)
 	result = arena.playGames(args.num_games, initial_state=args.state, verbose=args.display or human)
 
 	if getattr(args, 'strict', False):
@@ -386,6 +425,7 @@ def main():
 	parser.add_argument('--fpu'                , '-f' , action='store', default=None, type=float, help='Value for FPU (first play urgency)')
 	parser.add_argument('--strict'             , '-S' , action='store_true', help='Decision-grade pit: pin the EVAL profile on BOTH players (no inheritance from checkpoints), require an explicit -m, PCR/FP/Dirichlet off, explicit eval temperature. Use this for every comparison meant to be decisional.')
 	parser.add_argument('--universes'          , '-u' , action='store', default=None, type=int  , choices=range(9), help='Override universes for both players (default: value stored in checkpoint). u<=1 = ONE fixed chance seed; u>=2 cycles u fixed seeds')
+	parser.add_argument('--openings'                  , action='store_true', help='Deterministic games with few distinct games: start each game after temperature[3]//2 plies drawn from the raw policy of P1 or P2 in turn, each opening played twice with seats swapped (n rounded up to a multiple of 4)')
 
 	# Per-side EVAL overrides, see _SIDE_KEYS
 	side = parser.add_argument_group('asymmetric pit (search-profile experiments)')

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train a game from scratch with a fixed, game-independent staged recipe (v3.6).
+"""Train a game from scratch with a fixed, game-independent staged recipe (v3.7).
 
 Every folder lives directly in <checkpoint>/ (flat layout, one main.py run per folder):
 
@@ -10,12 +10,15 @@ Every folder lives directly in <checkpoint>/ (flat layout, one main.py run per f
   2A_light,    m100, --games games per iteration, -q --q-light, one folder per block of --block iterations.
   2B_light...  After each block, pit (--pit-games games, m100) of the block end against the previous block end
                (or the boot net): next block while the score is >= --light-threshold, at most --light-blocks blocks.
-  3A_deep...   m800, --games games per iteration, -q --q-deep, -F (unless --no-F), same blocks: next block while
+  3A_deep...   m800, --games games per iteration, -q --q-deep, no forced playouts since v3.7 (--with-F to add -F:
+               -61 Elo on Azul 2p, equal on Akropolis 3p), same blocks: next block while
                the block-end pit (m800) is >= --deep-threshold, at most --deep-blocks blocks. Raising --deep-blocks
                with --resume extends a run that stopped on the block limit.
   4_anneal     optional (--until anneal, off by default since v3.6: kept in 1 run out of 9): one more training
                pass at a lower learning rate (--anneal-train) on the buffer of the final deep net, without
                self-play; kept only if its pit (m800) against that net is >= --anneal-threshold.
+
+--pit-openings passes --openings to every pit (deterministic games where pits replay few distinct games).
 
 The net kept at the end of light / deep is the last block end, unless its pit against the previous block end is
 below 0.5 (then the previous block end). The final net is copied to final.pt. One training config (--train,
@@ -28,8 +31,8 @@ Every decision is stored in <checkpoint>/scenario.json, so --resume continues wh
 Summary in <checkpoint>/scenario.tsv. Arena results come from the arenas.csv that Coach writes in each folder.
 
 Example:
-    ./scenario.py catan -V 13 -C ../results/v36_catan4 --no-F -- -u 2
-    ./scenario.py catan -V 13 -C ../results/v36_catan4 --resume --until anneal   (adds the final pass to a finished run)
+    ./scenario.py catan -V 13 -C ../results/v37_catan4 -- -u 2
+    ./scenario.py catan -V 13 -C ../results/v37_catan4 --resume --until anneal   (adds the final pass to a finished run)
 """
 import argparse
 import glob
@@ -45,7 +48,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-RECIPE = 'v3.6'
+RECIPE = 'v3.7'
 DEFAULT_TRAIN = '-b 32 -l 3e-3 -p 2'
 STAGES = ['boot', 'light', 'deep', 'anneal']
 STAGE_NUM = {'boot': 1, 'light': 2, 'deep': 3, 'anneal': 4}
@@ -247,6 +250,8 @@ def pit_score(args, player, reference, m, n_games, common):
 	u = option_value(common, '-u', '--universes')
 	if u is not None:
 		cmd += ['-u', u]
+	if args.pit_openings:
+		cmd += ['--openings']
 	say('$ ' + shlex.join(cmd))
 	proc = subprocess.Popen(cmd, cwd=HERE, stdout=subprocess.PIPE, text=True, bufsize=1,
 	                        env=dict(os.environ, PYTHONUNBUFFERED='1'))   # stderr inherited: live progress
@@ -537,7 +542,8 @@ def main():
 	parser.add_argument('--q-boot', type=float, default=0., help='-q of boot (value target = z only while the net is random)')
 	parser.add_argument('--q-light', type=float, default=1.0, help='-q of light')
 	parser.add_argument('--q-deep', type=float, default=1.0, help='-q of deep')
-	parser.add_argument('--no-F', action='store_true', help='no forced playouts in deep (hidden information games)')
+	parser.add_argument('--with-F', action='store_true', help='forced playouts + policy target pruning (-F) in deep (off since v3.7)')
+	parser.add_argument('--no-F', action='store_true', help='no forced playouts in deep: the default since v3.7, kept for old command lines')
 	parser.add_argument('--resume', action='store_true', help='skip what is already done, continue an interrupted stage')
 	g = parser.add_argument_group('boot (1_boot)')
 	g.add_argument('--boot-score', type=float, default=0.8, help='share of decisive arena games the new net must win')
@@ -548,6 +554,8 @@ def main():
 	g = parser.add_argument_group('blocks (light, deep)')
 	g.add_argument('--block', type=int, default=5, help='iterations per block')
 	g.add_argument('--pit-games', type=int, default=200, help='games of each block-end pit (and of the anneal pit)')
+	g.add_argument('--pit-openings', action='store_true',
+	               help='pits with drawn openings (pit.py --openings), for deterministic games such as abalone')
 	g.add_argument('--light-threshold', type=float, default=0.57, help='block-end score needed to stay in light')
 	g.add_argument('--light-blocks', type=int, default=6, help='maximum blocks in light')
 	g.add_argument('--deep-threshold', type=float, default=0.55, help='block-end score needed to go on in deep')
@@ -555,6 +563,9 @@ def main():
 	               help='maximum blocks in deep (raise it with --resume to extend a run stopped on this limit)')
 	args = parser.parse_args(argv)
 	args.train_deep = args.train_deep or args.train
+	if args.with_F and args.no_F:
+		raise SystemExit('[scenario] --with-F and --no-F are exclusive')
+	args.no_F = not args.with_F
 	args.until = args.until or ('anneal' if args.start_at == 'anneal' else 'deep')
 
 	bad = FORBIDDEN_COMMON.intersection(common)
